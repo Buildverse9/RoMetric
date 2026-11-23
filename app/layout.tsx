@@ -4,34 +4,97 @@ import { AppProvider } from '@/components/AppProvider';
 import { Navbar } from '@/components/Navbar';
 import { Footer } from '@/components/Footer';
 import { PageTransition } from '@/components/MotionPrimitives';
+import { GoogleAnalytics } from '@/components/GoogleAnalytics';
+
+const SITE_URL = 'https://rometrics.vercel.app';
+const GOOGLE_VERIFICATION = (
+  process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION || ''
+).trim();
 
 export const metadata: Metadata = {
-  metadataBase: new URL('https://rometrics.vercel.app'),
+  metadataBase: new URL(SITE_URL),
   title: {
-    default: 'RoMetric — Roblox Analytics',
+    default: 'RoMetric — Live Roblox Game Analytics, Rankings & Codes',
     template: '%s | RoMetric',
   },
   description:
-    'Live Roblox game analytics, player rankings, breakout games, estimated revenue, and historical charts.',
+    'Track live Roblox player counts (CCU), game rankings, breakout hits, estimated Robux revenue, historical charts, and verified Roblox game codes on RoMetric.',
+  keywords: [
+    'Roblox analytics',
+    'Roblox live player count',
+    'Roblox CCU tracker',
+    'Roblox game rankings',
+    'Roblox game codes',
+    'Roblox active codes',
+    'Roblox game revenue estimator',
+  ],
+  alternates: {
+    canonical: '/',
+  },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      'max-image-preview': 'large',
+      'max-snippet': -1,
+    },
+  },
+  verification: GOOGLE_VERIFICATION
+    ? { google: GOOGLE_VERIFICATION }
+    : undefined,
   icons: {
     icon: '/assets/aistudio/logoofrometric_7c92ca67.png',
     shortcut: '/assets/aistudio/logoofrometric_7c92ca67.png',
     apple: '/assets/aistudio/logoofrometric_7c92ca67.png',
   },
   openGraph: {
-    title: 'RoMetric — Roblox Analytics',
+    title: 'RoMetric — Live Roblox Game Analytics, Rankings & Codes',
     description:
-      'Track live Roblox player counts, breakout games, estimated revenue, rankings, and historical trends.',
+      'Track live Roblox player counts, breakout games, estimated revenue, rankings, historical trends, and verified game codes.',
+    url: SITE_URL,
+    siteName: 'RoMetric',
     type: 'website',
     images: ['/assets/aistudio/logowithName_50295ff0.png'],
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'RoMetric — Roblox Analytics',
+    title: 'RoMetric — Live Roblox Game Analytics, Rankings & Codes',
     description:
-      'Live Roblox game analytics, player rankings, breakout games, estimated revenue, and historical charts.',
+      'Live Roblox game analytics, player rankings, breakout games, estimated revenue, historical charts, and active Roblox game codes.',
     images: ['/assets/aistudio/logowithName_50295ff0.png'],
   },
+};
+
+const SITE_STRUCTURED_DATA = {
+  '@context': 'https://schema.org',
+  '@graph': [
+    {
+      '@type': 'WebSite',
+      name: 'RoMetric',
+      url: SITE_URL,
+      description:
+        'Live Roblox game analytics, CCU rankings, breakout games, and automated Roblox game codes database.',
+      potentialAction: {
+        '@type': 'SearchAction',
+        target: `${SITE_URL}/codes?q={search_term_string}`,
+        'query-input': 'required name=search_term_string',
+      },
+    },
+    {
+      '@type': 'WebApplication',
+      name: 'RoMetric',
+      url: SITE_URL,
+      applicationCategory: 'GameApplication',
+      operatingSystem: 'All',
+      offers: {
+        '@type': 'Offer',
+        price: '0',
+        priceCurrency: 'USD',
+      },
+    },
+  ],
 };
 
 const THEME_INIT_SCRIPT = `
@@ -61,6 +124,12 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify(SITE_STRUCTURED_DATA).replace(/</g, '\\u003c'),
+          }}
+        />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link
           rel="preconnect"
@@ -76,6 +145,7 @@ export default function RootLayout({
         suppressHydrationWarning
         className="min-h-screen flex flex-col text-slate-900 dark:text-[#F1F7FA] selection:bg-emerald-500/25 selection:text-emerald-950 dark:selection:text-white transition-colors duration-200 pb-20 md:pb-0"
       >
+        <GoogleAnalytics />
         <AppProvider>
           <Navbar />
           <main className="flex-1 w-full">
