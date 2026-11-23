@@ -309,29 +309,145 @@ export function isValidTrackingTier(value: unknown): value is TrackingTier {
   return value === 'tier_1' || value === 'tier_2' || value === 'tier_3';
 }
 
-export async function fetchSupabaseGamesList(): Promise<GameRecordData[]> {
-  const res = await supabaseRest(
-    'games?select=*&order=current_ccu.desc&limit=500'
+function computeWindowGrowth(
+  currentCcu: number,
+  points: Array<{ ts: number; ccu: number }>,
+  windowMs: number,
+  toleranceMs: number
+): number | null {
+  if (points.length < 2) return null;
+  const nowTs = points[points.length - 1].ts;
+  const targetTs = nowTs - windowMs;
+  let best: { ts: number; ccu: number } | null = null;
+  let bestDiff = Number.MAX_SAFE_INTEGER;
+
+  for (const pt of points) {
+    if (pt.ts >= nowTs - 60_000) continue;
+    const diff = Math.abs(pt.ts - targetTs);
+    if (diff <= toleranceMs && diff < bestDiff) {
+      best = pt;
+      bestDiff = diff;
+    }
+  }
+
+  if (!best || best.ccu <= 0) return null;
+  return Number((((currentCcu - best.ccu) / best.ccu) * 100).toFixed(1));
+}
+
+function computeDerivedGrowth(
+  currentCcu: number,
+  points: Array<{ ts: number; ccu: number }>
+): { growth1h: number | null; growth24h: number | null } {
+  if (points.length < 2) {
+    return { growth1h: null, growth24h: null };
+  }
+  const latestTs = points[points.length - 1].ts;
+  const growth1h =
+    computeWindowGrowth(currentCcu, points, 60 * 60 * 1000, 55 * 60 * 1000) ??
+    (latestTs - points[0].ts >= 60_000 && points[0].ccu > 0
+      ? Number((((currentCcu - points[0].ccu) / points[0].ccu) * 100).toFixed(1))
+      : null);
+  const growth24h = computeWindowGrowth(
+    currentCcu,
+    points,
+    24 * 60 * 60 * 1000,
+    4 * 60 * 60 * 1000
   );
+  return { growth1h, growth24h };
+}
+
+async function fetchRecentSnapshotsByGame(
+  universeId?: string
+): Promise<Map<string, Array<{ ts: number; ccu: number }>>> {
+  const cutoffIso = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+  const filter = universeId
+    ? `universe_id=eq.${encodeURIComponent(universeId)}&`
+    : '';
+  const res = await supabaseRest(
+    `game_snapshots?select=universe_id,ccu,captured_at&${filter}captured_at=gte.${encodeURIComponent(
+      cutoffIso
+    )}&order=captured_at.desc&limit=1000`
+  );
+  const byGame = new Map<string, Array<{ ts: number; ccu: number }>>();
+  if (!res.ok) return byGame;
+
+  const snapRows = (await res.json()) as Array<{
+    universe_id: number;
+    ccu: number;
+    captured_at: string;
+  }>;
+  for (const s of snapRows) {
+    const id = String(s.universe_id);
+    const ts = new Date(s.captured_at).getTime();
+    if (!Number.isFinite(ts)) continue;
+    const list = byGame.get(id) ?? [];
+    list.push({ ts, ccu: Number(s.ccu ?? 0) });
+    byGame.set(id, list);
+  }
+  for (const list of byGame.values()) {
+    list.sort((a, b) => a.ts - b.ts);
+  }
+  return byGame;
+}
+
+export async function fetchSupabaseGamesList(): Promise<GameRecordData[]> {
+  const [res, snapsByGame] = await Promise.all([
+    supabaseRest('games?select=*&order=current_ccu.desc&limit=500'),
+    fetchRecentSnapshotsByGame().catch(
+      () => new Map<string, Array<{ ts: number; ccu: number }>>()
+    ),
+  ]);
   if (!res.ok) {
     throw new Error(`Supabase games query failed (HTTP ${res.status})`);
   }
   const rows = (await res.json()) as SupabaseGameRow[];
-  return rows.map(mapSupabaseRowToGame);
+  return rows.map((row) => {
+    const game = mapSupabaseRowToGame(row);
+    const pts = snapsByGame.get(game.universeId) ?? [];
+    game.snapshotCount = pts.length;
+    if (pts.length >= 2) {
+      const derived = computeDerivedGrowth(game.currentCcu, pts);
+      if (game.growth1h === null || game.growth1h === undefined) {
+        game.growth1h = derived.growth1h;
+      }
+      if (game.growth24h === null || game.growth24h === undefined) {
+        game.growth24h = derived.growth24h;
+      }
+    }
+    return game;
+  });
 }
 
 export async function fetchSupabaseGameById(
   universeId: string
 ): Promise<GameRecordData | null> {
   if (!isValidNumericId(universeId)) return null;
-  const res = await supabaseRest(
-    `games?select=*&universe_id=eq.${encodeURIComponent(universeId)}&limit=1`
-  );
+  const [res, snapsByGame] = await Promise.all([
+    supabaseRest(
+      `games?select=*&universe_id=eq.${encodeURIComponent(universeId)}&limit=1`
+    ),
+    fetchRecentSnapshotsByGame(universeId).catch(
+      () => new Map<string, Array<{ ts: number; ccu: number }>>()
+    ),
+  ]);
   if (!res.ok) {
     throw new Error(`Supabase game query failed (HTTP ${res.status})`);
   }
   const rows = (await res.json()) as SupabaseGameRow[];
-  return rows[0] ? mapSupabaseRowToGame(rows[0]) : null;
+  if (!rows[0]) return null;
+  const game = mapSupabaseRowToGame(rows[0]);
+  const pts = snapsByGame.get(game.universeId) ?? [];
+  game.snapshotCount = pts.length;
+  if (pts.length >= 2) {
+    const derived = computeDerivedGrowth(game.currentCcu, pts);
+    if (game.growth1h === null || game.growth1h === undefined) {
+      game.growth1h = derived.growth1h;
+    }
+    if (game.growth24h === null || game.growth24h === undefined) {
+      game.growth24h = derived.growth24h;
+    }
+  }
+  return game;
 }
 
 export async function fetchSupabaseGameHistory(
@@ -628,7 +744,12 @@ export async function runSupabaseCollectionCycle(options: {
   }
 
   const targetIds = Array.from(targetMap.keys()).slice(0, 120);
-  const fetchRes = await fetchLiveRobloxGames(targetIds, true);
+  const [fetchRes, snapsByGame] = await Promise.all([
+    fetchLiveRobloxGames(targetIds, true),
+    fetchRecentSnapshotsByGame().catch(
+      () => new Map<string, Array<{ ts: number; ccu: number }>>()
+    ),
+  ]);
   const capturedAt = fetchRes.capturedAt;
   const capturedMs = new Date(capturedAt).getTime();
   const capturedMinute = Math.floor(capturedMs / 60_000);
@@ -642,6 +763,11 @@ export async function runSupabaseCollectionCycle(options: {
     const prev = existingMap.get(payload.universeId) ?? null;
     const prevPeak = prev?.peakCcuObserved ?? 0;
     const isNewPeak = payload.currentCcu >= prevPeak;
+    const historyPts = [
+      ...(snapsByGame.get(payload.universeId) ?? []),
+      { ts: capturedMs, ccu: payload.currentCcu },
+    ].sort((a, b) => a.ts - b.ts);
+    const derived = computeDerivedGrowth(payload.currentCcu, historyPts);
 
     gameRows.push({
       universe_id: Number(payload.universeId),
@@ -662,6 +788,8 @@ export async function runSupabaseCollectionCycle(options: {
       up_votes: payload.upVotes,
       down_votes: payload.downVotes,
       like_ratio: payload.likeRatio,
+      growth_1h: derived.growth1h,
+      growth_24h: derived.growth24h,
       peak_ccu_observed: isNewPeak ? payload.currentCcu : prevPeak,
       peak_ccu_at: isNewPeak ? capturedAt : prev?.peakCcuAt ?? capturedAt,
       tracking_tier: targetMap.get(payload.universeId) ?? 'tier_2',

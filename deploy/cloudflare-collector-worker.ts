@@ -24,7 +24,14 @@ interface WorkerExecutionContext {
 
 interface DbGameRow {
   universe_id: number;
+  root_place_id: number;
+  name: string;
+  slug: string;
+  creator_id: number;
+  creator_name: string;
+  creator_type: 'User' | 'Group';
   peak_ccu_observed: number;
+  peak_ccu_at: string | null;
 }
 
 interface RobloxGameItem {
@@ -35,6 +42,12 @@ interface RobloxGameItem {
   visits: number;
   favoritedCount: number;
   updated?: string;
+  creator?: {
+    id?: number;
+    name?: string;
+    type?: string;
+    hasVerifiedBadge?: boolean;
+  };
 }
 
 interface RobloxVoteItem {
@@ -45,6 +58,32 @@ interface RobloxVoteItem {
 
 const MAX_GAMES_PER_RUN = 350; // Keeps total subrequests well below Cloudflare Free's 50-fetch cap
 const ROBLOX_BATCH = 50;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchRobloxWith429Retry(
+  url: string,
+  counters: { apiRequests: number; http429Count: number }
+): Promise<Response> {
+  counters.apiRequests += 1;
+  let res = await fetch(url, {
+    headers: { Accept: 'application/json', 'User-Agent': 'RoMetricWorker/1.0' },
+  });
+  if (res.status === 429) {
+    counters.http429Count += 1;
+    await sleep(1200);
+    counters.apiRequests += 1;
+    res = await fetch(url, {
+      headers: { Accept: 'application/json', 'User-Agent': 'RoMetricWorker/1.0' },
+    });
+    if (res.status === 429) {
+      counters.http429Count += 1;
+    }
+  }
+  return res;
+}
 
 async function supabaseFetch(
   env: CollectorEnv,
@@ -80,14 +119,13 @@ async function runTierBatch(
 ): Promise<void> {
   const startedAt = new Date().toISOString();
   const startedMs = Date.now();
-  let apiRequests = 0;
-  let http429Count = 0;
+  const counters = { apiRequests: 0, http429Count: 0 };
   const errors: string[] = [];
 
-  // Select stalest active games for this tier (cursor-less oldest-first rotation)
+  // Select stalest active games for this tier, including required NOT NULL columns
   const selectRes = await supabaseFetch(
     env,
-    `games?select=universe_id,peak_ccu_observed&active=eq.true&tracking_tier=eq.${tier}&order=last_collected_at.asc&limit=${MAX_GAMES_PER_RUN}`
+    `games?select=universe_id,root_place_id,name,slug,creator_id,creator_name,creator_type,peak_ccu_observed,peak_ccu_at&active=eq.true&tracking_tier=eq.${tier}&order=last_collected_at.asc&limit=${MAX_GAMES_PER_RUN}`
   );
   if (!selectRes.ok) {
     const body = await selectRes.text();
@@ -96,29 +134,28 @@ async function runTierBatch(
   const rows = (await selectRes.json()) as DbGameRow[];
   if (rows.length === 0) return;
 
-  const peakMap = new Map(rows.map((r) => [r.universe_id, r.peak_ccu_observed]));
+  const existingMap = new Map(rows.map((r) => [r.universe_id, r]));
   const ids = rows.map((r) => r.universe_id);
   const nowIso = new Date().toISOString();
   const capturedMinute = Math.floor(Date.now() / 60_000);
 
   const snapshotsToInsert: Array<Record<string, unknown>> = [];
   const gamesToPatch: Array<Record<string, unknown>> = [];
+  const peaksToUpsert: Array<Record<string, unknown>> = [];
 
   for (let i = 0; i < ids.length; i += ROBLOX_BATCH) {
     const chunk = ids.slice(i, i + ROBLOX_BATCH).join(',');
 
-    apiRequests += 2;
     const [gamesRes, votesRes] = await Promise.all([
-      fetch(`https://games.roblox.com/v1/games?universeIds=${chunk}`, {
-        headers: { Accept: 'application/json', 'User-Agent': 'RoMetricWorker/1.0' },
-      }),
-      fetch(`https://games.roblox.com/v1/games/votes?universeIds=${chunk}`, {
-        headers: { Accept: 'application/json', 'User-Agent': 'RoMetricWorker/1.0' },
-      }),
+      fetchRobloxWith429Retry(
+        `https://games.roblox.com/v1/games?universeIds=${chunk}`,
+        counters
+      ),
+      fetchRobloxWith429Retry(
+        `https://games.roblox.com/v1/games/votes?universeIds=${chunk}`,
+        counters
+      ),
     ]);
-
-    if (gamesRes.status === 429) http429Count += 1;
-    if (votesRes.status === 429) http429Count += 1;
 
     if (!gamesRes.ok) {
       errors.push(`games API HTTP ${gamesRes.status}`);
@@ -132,6 +169,9 @@ async function runTierBatch(
     const voteMap = new Map((votesJson.data || []).map((v) => [v.id, v]));
 
     for (const g of gamesJson.data || []) {
+      const existing = existingMap.get(g.id);
+      if (!existing) continue;
+
       const vote = voteMap.get(g.id);
       const up = vote ? vote.upVotes : null;
       const down = vote ? vote.downVotes : null;
@@ -140,12 +180,21 @@ async function runTierBatch(
           ? Number(((up / (up + down)) * 100).toFixed(2))
           : null;
 
-      const prevPeak = peakMap.get(g.id) ?? 0;
-      const isPeak = g.playing >= prevPeak;
+      const ccu = Math.max(0, g.playing || 0);
+      const prevPeak = existing.peak_ccu_observed ?? 0;
+      const isPeak = ccu >= prevPeak;
+      const peakCcu = isPeak ? ccu : prevPeak;
+      const peakCcuAt = isPeak ? nowIso : (existing.peak_ccu_at ?? nowIso);
+      const creatorType: 'User' | 'Group' =
+        g.creator?.type === 'User'
+          ? 'User'
+          : g.creator?.type === 'Group'
+            ? 'Group'
+            : existing.creator_type;
 
       snapshotsToInsert.push({
         universe_id: g.id,
-        ccu: Math.max(0, g.playing || 0),
+        ccu,
         visits: Math.max(0, g.visits || 0),
         favorites: Math.max(0, g.favoritedCount || 0),
         up_votes: up,
@@ -156,22 +205,38 @@ async function runTierBatch(
         collection_status: vote ? 'observed' : 'partial',
       });
 
+      // Every object in a PostgREST bulk upsert MUST have identical keys (prevents PGRST102)
+      // and include all NOT NULL columns without defaults (prevents 23502).
       gamesToPatch.push({
         universe_id: g.id,
-        root_place_id: g.rootPlaceId || g.id,
-        name: g.name,
-        current_ccu: Math.max(0, g.playing || 0),
+        root_place_id: g.rootPlaceId || existing.root_place_id || g.id,
+        name: g.name || existing.name,
+        slug: existing.slug,
+        creator_id: g.creator?.id ?? existing.creator_id,
+        creator_name: g.creator?.name || existing.creator_name,
+        creator_type: creatorType,
+        current_ccu: ccu,
         total_visits: Math.max(0, g.visits || 0),
         favorites: Math.max(0, g.favoritedCount || 0),
         up_votes: up,
         down_votes: down,
         like_ratio: likeRatio,
-        peak_ccu_observed: isPeak ? g.playing : prevPeak,
-        ...(isPeak ? { peak_ccu_at: nowIso } : {}),
+        peak_ccu_observed: peakCcu,
+        peak_ccu_at: peakCcuAt,
         collection_status: vote ? 'observed' : 'partial',
         last_collected_at: nowIso,
         updated_at: nowIso,
       });
+
+      if (isPeak) {
+        peaksToUpsert.push({
+          universe_id: g.id,
+          highest_observed_ccu: peakCcu,
+          highest_observed_at: peakCcuAt,
+          provenance: 'observed_peak',
+          updated_at: nowIso,
+        });
+      }
     }
   }
 
@@ -199,6 +264,18 @@ async function runTierBatch(
       const body = await gamesPatchRes.text();
       errors.push(`games write HTTP ${gamesPatchRes.status}: ${body.slice(0, 180)}`);
     }
+
+    if (peaksToUpsert.length > 0) {
+      const peakRes = await supabaseFetch(env, 'game_records?on_conflict=universe_id', {
+        method: 'POST',
+        headers: { Prefer: 'resolution=merge-duplicates' },
+        body: JSON.stringify(peaksToUpsert),
+      });
+      if (!peakRes.ok) {
+        const body = await peakRes.text();
+        errors.push(`peaks write HTTP ${peakRes.status}: ${body.slice(0, 180)}`);
+      }
+    }
   }
 
   const jobRes = await supabaseFetch(env, 'collection_jobs', {
@@ -212,8 +289,8 @@ async function runTierBatch(
       games_attempted: ids.length,
       games_succeeded: snapshotsToInsert.length,
       games_failed: Math.max(0, ids.length - snapshotsToInsert.length),
-      api_requests: apiRequests,
-      http_429_count: http429Count,
+      api_requests: counters.apiRequests,
+      http_429_count: counters.http429Count,
       status:
         snapshotsToInsert.length === 0
           ? 'failed'

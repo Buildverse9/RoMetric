@@ -35,23 +35,33 @@ export async function GET(req: NextRequest) {
       supabaseRest('collection_jobs?select=*&order=started_at.desc&limit=25', {
         requireAdminKey: true,
       }),
-      supabaseRest('game_snapshots?select=id&limit=2500', {
+      supabaseRest('game_snapshots?select=id&limit=1', {
         requireAdminKey: true,
+        headers: { Prefer: 'count=exact' },
       }),
     ]);
 
     const jobRows: SupabaseJobRow[] = jobsRes.ok
       ? ((await jobsRes.json()) as SupabaseJobRow[])
       : [];
-    const snapRows: Array<{ id: number }> = snapsRes.ok
-      ? ((await snapsRes.json()) as Array<{ id: number }>)
-      : [];
+
+    let snapshotCount = 0;
+    if (snapsRes.ok) {
+      const contentRange = snapsRes.headers.get('content-range');
+      const totalMatch = contentRange?.match(/\/(\d+)$/);
+      if (totalMatch) {
+        snapshotCount = Number(totalMatch[1]);
+      } else {
+        const snapRows = (await snapsRes.json()) as Array<{ id: number }>;
+        snapshotCount = snapRows.length;
+      }
+    }
 
     return NextResponse.json(
       {
         configured: true,
         jobs: jobRows.map(mapSupabaseJobRow),
-        snapshotCount: snapRows.length,
+        snapshotCount,
       },
       { status: 200, headers: { 'Cache-Control': 'no-store' } }
     );
