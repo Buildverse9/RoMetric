@@ -38,11 +38,8 @@ interface GameTableProps {
 export function GrowthValue({ value }: { value: number | null | undefined }) {
   if (value === null || value === undefined || Number.isNaN(value)) {
     return (
-      <span
-        title="Requires historical snapshots spanning this time window"
-        className="text-xs text-[#6E8492] tabular-nums"
-      >
-        N/A
+      <span className="text-xs text-slate-400 dark:text-[#6F8796] tabular-nums">
+        —
       </span>
     );
   }
@@ -50,12 +47,12 @@ export function GrowthValue({ value }: { value: number | null | undefined }) {
   const negative = value < 0;
   return (
     <span
-      className={`inline-flex items-center gap-0.5 text-sm font-medium tabular-nums ${
+      className={`inline-flex items-center gap-0.5 text-sm font-semibold tabular-nums ${
         positive
-          ? 'text-[#48D597]'
+          ? 'text-emerald-600 dark:text-[#10E89A]'
           : negative
-            ? 'text-rose-400'
-            : 'text-[#9BB0BD]'
+            ? 'text-rose-600 dark:text-rose-400'
+            : 'text-slate-500 dark:text-[#9CB3C0]'
       }`}
     >
       {positive && <ArrowUp className="w-3.5 h-3.5" />}
@@ -70,7 +67,7 @@ export function GameTable({
   defaultSort = 'currentCcu',
   pageSize = 15,
   loading = false,
-  emptyMessage = 'No games match the current filters.',
+  emptyMessage = 'No games found.',
 }: GameTableProps) {
   const [sortField, setSortField] = useState<SortField>(defaultSort);
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
@@ -108,25 +105,24 @@ export function GameTable({
 
   if (loading) {
     return (
-      <div className="bg-[#1C2A32] border border-[#263844] rounded-xl overflow-hidden">
-        <div className="divide-y divide-[#263844]/70">
+      <div className="liquid-glass rounded-3xl overflow-hidden">
+        <div className="divide-y divide-slate-900/6 dark:divide-white/8">
           {Array.from({ length: 8 }).map((_, idx) => (
             <div
               key={idx}
-              className="px-4 py-3.5 flex items-center justify-between gap-4 animate-pulse"
+              className="px-5 py-4 flex items-center justify-between gap-4 animate-pulse"
             >
-              <div className="flex items-center gap-3">
-                <div className="w-6 h-4 bg-[#263844] rounded" />
-                <div className="w-10 h-10 bg-[#263844] rounded-lg" />
+              <div className="flex items-center gap-3.5">
+                <div className="w-6 h-4 bg-slate-900/10 dark:bg-white/10 rounded" />
+                <div className="w-10 h-10 bg-slate-900/10 dark:bg-white/10 rounded-xl" />
                 <div className="space-y-1.5">
-                  <div className="w-40 h-4 bg-[#263844] rounded" />
-                  <div className="w-28 h-3 bg-[#263844]/70 rounded" />
+                  <div className="w-40 h-4 bg-slate-900/10 dark:bg-white/10 rounded" />
+                  <div className="w-24 h-3 bg-slate-900/6 dark:bg-white/6 rounded" />
                 </div>
               </div>
               <div className="flex items-center gap-6">
-                <div className="w-16 h-4 bg-[#263844] rounded" />
-                <div className="hidden sm:block w-16 h-4 bg-[#263844] rounded" />
-                <div className="hidden md:block w-16 h-4 bg-[#263844] rounded" />
+                <div className="w-16 h-4 bg-slate-900/10 dark:bg-white/10 rounded" />
+                <div className="hidden sm:block w-16 h-4 bg-slate-900/10 dark:bg-white/10 rounded" />
               </div>
             </div>
           ))}
@@ -137,8 +133,10 @@ export function GameTable({
 
   if (sorted.length === 0) {
     return (
-      <div className="bg-[#1C2A32] border border-[#263844] rounded-xl p-12 text-center">
-        <p className="text-sm text-[#9BB0BD]">{emptyMessage}</p>
+      <div className="liquid-glass rounded-3xl p-12 text-center">
+        <p className="text-sm text-slate-600 dark:text-[#9CB3C0]">
+          {emptyMessage}
+        </p>
       </div>
     );
   }
@@ -150,7 +148,9 @@ export function GameTable({
         type="button"
         onClick={() => handleSort(field)}
         className={`inline-flex items-center justify-end gap-1 text-xs font-medium whitespace-nowrap cursor-pointer transition-colors ${
-          active ? 'text-[#48D597]' : 'text-[#9BB0BD] hover:text-[#E8EEF2]'
+          active
+            ? 'text-emerald-600 dark:text-[#10E89A]'
+            : 'text-slate-500 dark:text-[#9CB3C0] hover:text-slate-900 dark:hover:text-white'
         }`}
       >
         <span>{label}</span>
@@ -161,59 +161,59 @@ export function GameTable({
             <ArrowUp className="w-3.5 h-3.5" />
           )
         ) : (
-          <ArrowUpDown className="w-3 h-3 opacity-60" />
+          <ArrowUpDown className="w-3 h-3 opacity-50" />
         )}
       </button>
     );
   };
 
   return (
-    <div className="bg-[#1C2A32] border border-[#263844] rounded-xl overflow-hidden">
+    <div className="liquid-glass rounded-3xl overflow-hidden">
       <div className="overflow-x-auto">
         <table className="w-full text-left border-collapse">
           <thead>
-            <tr className="border-b border-[#263844] bg-[#162229]">
-              <th className="py-3 pl-4 pr-2 text-xs font-medium text-[#6E8492] w-12">
+            <tr className="border-b border-slate-900/8 dark:border-white/10 bg-black/[0.02] dark:bg-white/[0.03]">
+              <th className="py-3.5 pl-5 pr-2 text-xs font-medium text-slate-500 dark:text-[#6F8796] w-12">
                 #
               </th>
-              <th className="py-3 px-3 text-xs font-medium text-[#9BB0BD] min-w-[240px]">
-                Experience
+              <th className="py-3.5 px-3 text-xs font-medium text-slate-500 dark:text-[#9CB3C0] min-w-[240px]">
+                Game
               </th>
-              <th className="py-3 px-3 text-right">
-                {renderSortHeader('Live CCU', 'currentCcu')}
+              <th className="py-3.5 px-3 text-right">
+                {renderSortHeader('Players', 'currentCcu')}
               </th>
-              <th className="py-3 px-3 text-right">
-                {renderSortHeader('24h Growth', 'growth24h')}
+              <th className="py-3.5 px-3 text-right">
+                {renderSortHeader('24h', 'growth24h')}
               </th>
-              <th className="py-3 px-3 text-right hidden lg:table-cell">
-                {renderSortHeader('7d Growth', 'growth7d')}
+              <th className="py-3.5 px-3 text-right hidden lg:table-cell">
+                {renderSortHeader('7d', 'growth7d')}
               </th>
-              <th className="py-3 px-3 text-right hidden sm:table-cell">
-                {renderSortHeader('Total Visits', 'totalVisits')}
+              <th className="py-3.5 px-3 text-right hidden sm:table-cell">
+                {renderSortHeader('Visits', 'totalVisits')}
               </th>
-              <th className="py-3 px-3 text-right hidden md:table-cell">
-                {renderSortHeader('Like Ratio', 'likeRatio')}
+              <th className="py-3.5 px-3 text-right hidden md:table-cell">
+                {renderSortHeader('Rating', 'likeRatio')}
               </th>
-              <th className="py-3 px-3 text-right hidden xl:table-cell">
-                {renderSortHeader('Observed Peak', 'peakCcuObserved')}
+              <th className="py-3.5 px-3 text-right hidden xl:table-cell">
+                {renderSortHeader('Peak', 'peakCcuObserved')}
               </th>
-              <th className="py-3 pl-3 pr-4 text-right text-xs font-medium text-[#6E8492] hidden xl:table-cell">
+              <th className="py-3.5 pl-3 pr-5 text-right text-xs font-medium text-slate-500 dark:text-[#6F8796] hidden xl:table-cell">
                 Updated
               </th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-[#263844]/60">
+          <tbody className="divide-y divide-slate-900/6 dark:divide-white/8">
             {pageItems.map((game, idx) => {
               const rank = (safePage - 1) * pageSize + idx + 1;
               return (
                 <tr
                   key={game.universeId}
-                  className="hover:bg-[#22333D]/70 transition-colors"
+                  className="hover:bg-black/[0.03] dark:hover:bg-white/[0.04] transition-colors"
                 >
-                  <td className="py-3 pl-4 pr-2 text-sm text-[#6E8492] tabular-nums font-medium">
+                  <td className="py-3.5 pl-5 pr-2 text-sm text-slate-500 dark:text-[#6F8796] tabular-nums font-medium">
                     {rank}
                   </td>
-                  <td className="py-3 px-3">
+                  <td className="py-3.5 px-3">
                     <div className="flex items-center gap-3 min-w-0">
                       <Link
                         href={`/games/${game.universeId}`}
@@ -229,22 +229,22 @@ export function GameTable({
                         <div className="flex items-center gap-2">
                           <Link
                             href={`/games/${game.universeId}`}
-                            className="text-sm font-semibold text-[#E8EEF2] hover:text-[#48D597] transition-colors truncate max-w-[220px] sm:max-w-[280px]"
+                            className="text-sm font-semibold text-slate-900 dark:text-[#F1F7FA] hover:text-emerald-600 dark:hover:text-[#10E89A] transition-colors truncate max-w-[220px] sm:max-w-[280px]"
                           >
                             {game.name}
                           </Link>
                           <Link
                             href={`/compare?ids=${game.universeId}`}
-                            title="Compare this game"
-                            className="text-[#6E8492] hover:text-[#48D597] transition-colors shrink-0"
+                            title="Compare"
+                            className="text-slate-400 dark:text-[#6F8796] hover:text-emerald-600 dark:hover:text-[#10E89A] transition-colors shrink-0"
                           >
                             <GitCompare className="w-3.5 h-3.5" />
                           </Link>
                         </div>
-                        <p className="text-xs text-[#6E8492] truncate">
+                        <p className="text-xs text-slate-500 dark:text-[#6F8796] truncate">
                           <Link
                             href={`/developers/${game.creatorId}`}
-                            className="hover:text-[#9BB0BD] transition-colors"
+                            className="hover:text-slate-900 dark:hover:text-[#9CB3C0] transition-colors"
                           >
                             {game.creatorName}
                           </Link>
@@ -254,27 +254,27 @@ export function GameTable({
                       </div>
                     </div>
                   </td>
-                  <td className="py-3 px-3 text-right text-sm font-semibold text-[#E8EEF2] tabular-nums">
+                  <td className="py-3.5 px-3 text-right text-sm font-semibold text-slate-900 dark:text-[#F1F7FA] tabular-nums">
                     {formatCompactNumber(game.currentCcu)}
                   </td>
-                  <td className="py-3 px-3 text-right">
+                  <td className="py-3.5 px-3 text-right">
                     <GrowthValue value={game.growth24h ?? game.growth1h} />
                   </td>
-                  <td className="py-3 px-3 text-right hidden lg:table-cell">
+                  <td className="py-3.5 px-3 text-right hidden lg:table-cell">
                     <GrowthValue value={game.growth7d} />
                   </td>
-                  <td className="py-3 px-3 text-right text-sm text-[#9BB0BD] tabular-nums hidden sm:table-cell">
+                  <td className="py-3.5 px-3 text-right text-sm text-slate-600 dark:text-[#9CB3C0] tabular-nums hidden sm:table-cell">
                     {formatCompactNumber(game.totalVisits)}
                   </td>
-                  <td className="py-3 px-3 text-right text-sm text-[#9BB0BD] tabular-nums hidden md:table-cell">
+                  <td className="py-3.5 px-3 text-right text-sm text-slate-600 dark:text-[#9CB3C0] tabular-nums hidden md:table-cell">
                     {game.likeRatio !== null && game.likeRatio !== undefined
                       ? `${game.likeRatio.toFixed(1)}%`
-                      : 'N/A'}
+                      : '—'}
                   </td>
-                  <td className="py-3 px-3 text-right text-sm text-[#9BB0BD] tabular-nums hidden xl:table-cell">
+                  <td className="py-3.5 px-3 text-right text-sm text-slate-600 dark:text-[#9CB3C0] tabular-nums hidden xl:table-cell">
                     {formatCompactNumber(game.peakCcuObserved)}
                   </td>
-                  <td className="py-3 pl-3 pr-4 text-right text-xs text-[#6E8492] tabular-nums hidden xl:table-cell whitespace-nowrap">
+                  <td className="py-3.5 pl-3 pr-5 text-right text-xs text-slate-500 dark:text-[#6F8796] tabular-nums hidden xl:table-cell whitespace-nowrap">
                     {formatRelativeTime(game.lastCollectedAt)}
                   </td>
                 </tr>
@@ -285,11 +285,10 @@ export function GameTable({
       </div>
 
       {/* Pagination Footer */}
-      <div className="px-4 py-3 border-t border-[#263844] bg-[#162229] flex items-center justify-between text-xs text-[#9BB0BD]">
+      <div className="px-5 py-3.5 border-t border-slate-900/8 dark:border-white/10 bg-black/[0.02] dark:bg-white/[0.02] flex items-center justify-between text-xs text-slate-500 dark:text-[#9CB3C0]">
         <span className="tabular-nums">
-          Showing {(safePage - 1) * pageSize + 1}–
-          {Math.min(safePage * pageSize, sorted.length)} of {sorted.length}{' '}
-          experiences
+          {(safePage - 1) * pageSize + 1}–
+          {Math.min(safePage * pageSize, sorted.length)} of {sorted.length}
         </span>
         {totalPages > 1 && (
           <div className="flex items-center gap-1.5">
@@ -297,18 +296,18 @@ export function GameTable({
               type="button"
               disabled={safePage <= 1}
               onClick={() => setPage((p) => Math.max(1, p - 1))}
-              className="p-1.5 rounded-md border border-[#263844] text-[#9BB0BD] hover:text-[#E8EEF2] hover:bg-[#22333D] disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
+              className="p-1.5 rounded-full border border-slate-900/10 dark:border-white/12 text-slate-600 dark:text-[#9CB3C0] hover:text-slate-950 dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/10 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
             <span className="px-2 tabular-nums">
-              Page {safePage} of {totalPages}
+              {safePage} / {totalPages}
             </span>
             <button
               type="button"
               disabled={safePage >= totalPages}
               onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              className="p-1.5 rounded-md border border-[#263844] text-[#9BB0BD] hover:text-[#E8EEF2] hover:bg-[#22333D] disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
+              className="p-1.5 rounded-full border border-slate-900/10 dark:border-white/12 text-slate-600 dark:text-[#9CB3C0] hover:text-slate-950 dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/10 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
             >
               <ChevronRight className="w-4 h-4" />
             </button>

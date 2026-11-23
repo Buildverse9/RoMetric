@@ -7,17 +7,15 @@ import { Plus, Search, X } from 'lucide-react';
 import type { EChartsOption } from 'echarts';
 import { useApp } from '@/components/AppProvider';
 import { fetchGameHistory } from '@/lib/analytics-store';
-import {
-  formatCompactNumber,
-  formatExactNumber,
-  formatUtcTimestamp,
-} from '@/lib/format';
+import { formatCompactNumber, formatExactNumber } from '@/lib/format';
 import type { GameRecordData, TimeRange } from '@/lib/types';
 import { GameArtwork } from '@/components/GameArtwork';
 import { GrowthValue } from '@/components/GameTable';
 import { EChartWrapper } from '@/components/EChartWrapper';
 
-const SERIES_COLORS = ['#48D597', '#60A5FA', '#F59E0B', '#F472B6'];
+const SERIES_COLORS_DARK = ['#10E89A', '#38BDF8', '#F59E0B', '#F472B6'];
+const SERIES_COLORS_LIGHT = ['#059669', '#0284C7', '#D97706', '#DB2777'];
+
 const COMPARE_RANGES: Array<{ id: TimeRange; label: string }> = [
   { id: '1h', label: '1H' },
   { id: '24h', label: '24H' },
@@ -28,7 +26,9 @@ const COMPARE_RANGES: Array<{ id: TimeRange; label: string }> = [
 
 function CompareContent() {
   const searchParams = useSearchParams();
-  const { games, loadingGames } = useApp();
+  const { theme, games, loadingGames } = useApp();
+  const isDark = theme === 'dark';
+  const seriesColors = isDark ? SERIES_COLORS_DARK : SERIES_COLORS_LIGHT;
 
   const [customIds, setCustomIds] = useState<string[] | null>(null);
   const [pickerQuery, setPickerQuery] = useState('');
@@ -80,7 +80,6 @@ function CompareContent() {
       .slice(0, 8);
   }, [games, selectedIds, pickerQuery]);
 
-  // Fetch persisted histories for selected games
   const selectedIdsKey = selectedIds.join(',');
   useEffect(() => {
     let cancelled = false;
@@ -116,32 +115,39 @@ function CompareContent() {
   }, [selectedGames, historyByGame]);
 
   const historyChartOption = useMemo<EChartsOption>(() => {
+    const textMuted = isDark ? '#7893A3' : '#64748B';
+    const textLegend = isDark ? '#9CB3C0' : '#475569';
+    const gridLine = isDark ? 'rgba(255,255,255,0.07)' : 'rgba(15,23,42,0.08)';
+    const tooltipBg = isDark ? 'rgba(9, 19, 25, 0.92)' : 'rgba(255, 255, 255, 0.96)';
+    const tooltipBorder = isDark ? 'rgba(255,255,255,0.14)' : 'rgba(15,23,42,0.1)';
+    const tooltipText = isDark ? '#F1F7FA' : '#0B141A';
+
     return {
       backgroundColor: 'transparent',
       tooltip: {
         trigger: 'axis',
-        backgroundColor: '#101820',
-        borderColor: '#263844',
-        textStyle: { color: '#E8EEF2', fontSize: 12 },
+        backgroundColor: tooltipBg,
+        borderColor: tooltipBorder,
+        textStyle: { color: tooltipText, fontSize: 12 },
       },
       legend: {
         top: 0,
-        textStyle: { color: '#9BB0BD', fontSize: 12 },
+        textStyle: { color: textLegend, fontSize: 12 },
       },
-      grid: { left: 16, right: 20, top: 38, bottom: 20, containLabel: true },
+      grid: { left: 12, right: 16, top: 38, bottom: 16, containLabel: true },
       xAxis: {
         type: 'time',
-        axisLine: { lineStyle: { color: '#263844' } },
-        axisLabel: { color: '#6E8492', fontSize: 11 },
+        axisLine: { lineStyle: { color: gridLine } },
+        axisLabel: { color: textMuted, fontSize: 11 },
       },
       yAxis: {
         type: 'value',
         axisLabel: {
-          color: '#6E8492',
+          color: textMuted,
           fontSize: 11,
           formatter: (val: number) => formatCompactNumber(val),
         },
-        splitLine: { lineStyle: { color: '#263844', type: 'dashed' } },
+        splitLine: { lineStyle: { color: gridLine } },
       },
       series: selectedGames.map((g, idx) => ({
         name: g.name,
@@ -149,62 +155,68 @@ function CompareContent() {
         smooth: true,
         showSymbol: (historyByGame[g.universeId]?.length ?? 0) <= 10,
         data: (historyByGame[g.universeId] ?? []).map((p) => [p.ts, p.ccu]),
-        lineStyle: { color: SERIES_COLORS[idx % SERIES_COLORS.length], width: 2.5 },
-        itemStyle: { color: SERIES_COLORS[idx % SERIES_COLORS.length] },
+        lineStyle: { color: seriesColors[idx % seriesColors.length], width: 2.5 },
+        itemStyle: { color: seriesColors[idx % seriesColors.length] },
       })),
     };
-  }, [selectedGames, historyByGame]);
+  }, [selectedGames, historyByGame, isDark, seriesColors]);
 
   const snapshotComparisonBarOption = useMemo<EChartsOption>(() => {
+    const textMuted = isDark ? '#7893A3' : '#64748B';
+    const textPrimary = isDark ? '#F1F7FA' : '#0B141A';
+    const gridLine = isDark ? 'rgba(255,255,255,0.07)' : 'rgba(15,23,42,0.08)';
+    const tooltipBg = isDark ? 'rgba(9, 19, 25, 0.92)' : 'rgba(255, 255, 255, 0.96)';
+    const tooltipBorder = isDark ? 'rgba(255,255,255,0.14)' : 'rgba(15,23,42,0.1)';
+
     return {
       backgroundColor: 'transparent',
       tooltip: {
         trigger: 'axis',
         axisPointer: { type: 'shadow' },
-        backgroundColor: '#101820',
-        borderColor: '#263844',
-        textStyle: { color: '#E8EEF2', fontSize: 12 },
+        backgroundColor: tooltipBg,
+        borderColor: tooltipBorder,
+        textStyle: { color: textPrimary, fontSize: 12 },
       },
       legend: {
         top: 0,
-        textStyle: { color: '#9BB0BD', fontSize: 12 },
+        textStyle: { color: textMuted, fontSize: 12 },
       },
-      grid: { left: 16, right: 20, top: 38, bottom: 20, containLabel: true },
+      grid: { left: 12, right: 16, top: 38, bottom: 16, containLabel: true },
       xAxis: {
         type: 'category',
         data: selectedGames.map((g) =>
           g.name.length > 20 ? g.name.slice(0, 18) + '…' : g.name
         ),
-        axisLine: { lineStyle: { color: '#263844' } },
-        axisLabel: { color: '#E8EEF2', fontSize: 12 },
+        axisLine: { lineStyle: { color: gridLine } },
+        axisLabel: { color: textPrimary, fontSize: 12 },
       },
       yAxis: {
         type: 'value',
         axisLabel: {
-          color: '#6E8492',
+          color: textMuted,
           fontSize: 11,
           formatter: (val: number) => formatCompactNumber(val),
         },
-        splitLine: { lineStyle: { color: '#263844', type: 'dashed' } },
+        splitLine: { lineStyle: { color: gridLine } },
       },
       series: [
         {
-          name: 'Current Live CCU',
+          name: 'Live CCU',
           type: 'bar',
-          barMaxWidth: 36,
+          barMaxWidth: 34,
           data: selectedGames.map((g) => g.currentCcu),
-          itemStyle: { color: '#48D597', borderRadius: [4, 4, 0, 0] },
+          itemStyle: { color: seriesColors[0], borderRadius: [8, 8, 2, 2] },
         },
         {
-          name: 'Highest Observed CCU',
+          name: 'Peak CCU',
           type: 'bar',
-          barMaxWidth: 36,
+          barMaxWidth: 34,
           data: selectedGames.map((g) => g.peakCcuObserved),
-          itemStyle: { color: '#60A5FA', borderRadius: [4, 4, 0, 0] },
+          itemStyle: { color: seriesColors[1], borderRadius: [8, 8, 2, 2] },
         },
       ],
     };
-  }, [selectedGames]);
+  }, [selectedGames, isDark, seriesColors]);
 
   const addGame = (universeId: string) => {
     if (selectedIds.length >= 4 || selectedIds.includes(universeId)) return;
@@ -218,38 +230,34 @@ function CompareContent() {
   };
 
   return (
-    <div className="max-w-[1360px] mx-auto px-4 sm:px-6 py-8 sm:py-10 space-y-8">
-      <div className="space-y-2">
-        <h1 className="font-display text-3xl font-bold text-[#E8EEF2]">
-          Compare Roblox Experiences
-        </h1>
-        <p className="text-sm text-[#9BB0BD]">
-          Benchmark up to 4 experiences side-by-side across live concurrency,
-          historical trends, visits, favorites, like ratio, and observed peaks.
-        </p>
-      </div>
+    <div className="max-w-[1280px] mx-auto px-4 sm:px-6 pt-8 pb-6 space-y-6">
+      <h1 className="font-display text-3xl font-bold text-slate-950 dark:text-white">
+        Compare
+      </h1>
 
-      {/* Selected Games Selector Row */}
+      {/* Selected Games Row */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {selectedGames.map((game, idx) => (
           <div
             key={game.universeId}
-            className="bg-[#1C2A32] border border-[#263844] rounded-xl p-4 flex items-center justify-between gap-3"
+            className="liquid-glass rounded-3xl p-4 flex items-center justify-between gap-3"
           >
             <div className="flex items-center gap-3 min-w-0">
               <span
-                className="w-2.5 h-8 rounded-full shrink-0"
-                style={{ backgroundColor: SERIES_COLORS[idx % SERIES_COLORS.length] }}
+                className="w-2 h-8 rounded-full shrink-0"
+                style={{
+                  backgroundColor: seriesColors[idx % seriesColors.length],
+                }}
               />
               <GameArtwork src={game.iconUrl} alt={game.name} size="sm" />
               <div className="min-w-0">
                 <Link
                   href={`/games/${game.universeId}`}
-                  className="text-sm font-semibold text-[#E8EEF2] hover:text-[#48D597] truncate block"
+                  className="text-sm font-semibold text-slate-900 dark:text-[#F1F7FA] hover:text-emerald-600 dark:hover:text-[#10E89A] truncate block"
                 >
                   {game.name}
                 </Link>
-                <p className="text-xs text-[#6E8492] tabular-nums">
+                <p className="text-xs text-slate-500 dark:text-[#6F8796] tabular-nums">
                   {formatCompactNumber(game.currentCcu)} CCU
                 </p>
               </div>
@@ -258,7 +266,7 @@ function CompareContent() {
               type="button"
               aria-label={`Remove ${game.name}`}
               onClick={() => removeGame(game.universeId)}
-              className="p-1.5 text-[#6E8492] hover:text-rose-400 transition-colors cursor-pointer"
+              className="p-1.5 rounded-full text-slate-400 dark:text-[#6F8796] hover:text-rose-500 hover:bg-rose-500/10 transition-colors cursor-pointer"
             >
               <X className="w-4 h-4" />
             </button>
@@ -270,44 +278,44 @@ function CompareContent() {
             <button
               type="button"
               onClick={() => setPickerOpen((v) => !v)}
-              className="w-full h-full min-h-[76px] border border-dashed border-[#263844] hover:border-[#48D597] rounded-xl p-4 flex items-center justify-center gap-2 text-sm font-medium text-[#9BB0BD] hover:text-[#48D597] transition-colors cursor-pointer"
+              className="w-full h-full min-h-[76px] border border-dashed border-slate-900/20 dark:border-white/20 hover:border-emerald-500 dark:hover:border-[#10E89A] rounded-3xl p-4 flex items-center justify-center gap-2 text-sm font-medium text-slate-600 dark:text-[#9CB3C0] hover:text-emerald-600 dark:hover:text-[#10E89A] transition-colors cursor-pointer"
             >
               <Plus className="w-4 h-4" />
-              Add experience ({selectedIds.length}/4)
+              Add game ({selectedIds.length}/4)
             </button>
 
             {pickerOpen && (
-              <div className="absolute left-0 right-0 mt-2 bg-[#1C2A32] border border-[#263844] rounded-xl shadow-2xl z-30 overflow-hidden">
-                <div className="p-2.5 border-b border-[#263844] flex items-center gap-2">
-                  <Search className="w-4 h-4 text-[#6E8492]" />
+              <div className="absolute left-0 right-0 mt-2 liquid-glass-strong rounded-3xl z-30 overflow-hidden">
+                <div className="p-3 border-b border-slate-900/8 dark:border-white/10 flex items-center gap-2">
+                  <Search className="w-4 h-4 text-slate-400 dark:text-[#6F8796]" />
                   <input
                     type="text"
                     autoFocus
                     value={pickerQuery}
                     onChange={(e) => setPickerQuery(e.target.value)}
-                    placeholder="Filter tracked games..."
-                    className="w-full bg-transparent text-xs text-[#E8EEF2] placeholder:text-[#6E8492] focus:outline-none"
+                    placeholder="Search games..."
+                    className="w-full bg-transparent text-xs text-slate-900 dark:text-[#F1F7FA] placeholder:text-slate-500 dark:placeholder:text-[#6F8796] focus:outline-none"
                   />
                 </div>
-                <div className="max-h-60 overflow-y-auto divide-y divide-[#263844]/60">
+                <div className="max-h-60 overflow-y-auto divide-y divide-slate-900/6 dark:divide-white/8">
                   {availableToPick.map((g) => (
                     <button
                       key={g.universeId}
                       type="button"
                       onClick={() => addGame(g.universeId)}
-                      className="w-full px-3 py-2 flex items-center justify-between gap-2 hover:bg-[#22333D] text-left cursor-pointer"
+                      className="w-full px-3.5 py-2.5 flex items-center justify-between gap-2 hover:bg-black/[0.04] dark:hover:bg-white/[0.06] text-left cursor-pointer"
                     >
-                      <span className="text-xs font-medium text-[#E8EEF2] truncate">
+                      <span className="text-xs font-medium text-slate-900 dark:text-[#F1F7FA] truncate">
                         {g.name}
                       </span>
-                      <span className="text-xs text-[#48D597] tabular-nums shrink-0">
+                      <span className="text-xs font-semibold text-emerald-600 dark:text-[#10E89A] tabular-nums shrink-0">
                         {formatCompactNumber(g.currentCcu)}
                       </span>
                     </button>
                   ))}
                   {availableToPick.length === 0 && (
-                    <p className="p-3 text-xs text-[#6E8492] text-center">
-                      No other matching tracked games.
+                    <p className="p-3 text-xs text-slate-500 dark:text-[#6F8796] text-center">
+                      No games found.
                     </p>
                   )}
                 </div>
@@ -319,31 +327,21 @@ function CompareContent() {
 
       {selectedGames.length > 0 && (
         <>
-          {/* Historical Comparison Chart */}
-          <section className="bg-[#1C2A32] border border-[#263844] rounded-xl p-6 space-y-5">
+          <section className="liquid-glass rounded-[28px] p-6 space-y-5">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div>
-                <h2 className="font-display text-lg font-bold text-[#E8EEF2]">
-                  {hasMultiPointHistory
-                    ? 'Historical CCU Comparison'
-                    : 'Live CCU vs. Highest Observed Peak Comparison'}
-                </h2>
-                <p className="text-xs text-[#6E8492]">
-                  {hasMultiPointHistory
-                    ? 'Directly observed player timelines overlaid across selected games.'
-                    : 'Multi-point historical lines will plot automatically once >=2 timed snapshots exist for these games.'}
-                </p>
-              </div>
-              <div className="flex items-center gap-1 p-1 bg-[#101820] border border-[#263844] rounded-lg w-fit">
+              <h2 className="font-display text-lg font-bold text-slate-900 dark:text-[#F1F7FA]">
+                {hasMultiPointHistory ? 'Player History' : 'Live vs Peak'}
+              </h2>
+              <div className="flex items-center gap-1 p-1 rounded-full bg-black/[0.04] dark:bg-white/[0.06] border border-slate-900/8 dark:border-white/10 w-fit">
                 {COMPARE_RANGES.map((r) => (
                   <button
                     key={r.id}
                     type="button"
                     onClick={() => setRange(r.id)}
-                    className={`px-3 py-1.5 text-xs font-medium rounded-md cursor-pointer transition-colors ${
+                    className={`px-3 py-1 text-xs font-semibold rounded-full cursor-pointer transition-all ${
                       range === r.id
-                        ? 'bg-[#48D597] text-[#101820] font-semibold'
-                        : 'text-[#9BB0BD] hover:text-[#E8EEF2]'
+                        ? 'bg-emerald-600 dark:bg-[#10E89A] text-white dark:text-[#04130D]'
+                        : 'text-slate-600 dark:text-[#9CB3C0] hover:text-slate-950 dark:hover:text-white'
                     }`}
                   >
                     {r.label}
@@ -362,31 +360,30 @@ function CompareContent() {
             />
           </section>
 
-          {/* Side-by-Side Metrics Matrix */}
-          <section className="bg-[#1C2A32] border border-[#263844] rounded-xl overflow-hidden">
+          <section className="liquid-glass rounded-[28px] overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr className="border-b border-[#263844] bg-[#162229]">
-                    <th className="py-3.5 px-4 text-xs font-medium text-[#6E8492] w-48">
+                  <tr className="border-b border-slate-900/8 dark:border-white/10 bg-black/[0.02] dark:bg-white/[0.03]">
+                    <th className="py-3.5 px-5 text-xs font-medium text-slate-500 dark:text-[#6F8796] w-44">
                       Metric
                     </th>
                     {selectedGames.map((g, idx) => (
                       <th
                         key={g.universeId}
-                        className="py-3.5 px-4 text-sm font-semibold text-[#E8EEF2]"
+                        className="py-3.5 px-4 text-sm font-semibold text-slate-900 dark:text-[#F1F7FA]"
                       >
                         <div className="flex items-center gap-2">
                           <span
                             className="w-2 h-2 rounded-full shrink-0"
                             style={{
                               backgroundColor:
-                                SERIES_COLORS[idx % SERIES_COLORS.length],
+                                seriesColors[idx % seriesColors.length],
                             }}
                           />
                           <Link
                             href={`/games/${g.universeId}`}
-                            className="hover:text-[#48D597] truncate max-w-[180px]"
+                            className="hover:text-emerald-600 dark:hover:text-[#10E89A] truncate max-w-[180px]"
                           >
                             {g.name}
                           </Link>
@@ -395,103 +392,106 @@ function CompareContent() {
                     ))}
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-[#263844]/60 text-sm">
+                <tbody className="divide-y divide-slate-900/6 dark:divide-white/8 text-sm">
                   <tr>
-                    <td className="py-3 px-4 text-xs text-[#9BB0BD]">
-                      Current Live CCU
+                    <td className="py-3.5 px-5 text-xs text-slate-500 dark:text-[#9CB3C0]">
+                      Live CCU
                     </td>
                     {selectedGames.map((g) => (
                       <td
                         key={g.universeId}
-                        className="py-3 px-4 font-bold text-[#48D597] tabular-nums"
+                        className="py-3.5 px-4 font-bold text-emerald-600 dark:text-[#10E89A] tabular-nums"
                       >
                         {formatExactNumber(g.currentCcu)}
                       </td>
                     ))}
                   </tr>
                   <tr>
-                    <td className="py-3 px-4 text-xs text-[#9BB0BD]">
-                      Highest Observed CCU
+                    <td className="py-3.5 px-5 text-xs text-slate-500 dark:text-[#9CB3C0]">
+                      Peak CCU
                     </td>
                     {selectedGames.map((g) => (
                       <td
                         key={g.universeId}
-                        className="py-3 px-4 font-semibold text-[#E8EEF2] tabular-nums"
+                        className="py-3.5 px-4 font-semibold text-slate-900 dark:text-[#F1F7FA] tabular-nums"
                       >
                         {formatExactNumber(g.peakCcuObserved)}
                       </td>
                     ))}
                   </tr>
                   <tr>
-                    <td className="py-3 px-4 text-xs text-[#9BB0BD]">
-                      24-Hour Growth
+                    <td className="py-3.5 px-5 text-xs text-slate-500 dark:text-[#9CB3C0]">
+                      24h Change
                     </td>
                     {selectedGames.map((g) => (
-                      <td key={g.universeId} className="py-3 px-4">
+                      <td key={g.universeId} className="py-3.5 px-4">
                         <GrowthValue value={g.growth24h ?? g.growth1h} />
                       </td>
                     ))}
                   </tr>
                   <tr>
-                    <td className="py-3 px-4 text-xs text-[#9BB0BD]">
-                      7-Day Growth
+                    <td className="py-3.5 px-5 text-xs text-slate-500 dark:text-[#9CB3C0]">
+                      7d Change
                     </td>
                     {selectedGames.map((g) => (
-                      <td key={g.universeId} className="py-3 px-4">
+                      <td key={g.universeId} className="py-3.5 px-4">
                         <GrowthValue value={g.growth7d} />
                       </td>
                     ))}
                   </tr>
                   <tr>
-                    <td className="py-3 px-4 text-xs text-[#9BB0BD]">
+                    <td className="py-3.5 px-5 text-xs text-slate-500 dark:text-[#9CB3C0]">
                       Total Visits
                     </td>
                     {selectedGames.map((g) => (
                       <td
                         key={g.universeId}
-                        className="py-3 px-4 text-[#E8EEF2] tabular-nums"
+                        className="py-3.5 px-4 text-slate-900 dark:text-[#F1F7FA] tabular-nums"
                       >
                         {formatCompactNumber(g.totalVisits)}
                       </td>
                     ))}
                   </tr>
                   <tr>
-                    <td className="py-3 px-4 text-xs text-[#9BB0BD]">
+                    <td className="py-3.5 px-5 text-xs text-slate-500 dark:text-[#9CB3C0]">
                       Favorites
                     </td>
                     {selectedGames.map((g) => (
                       <td
                         key={g.universeId}
-                        className="py-3 px-4 text-[#E8EEF2] tabular-nums"
+                        className="py-3.5 px-4 text-slate-900 dark:text-[#F1F7FA] tabular-nums"
                       >
                         {formatCompactNumber(g.favorites)}
                       </td>
                     ))}
                   </tr>
                   <tr>
-                    <td className="py-3 px-4 text-xs text-[#9BB0BD]">
+                    <td className="py-3.5 px-5 text-xs text-slate-500 dark:text-[#9CB3C0]">
                       Like Ratio
                     </td>
                     {selectedGames.map((g) => (
                       <td
                         key={g.universeId}
-                        className="py-3 px-4 text-[#E8EEF2] tabular-nums"
+                        className="py-3.5 px-4 text-slate-900 dark:text-[#F1F7FA] tabular-nums"
                       >
                         {g.likeRatio !== null && g.likeRatio !== undefined
                           ? `${g.likeRatio.toFixed(1)}%`
-                          : 'N/A'}
+                          : '—'}
                       </td>
                     ))}
                   </tr>
                   <tr>
-                    <td className="py-3 px-4 text-xs text-[#9BB0BD]">
-                      Developer / Group
+                    <td className="py-3.5 px-5 text-xs text-slate-500 dark:text-[#9CB3C0]">
+                      Developer
                     </td>
                     {selectedGames.map((g) => (
-                      <td key={g.universeId} className="py-3 px-4 text-[#9BB0BD]">
+                      <td
+                        key={g.universeId}
+                        className="py-3.5 px-4 text-slate-600 dark:text-[#9CB3C0]"
+                      >
                         <Link
                           href={`/developers/${g.creatorId}`}
-                          className="hover:text-[#48D597]"
+                          className="hover:text-emerald-600 dark:hover:text-[#10E89A]"
                         >
                           {g.creatorName}
                         </Link>
@@ -499,23 +499,15 @@ function CompareContent() {
                     ))}
                   </tr>
                   <tr>
-                    <td className="py-3 px-4 text-xs text-[#9BB0BD]">Genre</td>
-                    {selectedGames.map((g) => (
-                      <td key={g.universeId} className="py-3 px-4 text-[#9BB0BD]">
-                        {g.genre}
-                      </td>
-                    ))}
-                  </tr>
-                  <tr>
-                    <td className="py-3 px-4 text-xs text-[#9BB0BD]">
-                      Last Observed
+                    <td className="py-3.5 px-5 text-xs text-slate-500 dark:text-[#9CB3C0]">
+                      Genre
                     </td>
                     {selectedGames.map((g) => (
                       <td
                         key={g.universeId}
-                        className="py-3 px-4 text-xs text-[#6E8492] tabular-nums"
+                        className="py-3.5 px-4 text-slate-600 dark:text-[#9CB3C0]"
                       >
-                        {formatUtcTimestamp(g.lastCollectedAt)}
+                        {g.genre}
                       </td>
                     ))}
                   </tr>
@@ -533,8 +525,8 @@ export default function ComparePage() {
   return (
     <Suspense
       fallback={
-        <div className="max-w-[1360px] mx-auto px-4 sm:px-6 py-10 text-sm text-[#6E8492]">
-          Loading comparison workbench...
+        <div className="max-w-[1280px] mx-auto px-4 sm:px-6 py-10 text-sm text-slate-500 dark:text-[#6F8796]">
+          Loading...
         </div>
       }
     >

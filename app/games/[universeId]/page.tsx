@@ -8,12 +8,12 @@ import {
   Clock,
   ExternalLink,
   GitCompare,
-  Info,
   ShieldCheck,
   ThumbsDown,
   ThumbsUp,
 } from 'lucide-react';
 import type { EChartsOption } from 'echarts';
+import { useApp } from '@/components/AppProvider';
 import {
   fetchGameHistory,
   fetchStoredGameById,
@@ -47,6 +47,8 @@ const TIME_RANGES: Array<{ id: TimeRange; label: string }> = [
 export default function GameDetailPage() {
   const params = useParams<{ universeId: string }>();
   const universeId = String(params?.universeId ?? '').replace(/[^0-9]/g, '');
+  const { theme } = useApp();
+  const isDark = theme === 'dark';
 
   const [game, setGame] = useState<GameRecordData | null>(null);
   const [isTracked, setIsTracked] = useState(false);
@@ -74,7 +76,7 @@ export default function GameDetailPage() {
 
     async function loadGame() {
       if (!universeId) {
-        setError('Invalid Universe ID.');
+        setError('Invalid game ID.');
         setLoading(false);
         return;
       }
@@ -90,19 +92,16 @@ export default function GameDetailPage() {
           return;
         }
 
-        // Not tracked in DB yet — fetch live directly from Roblox public API
         const res = await fetch(
           `/api/roblox/fetch?ids=${encodeURIComponent(universeId)}`,
           { cache: 'no-store' }
         );
         if (!res.ok) {
-          throw new Error('Unable to fetch game details from Roblox.');
+          throw new Error('Unable to load game details.');
         }
         const data = (await res.json()) as RobloxFetchResponse;
         if (!data.games.length) {
-          throw new Error(
-            `No public Roblox experience found for Universe ID ${universeId}.`
-          );
+          throw new Error('Game not found.');
         }
         if (!cancelled) {
           setGame(
@@ -113,7 +112,7 @@ export default function GameDetailPage() {
       } catch (err) {
         if (!cancelled) {
           setError(
-            err instanceof Error ? err.message : 'Failed to load experience.'
+            err instanceof Error ? err.message : 'Failed to load game.'
           );
         }
       } finally {
@@ -154,59 +153,101 @@ export default function GameDetailPage() {
   }, [universeId, isTracked, range]);
 
   const ccuChartOption = useMemo<EChartsOption>(() => {
+    const accent = isDark ? '#10E89A' : '#059669';
+    const textMuted = isDark ? '#7893A3' : '#64748B';
+    const textLegend = isDark ? '#9CB3C0' : '#475569';
+    const gridLine = isDark ? 'rgba(255,255,255,0.07)' : 'rgba(15,23,42,0.08)';
+    const tooltipBg = isDark ? 'rgba(9, 19, 25, 0.92)' : 'rgba(255, 255, 255, 0.96)';
+    const tooltipBorder = isDark ? 'rgba(255,255,255,0.14)' : 'rgba(15,23,42,0.1)';
+    const tooltipText = isDark ? '#F1F7FA' : '#0B141A';
+
     const labels = historyPoints.map((p) => {
       const d = new Date(p.timestampMs);
       if (range === '1h' || range === '24h') {
-        return d.toISOString().slice(11, 16) + ' UTC';
+        return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
       }
-      return d.toISOString().slice(5, 16).replace('T', ' ');
+      return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
     });
 
     const hasPeakBands = historyPoints.some(
       (p) => p.maxCcu !== undefined && p.maxCcu !== p.ccu
     );
 
+    const values = historyPoints.map((p) => p.ccu);
+
     return {
       backgroundColor: 'transparent',
       tooltip: {
         trigger: 'axis',
-        backgroundColor: '#101820',
-        borderColor: '#263844',
-        textStyle: { color: '#E8EEF2', fontSize: 12 },
+        backgroundColor: tooltipBg,
+        borderColor: tooltipBorder,
+        textStyle: { color: tooltipText, fontSize: 12 },
       },
       legend: hasPeakBands
         ? {
             top: 0,
             right: 8,
-            textStyle: { color: '#9BB0BD', fontSize: 11 },
+            textStyle: { color: textLegend, fontSize: 11 },
           }
         : undefined,
-      grid: { left: 12, right: 16, top: hasPeakBands ? 34 : 18, bottom: 20, containLabel: true },
+      grid: {
+        left: 10,
+        right: 16,
+        top: hasPeakBands ? 34 : 18,
+        bottom: 16,
+        containLabel: true,
+      },
       xAxis: {
         type: 'category',
+        boundaryGap: false,
         data: labels,
-        axisLine: { lineStyle: { color: '#263844' } },
-        axisLabel: { color: '#6E8492', fontSize: 11 },
+        axisLine: { show: false },
+        axisTick: { show: false },
+        axisLabel: { color: textMuted, fontSize: 11 },
       },
       yAxis: {
         type: 'value',
+        scale: true,
         axisLabel: {
-          color: '#6E8492',
+          color: textMuted,
           fontSize: 11,
           formatter: (val: number) => formatCompactNumber(val),
         },
-        splitLine: { lineStyle: { color: '#263844', type: 'dashed' } },
+        splitLine: { lineStyle: { color: gridLine } },
       },
       series: [
         {
-          name: hasPeakBands ? 'Average CCU' : 'Observed CCU',
+          name: hasPeakBands ? 'Average CCU' : 'Players',
           type: 'line',
-          smooth: true,
-          symbol: historyPoints.length <= 12 ? 'circle' : 'none',
+          smooth: 0.35,
+          symbol: 'circle',
+          showSymbol: historyPoints.length <= 12,
           symbolSize: 6,
-          data: historyPoints.map((p) => p.ccu),
-          lineStyle: { color: '#48D597', width: 2.5 },
-          itemStyle: { color: '#48D597' },
+          data: values.map((v, i) =>
+            i === values.length - 1
+              ? {
+                  value: v,
+                  symbol: 'circle',
+                  symbolSize: 9,
+                  itemStyle: {
+                    color: '#FFFFFF',
+                    borderColor: accent,
+                    borderWidth: 3,
+                    shadowBlur: 14,
+                    shadowColor: accent,
+                  },
+                }
+              : v
+          ),
+          lineStyle: {
+            color: accent,
+            width: 3,
+            shadowBlur: isDark ? 12 : 4,
+            shadowColor: isDark
+              ? 'rgba(16, 232, 154, 0.45)'
+              : 'rgba(5, 150, 105, 0.2)',
+          },
+          itemStyle: { color: accent },
           areaStyle: {
             color: {
               type: 'linear',
@@ -215,8 +256,18 @@ export default function GameDetailPage() {
               x2: 0,
               y2: 1,
               colorStops: [
-                { offset: 0, color: 'rgba(72, 213, 151, 0.25)' },
-                { offset: 1, color: 'rgba(72, 213, 151, 0.01)' },
+                {
+                  offset: 0,
+                  color: isDark
+                    ? 'rgba(16, 232, 154, 0.3)'
+                    : 'rgba(5, 150, 105, 0.2)',
+                },
+                {
+                  offset: 1,
+                  color: isDark
+                    ? 'rgba(16, 232, 154, 0.01)'
+                    : 'rgba(5, 150, 105, 0.01)',
+                },
               ],
             },
           },
@@ -224,13 +275,13 @@ export default function GameDetailPage() {
         ...(hasPeakBands
           ? [
               {
-                name: 'Observed Peak',
+                name: 'Peak',
                 type: 'line' as const,
                 smooth: true,
                 symbol: 'none',
                 data: historyPoints.map((p) => p.maxCcu ?? p.ccu),
                 lineStyle: {
-                  color: '#9BB0BD',
+                  color: textLegend,
                   width: 1.5,
                   type: 'dashed' as const,
                 },
@@ -239,21 +290,21 @@ export default function GameDetailPage() {
           : []),
       ],
     };
-  }, [historyPoints, range]);
+  }, [historyPoints, range, isDark]);
 
   if (loading) {
     return (
-      <div className="max-w-[1360px] mx-auto px-4 sm:px-6 py-10 space-y-6 animate-pulse">
-        <div className="h-5 w-32 bg-[#1C2A32] rounded" />
+      <div className="max-w-[1280px] mx-auto px-4 sm:px-6 pt-8 pb-6 space-y-6 animate-pulse">
+        <div className="h-5 w-32 bg-slate-900/10 dark:bg-white/10 rounded-full" />
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          <div className="lg:col-span-5 aspect-video bg-[#1C2A32] rounded-xl" />
+          <div className="lg:col-span-5 aspect-video liquid-glass rounded-3xl" />
           <div className="lg:col-span-7 space-y-4">
-            <div className="h-8 w-2/3 bg-[#1C2A32] rounded" />
-            <div className="h-4 w-1/2 bg-[#1C2A32] rounded" />
-            <div className="grid grid-cols-3 gap-4 pt-4">
-              <div className="h-20 bg-[#1C2A32] rounded-xl" />
-              <div className="h-20 bg-[#1C2A32] rounded-xl" />
-              <div className="h-20 bg-[#1C2A32] rounded-xl" />
+            <div className="h-9 w-2/3 bg-slate-900/10 dark:bg-white/10 rounded-xl" />
+            <div className="h-4 w-1/2 bg-slate-900/8 dark:bg-white/8 rounded-xl" />
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="h-24 liquid-glass rounded-3xl" />
+              ))}
             </div>
           </div>
         </div>
@@ -263,17 +314,17 @@ export default function GameDetailPage() {
 
   if (error || !game) {
     return (
-      <div className="max-w-[1360px] mx-auto px-4 sm:px-6 py-16">
-        <div className="max-w-lg mx-auto bg-[#1C2A32] border border-[#263844] rounded-xl p-8 text-center space-y-4">
-          <h1 className="font-display text-2xl font-bold text-[#E8EEF2]">
-            Experience Unavailable
+      <div className="max-w-[1280px] mx-auto px-4 sm:px-6 py-16">
+        <div className="max-w-md mx-auto liquid-glass rounded-3xl p-8 text-center space-y-4">
+          <h1 className="font-display text-2xl font-bold text-slate-900 dark:text-[#F1F7FA]">
+            Game Unavailable
           </h1>
-          <p className="text-sm text-[#9BB0BD]">
-            {error || 'Could not load this Roblox experience.'}
+          <p className="text-sm text-slate-600 dark:text-[#9CB3C0]">
+            {error || 'Could not load this game.'}
           </p>
           <Link
             href="/rankings"
-            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium bg-[#48D597] text-[#101820] rounded-lg hover:bg-[#3BC286]"
+            className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-semibold bg-emerald-600 dark:bg-[#10E89A] text-white dark:text-[#04130D] rounded-full hover:opacity-90"
           >
             <ArrowLeft className="w-4 h-4" />
             Back to Rankings
@@ -288,27 +339,29 @@ export default function GameDetailPage() {
   const highestPeakAt = peakRecord?.highestObservedAt ?? game.peakCcuAt;
 
   return (
-    <div className="max-w-[1360px] mx-auto px-4 sm:px-6 py-8 sm:py-10 space-y-8">
+    <div className="max-w-[1280px] mx-auto px-4 sm:px-6 pt-6 sm:pt-8 pb-6 space-y-6">
       {/* Breadcrumb */}
-      <div className="flex items-center justify-between gap-4 text-xs text-[#6E8492]">
-        <div className="flex items-center gap-2">
-          <Link href="/rankings" className="hover:text-[#E8EEF2] transition-colors">
+      <div className="flex items-center justify-between gap-4 text-xs text-slate-500 dark:text-[#6F8796]">
+        <div className="flex items-center gap-2 min-w-0">
+          <Link
+            href="/rankings"
+            className="hover:text-slate-900 dark:hover:text-white transition-colors"
+          >
             Rankings
           </Link>
           <span>/</span>
-          <span className="text-[#9BB0BD] truncate max-w-[260px]">{game.name}</span>
-        </div>
-        <div className="flex items-center gap-2 tabular-nums">
-          <Clock className="w-3.5 h-3.5 text-[#48D597]" />
-          <span>
-            Last observed {formatRelativeTime(game.lastCollectedAt)} (
-            {formatUtcTimestamp(game.lastCollectedAt)})
+          <span className="text-slate-700 dark:text-[#9CB3C0] truncate">
+            {game.name}
           </span>
+        </div>
+        <div className="flex items-center gap-1.5 tabular-nums shrink-0">
+          <Clock className="w-3.5 h-3.5 text-emerald-600 dark:text-[#10E89A]" />
+          <span>{formatRelativeTime(game.lastCollectedAt)}</span>
         </div>
       </div>
 
-      {/* Header Split: Artwork + Core Identity & KPIs */}
-      <section className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+      {/* Header Split */}
+      <section className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         <div className="lg:col-span-5">
           <GameArtwork
             src={game.thumbnailUrl || game.iconUrl}
@@ -317,38 +370,26 @@ export default function GameDetailPage() {
           />
         </div>
 
-        <div className="lg:col-span-7 space-y-6">
-          <div className="flex items-start justify-between gap-4">
+        <div className="lg:col-span-7 space-y-5">
+          <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="flex items-start gap-4 min-w-0">
               <GameArtwork src={game.iconUrl} alt={game.name} size="lg" />
               <div className="min-w-0 space-y-1">
-                <h1 className="font-display text-2xl sm:text-3xl font-bold text-[#E8EEF2] leading-tight">
+                <h1 className="font-display text-2xl sm:text-3xl font-bold text-slate-950 dark:text-white leading-tight">
                   {game.name}
                 </h1>
-                <p className="text-sm text-[#9BB0BD] flex flex-wrap items-center gap-x-2 gap-y-1">
-                  <span>
-                    By{' '}
-                    <Link
-                      href={`/developers/${game.creatorId}`}
-                      className="text-[#E8EEF2] hover:text-[#48D597] font-medium transition-colors"
-                    >
-                      {game.creatorName}
-                    </Link>
-                  </span>
+                <p className="text-sm text-slate-600 dark:text-[#9CB3C0] flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <Link
+                    href={`/developers/${game.creatorId}`}
+                    className="text-slate-900 dark:text-[#F1F7FA] hover:text-emerald-600 dark:hover:text-[#10E89A] font-medium transition-colors"
+                  >
+                    {game.creatorName}
+                  </Link>
                   {game.creatorVerified && (
-                    <span className="inline-flex items-center gap-1 text-xs text-[#48D597]">
-                      <ShieldCheck className="w-3.5 h-3.5" />
-                      Verified
-                    </span>
+                    <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-[#10E89A]" />
                   )}
                   <span aria-hidden="true">·</span>
-                  <span>{game.creatorType}</span>
-                  <span aria-hidden="true">·</span>
                   <span>{game.genre}</span>
-                </p>
-                <p className="text-xs text-[#6E8492] tabular-nums">
-                  Universe ID {game.universeId} · Root Place {game.rootPlaceId} · Status:{' '}
-                  {game.collectionStatus}
                 </p>
               </div>
             </div>
@@ -356,7 +397,7 @@ export default function GameDetailPage() {
             <div className="flex items-center gap-2 shrink-0">
               <Link
                 href={`/compare?ids=${game.universeId}`}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold bg-[#48D597] text-[#101820] rounded-lg hover:bg-[#3BC286] transition-colors whitespace-nowrap"
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold bg-emerald-600 dark:bg-[#10E89A] text-white dark:text-[#04130D] rounded-full hover:opacity-90 transition-opacity whitespace-nowrap"
               >
                 <GitCompare className="w-3.5 h-3.5" />
                 Compare
@@ -365,122 +406,126 @@ export default function GameDetailPage() {
                 href={`https://www.roblox.com/games/${game.rootPlaceId}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium bg-[#1C2A32] border border-[#263844] text-[#9BB0BD] hover:text-[#E8EEF2] rounded-lg transition-colors whitespace-nowrap"
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold liquid-glass-pill text-slate-700 dark:text-[#F1F7FA] hover:border-emerald-500/50 rounded-full transition-all whitespace-nowrap"
               >
-                Roblox
+                Play
                 <ExternalLink className="w-3.5 h-3.5" />
               </a>
             </div>
           </div>
 
-          {/* Primary Metrics Grid */}
+          {/* Primary Metrics */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
-            <div className="bg-[#1C2A32] border border-[#263844] rounded-xl p-4">
-              <p className="text-xs text-[#6E8492]">Live CCU</p>
-              <p className="mt-1 font-display text-2xl font-bold text-[#48D597] tabular-nums">
+            <div className="liquid-glass rounded-3xl p-4">
+              <p className="text-xs text-slate-500 dark:text-[#6F8796]">
+                Live CCU
+              </p>
+              <p className="mt-1 font-display text-2xl font-bold text-emerald-600 dark:text-[#10E89A] tabular-nums">
                 {formatExactNumber(game.currentCcu)}
               </p>
             </div>
-            <div className="bg-[#1C2A32] border border-[#263844] rounded-xl p-4">
-              <p className="text-xs text-[#6E8492]">Total Visits</p>
-              <p className="mt-1 font-display text-2xl font-bold text-[#E8EEF2] tabular-nums">
+            <div className="liquid-glass rounded-3xl p-4">
+              <p className="text-xs text-slate-500 dark:text-[#6F8796]">
+                Visits
+              </p>
+              <p className="mt-1 font-display text-2xl font-bold text-slate-900 dark:text-[#F1F7FA] tabular-nums">
                 {formatCompactNumber(game.totalVisits)}
               </p>
             </div>
-            <div className="bg-[#1C2A32] border border-[#263844] rounded-xl p-4">
-              <p className="text-xs text-[#6E8492]">Favorites</p>
-              <p className="mt-1 font-display text-2xl font-bold text-[#E8EEF2] tabular-nums">
+            <div className="liquid-glass rounded-3xl p-4">
+              <p className="text-xs text-slate-500 dark:text-[#6F8796]">
+                Favorites
+              </p>
+              <p className="mt-1 font-display text-2xl font-bold text-slate-900 dark:text-[#F1F7FA] tabular-nums">
                 {formatCompactNumber(game.favorites)}
               </p>
             </div>
-            <div className="bg-[#1C2A32] border border-[#263844] rounded-xl p-4">
-              <p className="text-xs text-[#6E8492]">Like Ratio</p>
-              <p className="mt-1 font-display text-2xl font-bold text-[#E8EEF2] tabular-nums">
+            <div className="liquid-glass rounded-3xl p-4">
+              <p className="text-xs text-slate-500 dark:text-[#6F8796]">
+                Rating
+              </p>
+              <p className="mt-1 font-display text-2xl font-bold text-slate-900 dark:text-[#F1F7FA] tabular-nums">
                 {game.likeRatio !== null && game.likeRatio !== undefined
                   ? `${game.likeRatio.toFixed(1)}%`
-                  : 'N/A'}
+                  : '—'}
               </p>
             </div>
           </div>
 
-          {/* Votes Breakdown + Observed Peak */}
+          {/* Votes & Peak */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-            <div className="bg-[#1C2A32] border border-[#263844] rounded-xl p-4 flex items-center justify-between">
+            <div className="liquid-glass rounded-3xl p-4 flex items-center justify-between">
               <div className="space-y-1">
-                <p className="text-xs text-[#6E8492]">Verified Votes</p>
+                <p className="text-xs text-slate-500 dark:text-[#6F8796]">
+                  Votes
+                </p>
                 <div className="flex items-center gap-4 text-sm tabular-nums">
-                  <span className="inline-flex items-center gap-1.5 text-[#48D597] font-medium">
+                  <span className="inline-flex items-center gap-1.5 text-emerald-600 dark:text-[#10E89A] font-semibold">
                     <ThumbsUp className="w-3.5 h-3.5" />
                     {formatCompactNumber(game.upVotes)}
                   </span>
-                  <span className="inline-flex items-center gap-1.5 text-[#9BB0BD]">
+                  <span className="inline-flex items-center gap-1.5 text-slate-500 dark:text-[#9CB3C0]">
                     <ThumbsDown className="w-3.5 h-3.5" />
                     {formatCompactNumber(game.downVotes)}
                   </span>
                 </div>
               </div>
-              <span className="text-xs text-[#6E8492]">games/v1/votes</span>
             </div>
 
-            <div className="bg-[#1C2A32] border border-[#263844] rounded-xl p-4 flex items-center justify-between">
+            <div className="liquid-glass rounded-3xl p-4 flex items-center justify-between">
               <div className="space-y-1">
-                <p className="text-xs text-[#6E8492]">
-                  Highest Observed CCU (RoMetric Record)
+                <p className="text-xs text-slate-500 dark:text-[#6F8796]">
+                  Peak CCU
                 </p>
-                <p className="text-base font-bold text-[#E8EEF2] tabular-nums">
+                <p className="text-base font-bold text-slate-900 dark:text-[#F1F7FA] tabular-nums">
                   {formatExactNumber(highestPeak)}
                 </p>
               </div>
-              <span className="text-xs text-[#6E8492] text-right tabular-nums">
-                {highestPeakAt ? formatUtcTimestamp(highestPeakAt) : 'N/A'}
+              <span className="text-xs text-slate-500 dark:text-[#6F8796] text-right tabular-nums">
+                {highestPeakAt ? formatUtcTimestamp(highestPeakAt) : '—'}
               </span>
             </div>
           </div>
         </div>
       </section>
 
-      {/* Growth Windows Strip */}
-      <section className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+      {/* Growth Windows */}
+      <section className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
         {[
-          { label: '1-Hour Growth', value: game.growth1h },
-          { label: '24-Hour Growth', value: game.growth24h },
-          { label: '7-Day Growth', value: game.growth7d },
-          { label: '30-Day Growth', value: game.growth30d },
+          { label: '1h', value: game.growth1h },
+          { label: '24h', value: game.growth24h },
+          { label: '7d', value: game.growth7d },
+          { label: '30d', value: game.growth30d },
         ].map((item) => (
           <div
             key={item.label}
-            className="bg-[#1C2A32] border border-[#263844] rounded-xl p-4 flex items-center justify-between"
+            className="liquid-glass rounded-3xl px-5 py-4 flex items-center justify-between"
           >
-            <span className="text-xs text-[#9BB0BD]">{item.label}</span>
+            <span className="text-xs font-medium text-slate-500 dark:text-[#9CB3C0]">
+              {item.label}
+            </span>
             <GrowthValue value={item.value} />
           </div>
         ))}
       </section>
 
-      {/* Historical CCU & Peak Chart */}
-      <section className="bg-[#1C2A32] border border-[#263844] rounded-xl p-6 space-y-5">
+      {/* Player History Chart */}
+      <section className="liquid-glass-hero rounded-[28px] p-6 space-y-5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div>
-            <h2 className="font-display text-xl font-bold text-[#E8EEF2]">
-              Historical Concurrent Players (CCU)
-            </h2>
-            <p className="text-xs text-[#6E8492] mt-0.5">
-              {isTracked
-                ? `Directly observed history starting ${formatUtcTimestamp(game.firstObservedAt)} · ${game.snapshotCount ?? historyPoints.length} observations recorded`
-                : 'Live lookup only — this game is not yet in the tracked historical database.'}
-            </p>
-          </div>
+          <h2 className="font-display text-lg font-bold text-slate-900 dark:text-[#F1F7FA]">
+            Player History
+          </h2>
 
-          <div className="flex items-center gap-1 p-1 bg-[#101820] border border-[#263844] rounded-lg w-fit">
+          <div className="flex items-center gap-1 p-1 rounded-full bg-black/[0.04] dark:bg-white/[0.06] border border-slate-900/8 dark:border-white/10 w-fit">
             {TIME_RANGES.map((t) => (
               <button
                 key={t.id}
                 type="button"
                 onClick={() => setRange(t.id)}
-                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors cursor-pointer ${
+                className={`px-3 py-1 text-xs font-semibold rounded-full transition-all cursor-pointer ${
                   range === t.id
-                    ? 'bg-[#48D597] text-[#101820] font-semibold'
-                    : 'text-[#9BB0BD] hover:text-[#E8EEF2]'
+                    ? 'bg-emerald-600 dark:bg-[#10E89A] text-white dark:text-[#04130D]'
+                    : 'text-slate-600 dark:text-[#9CB3C0] hover:text-slate-950 dark:hover:text-white'
                 }`}
               >
                 {t.label}
@@ -490,92 +535,39 @@ export default function GameDetailPage() {
         </div>
 
         {historyLoading ? (
-          <div className="h-[320px] flex items-center justify-center text-sm text-[#6E8492]">
-            Loading historical observations...
+          <div className="h-[320px] flex items-center justify-center text-sm text-slate-500 dark:text-[#6F8796]">
+            Loading chart...
           </div>
         ) : historyPoints.length >= 2 ? (
-          <EChartWrapper option={ccuChartOption} height={340} />
+          <EChartWrapper option={ccuChartOption} height={320} />
         ) : (
-          <div className="border border-dashed border-[#263844] rounded-xl p-8 text-center space-y-3 bg-[#101820]/40">
-            <p className="text-sm font-semibold text-[#E8EEF2]">
-              {isTracked
-                ? historyPoints.length === 1
-                  ? `History tracking started ${formatUtcTimestamp(historyPoints[0].timestamp)}`
-                  : 'No observations recorded in this selected time window yet'
-                : 'Historical timeline unavailable (Not yet tracked)'}
+          <div className="rounded-2xl border border-dashed border-slate-900/15 dark:border-white/15 p-10 text-center space-y-1.5">
+            <p className="text-sm font-semibold text-slate-900 dark:text-[#F1F7FA]">
+              Not enough history for this range yet
             </p>
-            <p className="text-xs text-[#9BB0BD] max-w-lg mx-auto leading-relaxed">
-              RoMetric never fabricates or backfills missing Roblox CCU history.
-              {isTracked
-                ? ` Current live point: ${formatExactNumber(game.currentCcu)} CCU. The timeline will plot automatically as subsequent scheduled or manual collection cycles run.`
-                : ' Add this Universe ID in the Owner Admin Console to begin building a permanent, verifiable historical timeline.'}
+            <p className="text-xs text-slate-500 dark:text-[#9CB3C0]">
+              Live players right now: {formatExactNumber(game.currentCcu)}
             </p>
           </div>
         )}
       </section>
 
-      {/* Transparent Revenue Estimation Module (Explicitly Experimental / Disabled) */}
-      <section className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        <div className="lg:col-span-7 bg-[#1C2A32] border border-[#263844] rounded-xl p-6 space-y-3">
-          <h2 className="font-display text-lg font-bold text-[#E8EEF2]">
-            About This Experience
+      {/* About */}
+      {game.description?.trim() && (
+        <section className="liquid-glass rounded-[28px] p-6 space-y-3">
+          <h2 className="font-display text-lg font-bold text-slate-900 dark:text-[#F1F7FA]">
+            About
           </h2>
-          <p className="text-sm text-[#9BB0BD] leading-relaxed whitespace-pre-line">
-            {game.description?.trim()
-              ? game.description
-              : 'No public description provided by Roblox for this experience.'}
+          <p className="text-sm text-slate-600 dark:text-[#9CB3C0] leading-relaxed whitespace-pre-line">
+            {game.description}
           </p>
-          <p className="text-xs text-[#6E8492] pt-2 border-t border-[#263844] tabular-nums">
-            Last Roblox experience update:{' '}
-            {game.robloxUpdatedAt
-              ? formatUtcTimestamp(game.robloxUpdatedAt)
-              : 'N/A'}{' '}
-            · Data source: {game.dataSource}
-          </p>
-        </div>
-
-        <div className="lg:col-span-5 bg-[#1C2A32] border border-[#263844] rounded-xl p-6 space-y-4">
-          <div className="flex items-center justify-between gap-2">
-            <h2 className="font-display text-lg font-bold text-[#E8EEF2]">
-              Estimated Revenue
-            </h2>
-            <span className="text-xs font-medium text-amber-400">
-              Experimental · Disabled
-            </span>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3 text-xs">
-            <div className="p-3 rounded-lg bg-[#101820] border border-[#263844]">
-              <p className="text-[#6E8492]">Estimated Range</p>
-              <p className="mt-1 text-base font-semibold text-[#9BB0BD] tabular-nums">
-                N/A
-              </p>
-            </div>
-            <div className="p-3 rounded-lg bg-[#101820] border border-[#263844]">
-              <p className="text-[#6E8492]">Confidence Level</p>
-              <p className="mt-1 text-sm font-medium text-[#9BB0BD]">
-                Unavailable
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-start gap-2.5 text-xs text-[#9BB0BD] leading-relaxed">
-            <Info className="w-4 h-4 text-[#48D597] shrink-0 mt-0.5" />
-            <p>
-              Roblox does not expose actual developer earnings or ARPDAU publicly.
-              In accordance with RoMetric&apos;s accuracy policy, revenue estimates
-              remain disabled until validated opt-in monetization benchmarks are
-              verified.{' '}
-              <Link
-                href="/methodology#revenue"
-                className="text-[#48D597] hover:underline"
-              >
-                Read methodology
-              </Link>
+          {game.robloxUpdatedAt && (
+            <p className="text-xs text-slate-500 dark:text-[#6F8796] pt-2 border-t border-slate-900/6 dark:border-white/8 tabular-nums">
+              Updated {formatUtcTimestamp(game.robloxUpdatedAt)}
             </p>
-          </div>
-        </div>
-      </section>
+          )}
+        </section>
+      )}
     </div>
   );
 }

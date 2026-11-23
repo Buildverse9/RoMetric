@@ -6,24 +6,36 @@ import { Footer } from '@/components/Footer';
 
 export const metadata: Metadata = {
   title: {
-    default: 'RoMetric — Roblox Analytics & Intelligence',
+    default: 'RoMetric — Roblox Analytics',
     template: '%s | RoMetric',
   },
   description:
-    'Discover. Analyze. Grow. Independent Roblox game analytics and market intelligence with live CCU tracking, historical charts, rankings, and comparisons.',
+    'Live Roblox game analytics, player rankings, historical charts, and comparisons.',
   openGraph: {
-    title: 'RoMetric — Roblox Analytics & Intelligence',
+    title: 'RoMetric — Roblox Analytics',
     description:
-      'Independent Roblox game analytics and market intelligence. Discover trending games, track live CCU, explore historical trends, and compare experiences.',
+      'Track live Roblox player counts, trending games, rankings, and historical trends.',
     type: 'website',
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'RoMetric — Roblox Analytics & Intelligence',
+    title: 'RoMetric — Roblox Analytics',
     description:
-      'Discover. Analyze. Grow. Independent Roblox game analytics and market intelligence.',
+      'Live Roblox game analytics, player rankings, historical charts, and comparisons.',
   },
 };
+
+const THEME_INIT_SCRIPT = `
+(function() {
+  try {
+    var stored = localStorage.getItem('rometric-theme');
+    var theme = stored === 'light' || stored === 'dark' ? stored : 'dark';
+    document.documentElement.classList.toggle('dark', theme === 'dark');
+  } catch (e) {
+    document.documentElement.classList.add('dark');
+  }
+})();
+`;
 
 export default function RootLayout({
   children,
@@ -31,18 +43,23 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className="dark">
+    <html lang="en" className="dark" suppressHydrationWarning>
       <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link
+          rel="preconnect"
+          href="https://fonts.gstatic.com"
+          crossOrigin="anonymous"
+        />
         <link
           rel="stylesheet"
-          href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap"
+          href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap"
         />
       </head>
       <body
         suppressHydrationWarning
-        className="min-h-screen bg-[#101820] text-[#E8EEF2] flex flex-col selection:bg-[#48D597]/25 selection:text-[#E8EEF2]"
+        className="min-h-screen flex flex-col text-slate-900 dark:text-[#F1F7FA] selection:bg-emerald-500/25 selection:text-emerald-950 dark:selection:text-white transition-colors duration-200 pb-20 md:pb-0"
       >
         <AppProvider>
           <Navbar />

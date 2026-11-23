@@ -69,7 +69,6 @@ export default function AdminDashboardPage() {
     text: string;
   } | null>(null);
 
-  // Add Game form state
   const [addInput, setAddInput] = useState('');
   const [addTier, setAddTier] = useState<TrackingTier>('tier_1');
   const [addingGame, setAddingGame] = useState(false);
@@ -149,7 +148,7 @@ export default function AdminDashboardPage() {
         await loadAdminTelemetry();
         setStatusMessage({
           type: result.job.status === 'failed' ? 'error' : 'success',
-          text: `Collection finished (${result.job.status}): ${result.job.gamesSucceeded}/${result.job.gamesAttempted} games saved · ${result.job.apiRequests} Roblox API calls · ${result.job.http429Count} HTTP 429s · ${(result.job.durationMs / 1000).toFixed(1)}s`,
+          text: `Collection finished (${result.job.status}): ${result.job.gamesSucceeded}/${result.job.gamesAttempted} games saved · ${result.job.apiRequests} API calls · ${result.job.http429Count} 429s · ${(result.job.durationMs / 1000).toFixed(1)}s`,
         });
       } catch (err) {
         setStatusMessage({
@@ -165,7 +164,6 @@ export default function AdminDashboardPage() {
     [isAdmin, collecting, user, refreshCatalog, loadAdminTelemetry]
   );
 
-  // Optional 5-minute automated live collection while Admin Console stays open
   useEffect(() => {
     if (!autoCollect || !isAdmin || config.paused) return;
     const interval = setInterval(() => {
@@ -222,7 +220,7 @@ export default function AdminDashboardPage() {
       await loadAdminTelemetry();
       setStatusMessage({
         type: 'success',
-        text: `Added "${saved.name}" (Universe ${saved.universeId}) to ${addTier.replace('_', ' ').toUpperCase()} tracking.`,
+        text: `Added "${saved.name}" (Universe ${saved.universeId}) to ${addTier.replace('_', ' ').toUpperCase()}.`,
       });
     } catch (err) {
       setStatusMessage({
@@ -259,7 +257,7 @@ export default function AdminDashboardPage() {
       await refreshCatalog(false);
       setStatusMessage({
         type: 'success',
-        text: `Removed "${game.name}" from active tracking.`,
+        text: `Removed "${game.name}" from tracking.`,
       });
     } catch (err) {
       setStatusMessage({
@@ -279,7 +277,7 @@ export default function AdminDashboardPage() {
         type: 'success',
         text:
           removed > 0
-            ? `Retention cleanup deleted ${removed} raw snapshots older than ${config.retentionRawHours}h (hourly & daily rollups preserved).`
+            ? `Deleted ${removed} raw snapshots older than ${config.retentionRawHours}h.`
             : `No raw snapshots older than ${config.retentionRawHours}h needed cleanup.`,
       });
     } catch (err) {
@@ -292,7 +290,6 @@ export default function AdminDashboardPage() {
     }
   };
 
-  // Computed Admin KPIs
   const metrics = useMemo(() => {
     const totalJobs = jobs.length;
     const succeededJobs = jobs.filter((j) => j.status === 'success').length;
@@ -303,11 +300,13 @@ export default function AdminDashboardPage() {
     const total429 = jobs.reduce((s, j) => s + j.http429Count, 0);
     const lastSuccess = jobs.find((j) => j.status !== 'failed') ?? null;
 
-    // Conservative storage footprint estimate (~1.2 KB per Firestore doc + indexes)
     const estimatedDocs = games.length * 3 + snapshotCount + jobs.length;
     const estimatedMb = Number(((estimatedDocs * 1.2) / 1024).toFixed(2));
     const freeQuotaMb = 500;
-    const usagePct = Math.min(100, Number(((estimatedMb / freeQuotaMb) * 100).toFixed(1)));
+    const usagePct = Math.min(
+      100,
+      Number(((estimatedMb / freeQuotaMb) * 100).toFixed(1))
+    );
 
     return {
       totalJobs,
@@ -322,12 +321,9 @@ export default function AdminDashboardPage() {
     };
   }, [jobs, games.length, snapshotCount]);
 
-  // --------------------------------------------------------------------------
-  // Auth Gate (Admin dashboard is strictly private)
-  // --------------------------------------------------------------------------
   if (!authReady) {
     return (
-      <div className="max-w-[1360px] mx-auto px-4 sm:px-6 py-16 text-center text-sm text-[#6E8492]">
+      <div className="max-w-[1280px] mx-auto px-4 sm:px-6 py-16 text-center text-sm text-slate-500 dark:text-[#6F8796]">
         Verifying session...
       </div>
     );
@@ -335,19 +331,19 @@ export default function AdminDashboardPage() {
 
   if (!user || !isAdmin) {
     return (
-      <div className="max-w-[1360px] mx-auto px-4 sm:px-6 py-16">
-        <div className="max-w-md mx-auto bg-[#1C2A32] border border-[#263844] rounded-xl p-8 space-y-5 text-center">
-          <div className="w-12 h-12 rounded-xl bg-[#101820] border border-[#263844] flex items-center justify-center text-[#48D597] mx-auto">
+      <div className="max-w-[1280px] mx-auto px-4 sm:px-6 py-16">
+        <div className="max-w-md mx-auto liquid-glass rounded-3xl p-8 space-y-5 text-center">
+          <div className="w-12 h-12 rounded-2xl bg-emerald-500/12 dark:bg-[#10E89A]/14 flex items-center justify-center text-emerald-600 dark:text-[#10E89A] mx-auto">
             <Lock className="w-5 h-5" />
           </div>
           <div className="space-y-1.5">
-            <h1 className="font-display text-2xl font-bold text-[#E8EEF2]">
-              Protected Owner Admin Console
+            <h1 className="font-display text-2xl font-bold text-slate-900 dark:text-[#F1F7FA]">
+              Admin Console
             </h1>
-            <p className="text-sm text-[#9BB0BD] leading-relaxed">
+            <p className="text-sm text-slate-600 dark:text-[#9CB3C0] leading-relaxed">
               {user
-                ? `Signed in as ${user.email}, which does not have administrator privileges for RoMetric.`
-                : 'Sign in with the verified owner Google account to manage tracked games, trigger live data collection, and monitor system health.'}
+                ? `Signed in as ${user.email}, which does not have admin access.`
+                : 'Sign in with the owner Google account to manage tracking and logs.'}
             </p>
           </div>
 
@@ -355,15 +351,15 @@ export default function AdminDashboardPage() {
             <button
               type="button"
               onClick={() => void signOutUser()}
-              className="w-full py-2.5 px-4 text-sm font-medium bg-[#101820] border border-[#263844] text-[#E8EEF2] rounded-lg hover:border-[#48D597] transition-colors cursor-pointer"
+              className="w-full py-2.5 px-4 text-sm font-medium liquid-glass-pill text-slate-900 dark:text-[#F1F7FA] rounded-full hover:border-emerald-500/50 transition-colors cursor-pointer"
             >
-              Sign out and switch account
+              Sign out
             </button>
           ) : (
             <button
               type="button"
               onClick={() => void signInWithGoogle()}
-              className="w-full py-2.5 px-4 text-sm font-semibold bg-[#48D597] text-[#101820] rounded-lg hover:bg-[#3BC286] transition-colors cursor-pointer"
+              className="w-full py-2.5 px-4 text-sm font-semibold bg-emerald-600 dark:bg-[#10E89A] text-white dark:text-[#04130D] rounded-full hover:opacity-90 transition-opacity cursor-pointer"
             >
               Sign in with Google
             </button>
@@ -374,69 +370,69 @@ export default function AdminDashboardPage() {
   }
 
   return (
-    <div className="max-w-[1360px] mx-auto px-4 sm:px-6 py-8 sm:py-10 space-y-8">
+    <div className="max-w-[1280px] mx-auto px-4 sm:px-6 pt-8 pb-6 space-y-6">
       {/* Admin Header */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-[#263844] pb-6">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-slate-900/8 dark:border-white/10">
         <div className="space-y-1">
-          <div className="flex items-center gap-2 text-xs text-[#48D597] font-medium">
+          <div className="flex items-center gap-2 text-xs text-emerald-600 dark:text-[#10E89A] font-semibold">
             <Shield className="w-3.5 h-3.5" />
-            <span>Authenticated Owner Console · {user.email}</span>
+            <span>Owner Console · {user.email}</span>
           </div>
-          <h1 className="font-display text-3xl font-bold text-[#E8EEF2]">
-            RoMetric Operations & Collector
+          <h1 className="font-display text-3xl font-bold text-slate-950 dark:text-white">
+            Operations & Collector
           </h1>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
             disabled={collecting || config.paused}
             onClick={() => void handleRunCollection('all', true)}
-            className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold bg-[#48D597] text-[#101820] rounded-lg hover:bg-[#3BC286] disabled:opacity-50 transition-colors cursor-pointer"
+            className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold bg-emerald-600 dark:bg-[#10E89A] text-white dark:text-[#04130D] rounded-full hover:opacity-90 disabled:opacity-50 transition-opacity cursor-pointer"
           >
             <RefreshCw
               className={`w-3.5 h-3.5 ${collecting ? 'animate-spin' : ''}`}
             />
             {collecting
-              ? progressText || 'Syncing live Roblox charts...'
-              : 'Sync Live Top Charts (80+ Games)'}
+              ? progressText || 'Syncing charts...'
+              : 'Sync Live Charts (80+)'}
           </button>
 
           <button
             type="button"
             disabled={collecting || config.paused}
             onClick={() => void handleRunCollection('manual', false)}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium bg-[#1C2A32] border border-[#263844] text-[#E8EEF2] hover:border-[#48D597] disabled:opacity-50 rounded-lg cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium liquid-glass-pill text-slate-900 dark:text-[#F1F7FA] hover:border-emerald-500/50 disabled:opacity-50 rounded-full cursor-pointer"
           >
-            Refresh Tracked Only
+            Refresh Tracked
           </button>
 
           <button
             type="button"
             onClick={() => setAutoCollect((v) => !v)}
-            className={`inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium rounded-lg border transition-colors cursor-pointer ${
+            className={`inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium rounded-full border transition-colors cursor-pointer ${
               autoCollect
-                ? 'bg-[#48D597]/15 border-[#48D597] text-[#48D597]'
-                : 'bg-[#1C2A32] border-[#263844] text-[#9BB0BD] hover:text-[#E8EEF2]'
+                ? 'bg-emerald-500/15 border-emerald-500/50 text-emerald-700 dark:text-[#10E89A]'
+                : 'liquid-glass-pill text-slate-600 dark:text-[#9CB3C0] hover:text-slate-950 dark:hover:text-white'
             }`}
           >
-            {autoCollect ? 'Auto-Collect Active (5m)' : 'Enable 5m Auto-Collect'}
+            {autoCollect ? 'Auto-Collect On (5m)' : 'Auto-Collect (5m)'}
           </button>
 
           <button
             type="button"
             onClick={() => void handleTogglePause()}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium bg-[#1C2A32] border border-[#263844] text-[#E8EEF2] hover:border-[#48D597] rounded-lg cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium liquid-glass-pill text-slate-900 dark:text-[#F1F7FA] hover:border-emerald-500/50 rounded-full cursor-pointer"
           >
             {config.paused ? (
               <>
-                <Play className="w-3.5 h-3.5 text-[#48D597]" />
-                Resume Collection
+                <Play className="w-3.5 h-3.5 text-emerald-600 dark:text-[#10E89A]" />
+                Resume
               </>
             ) : (
               <>
-                <Pause className="w-3.5 h-3.5 text-amber-400" />
-                Pause Collection
+                <Pause className="w-3.5 h-3.5 text-amber-500" />
+                Pause
               </>
             )}
           </button>
@@ -444,7 +440,7 @@ export default function AdminDashboardPage() {
           <button
             type="button"
             onClick={() => void signOutUser()}
-            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium bg-[#101820] border border-[#263844] text-[#9BB0BD] hover:text-[#E8EEF2] rounded-lg cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium liquid-glass-pill text-slate-600 dark:text-[#9CB3C0] hover:text-slate-950 dark:hover:text-white rounded-full cursor-pointer"
           >
             <LogOut className="w-3.5 h-3.5" />
             Sign Out
@@ -454,24 +450,24 @@ export default function AdminDashboardPage() {
 
       {statusMessage && (
         <div
-          className={`rounded-xl p-4 border text-sm flex items-center justify-between gap-4 ${
+          className={`liquid-glass rounded-3xl p-4 text-sm flex items-center justify-between gap-4 ${
             statusMessage.type === 'success'
-              ? 'bg-[#48D597]/10 border-[#48D597]/40 text-[#E8EEF2]'
-              : 'bg-rose-500/10 border-rose-500/40 text-rose-200'
+              ? 'border-emerald-500/40 text-slate-900 dark:text-[#F1F7FA]'
+              : 'border-rose-500/40 text-rose-700 dark:text-rose-200'
           }`}
         >
           <div className="flex items-center gap-2.5">
             {statusMessage.type === 'success' ? (
-              <CheckCircle2 className="w-4 h-4 text-[#48D597] shrink-0" />
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-[#10E89A] shrink-0" />
             ) : (
-              <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+              <AlertTriangle className="w-4 h-4 text-rose-500 shrink-0" />
             )}
             <span>{statusMessage.text}</span>
           </div>
           <button
             type="button"
             onClick={() => setStatusMessage(null)}
-            className="text-xs text-[#9BB0BD] hover:text-[#E8EEF2]"
+            className="text-xs text-slate-500 dark:text-[#9CB3C0] hover:text-slate-900 dark:hover:text-white cursor-pointer"
           >
             Dismiss
           </button>
@@ -479,71 +475,74 @@ export default function AdminDashboardPage() {
       )}
 
       {!collecting && games.length > 0 && games.length < 25 && (
-        <div className="rounded-xl p-4 border border-[#48D597]/35 bg-[#48D597]/10 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="text-sm text-[#E8EEF2]">
+        <div className="liquid-glass-hero rounded-3xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="text-sm text-slate-900 dark:text-[#F1F7FA]">
             <span className="font-semibold">
-              Only {games.length} experiences are currently saved in your database.
+              {games.length} games currently tracked.
             </span>{' '}
-            <span className="text-[#9BB0BD]">
-              Click &ldquo;Sync Live Top Charts (80+ Games)&rdquo; to automatically
-              discover and track Roblox&apos;s live Top Playing Now, Trending, and
-              Up &amp; Coming charts alongside classics.
+            <span className="text-slate-600 dark:text-[#9CB3C0]">
+              Sync live charts to expand to 80+ games.
             </span>
           </div>
           <button
             type="button"
             disabled={collecting || config.paused}
             onClick={() => void handleRunCollection('all', true)}
-            className="px-4 py-2 text-xs font-semibold bg-[#48D597] text-[#101820] rounded-lg hover:bg-[#3BC286] whitespace-nowrap cursor-pointer shrink-0"
+            className="px-4 py-2 text-xs font-semibold bg-emerald-600 dark:bg-[#10E89A] text-white dark:text-[#04130D] rounded-full hover:opacity-90 whitespace-nowrap cursor-pointer shrink-0"
           >
-            Sync 80+ Live Games Now
+            Sync 80+ Games
           </button>
         </div>
       )}
 
       {/* Operations KPI Grid */}
       <section className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-[#1C2A32] border border-[#263844] rounded-xl p-5 space-y-1">
-          <p className="text-xs text-[#6E8492]">Tracked Games</p>
-          <p className="font-display text-2xl font-bold text-[#E8EEF2] tabular-nums">
+        <div className="liquid-glass rounded-3xl p-5 space-y-1">
+          <p className="text-xs text-slate-500 dark:text-[#6F8796]">
+            Tracked Games
+          </p>
+          <p className="font-display text-2xl font-bold text-slate-900 dark:text-[#F1F7FA] tabular-nums">
             {formatExactNumber(games.length)}
           </p>
-          <p className="text-xs text-[#9BB0BD]">
-            {dataMode === 'persisted' ? 'Persisted in database' : 'Ready to seed'}
+          <p className="text-xs text-slate-500 dark:text-[#9CB3C0]">
+            {dataMode === 'persisted' ? 'Database connected' : 'Ready to seed'}
           </p>
         </div>
 
-        <div className="bg-[#1C2A32] border border-[#263844] rounded-xl p-5 space-y-1">
-          <p className="text-xs text-[#6E8492]">Stored Raw Snapshots</p>
-          <p className="font-display text-2xl font-bold text-[#48D597] tabular-nums">
+        <div className="liquid-glass rounded-3xl p-5 space-y-1">
+          <p className="text-xs text-slate-500 dark:text-[#6F8796]">
+            Stored Raw Snapshots
+          </p>
+          <p className="font-display text-2xl font-bold text-emerald-600 dark:text-[#10E89A] tabular-nums">
             {formatExactNumber(snapshotCount)}
           </p>
-          <p className="text-xs text-[#9BB0BD] tabular-nums">
-            Retention window: {config.retentionRawHours}h raw
+          <p className="text-xs text-slate-500 dark:text-[#9CB3C0] tabular-nums">
+            {config.retentionRawHours}h raw retention
           </p>
         </div>
 
-        <div className="bg-[#1C2A32] border border-[#263844] rounded-xl p-5 space-y-1">
-          <p className="text-xs text-[#6E8492]">Collection Success Rate</p>
-          <p className="font-display text-2xl font-bold text-[#E8EEF2] tabular-nums">
+        <div className="liquid-glass rounded-3xl p-5 space-y-1">
+          <p className="text-xs text-slate-500 dark:text-[#6F8796]">
+            Success Rate
+          </p>
+          <p className="font-display text-2xl font-bold text-slate-900 dark:text-[#F1F7FA] tabular-nums">
             {metrics.successRate === 'N/A' ? 'N/A' : `${metrics.successRate}%`}
           </p>
-          <p className="text-xs text-[#9BB0BD] tabular-nums">
-            {metrics.failedJobs} failed · {metrics.totalApiCalls} API calls ·{' '}
-            {metrics.total429} HTTP 429s
+          <p className="text-xs text-slate-500 dark:text-[#9CB3C0] tabular-nums">
+            {metrics.failedJobs} failed · {metrics.total429} 429s
           </p>
         </div>
 
-        <div className="bg-[#1C2A32] border border-[#263844] rounded-xl p-5 space-y-1">
-          <p className="text-xs text-[#6E8492]">Collector Health & Freshness</p>
-          <p className="font-display text-xl font-bold text-[#E8EEF2]">
+        <div className="liquid-glass rounded-3xl p-5 space-y-1">
+          <p className="text-xs text-slate-500 dark:text-[#6F8796]">Status</p>
+          <p className="font-display text-xl font-bold text-slate-900 dark:text-[#F1F7FA]">
             {config.paused
               ? 'Paused'
               : metrics.lastSuccess
                 ? 'Healthy'
-                : 'Awaiting First Run'}
+                : 'Pending'}
           </p>
-          <p className="text-xs text-[#9BB0BD] tabular-nums">
+          <p className="text-xs text-slate-500 dark:text-[#9CB3C0] tabular-nums">
             Last run:{' '}
             {metrics.lastSuccess
               ? formatRelativeTime(metrics.lastSuccess.completedAt)
@@ -552,89 +551,95 @@ export default function AdminDashboardPage() {
         </div>
       </section>
 
-      {/* Free-Tier Storage Monitor + Add Game Form */}
+      {/* Storage + Add Game */}
       <section className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        <div className="lg:col-span-5 bg-[#1C2A32] border border-[#263844] rounded-xl p-6 space-y-4">
+        <div className="lg:col-span-5 liquid-glass rounded-3xl p-6 space-y-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <HardDrive className="w-4 h-4 text-[#48D597]" />
-              <h2 className="font-display text-lg font-bold text-[#E8EEF2]">
-                Free-Tier Database Storage
+              <HardDrive className="w-4 h-4 text-emerald-600 dark:text-[#10E89A]" />
+              <h2 className="font-display text-base font-bold text-slate-900 dark:text-[#F1F7FA]">
+                Storage Usage
               </h2>
             </div>
-            <span className="text-xs text-[#9BB0BD] tabular-nums">
+            <span className="text-xs text-slate-500 dark:text-[#9CB3C0] tabular-nums">
               {metrics.estimatedMb} MB / {metrics.freeQuotaMb} MB
             </span>
           </div>
 
-          <div className="w-full h-2.5 bg-[#101820] rounded-full overflow-hidden border border-[#263844]">
+          <div className="w-full h-2.5 bg-black/10 dark:bg-white/10 rounded-full overflow-hidden">
             <div
-              className="h-full bg-[#48D597] transition-all"
+              className="h-full bg-emerald-600 dark:bg-[#10E89A] rounded-full transition-all"
               style={{ width: `${Math.max(2, metrics.usagePct)}%` }}
             />
           </div>
 
-          <div className="flex items-center justify-between text-xs text-[#6E8492]">
+          <div className="flex items-center justify-between text-xs text-slate-500 dark:text-[#6F8796]">
             <span>
-              Policy: {config.retentionRawHours}h raw → {config.retentionHourlyDays}d
-              hourly → permanent daily
+              {config.retentionRawHours}h raw → {config.retentionHourlyDays}d
+              hourly → daily
             </span>
             <button
               type="button"
               disabled={pruning}
               onClick={() => void handlePruneRetention()}
-              className="text-[#48D597] hover:underline font-medium cursor-pointer disabled:opacity-50"
+              className="text-emerald-600 dark:text-[#10E89A] hover:underline font-semibold cursor-pointer disabled:opacity-50"
             >
-              {pruning ? 'Pruning...' : 'Prune expired raw'}
+              {pruning ? 'Pruning...' : 'Prune expired'}
             </button>
           </div>
         </div>
 
-        <div className="lg:col-span-7 bg-[#1C2A32] border border-[#263844] rounded-xl p-6 space-y-4">
+        <div className="lg:col-span-7 liquid-glass rounded-3xl p-6 space-y-4">
           <div className="flex items-center gap-2">
-            <Database className="w-4 h-4 text-[#48D597]" />
-            <h2 className="font-display text-lg font-bold text-[#E8EEF2]">
-              Add Roblox Experience to Tracking
+            <Database className="w-4 h-4 text-emerald-600 dark:text-[#10E89A]" />
+            <h2 className="font-display text-base font-bold text-slate-900 dark:text-[#F1F7FA]">
+              Add Game to Tracking
             </h2>
           </div>
 
           <form
             onSubmit={handleAddGame}
-            className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3"
+            className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5"
           >
             <input
               type="text"
               value={addInput}
               onChange={(e) => setAddInput(e.target.value)}
-              placeholder="Search game name (e.g. Steal An Egg), Universe ID, Place ID, or URL"
-              className="flex-1 px-3.5 py-2.5 text-sm bg-[#101820] border border-[#263844] rounded-lg text-[#E8EEF2] placeholder:text-[#6E8492] focus:outline-none focus:border-[#48D597]"
+              placeholder="Game name, Universe ID, Place ID, or URL"
+              className="flex-1 px-4 py-2.5 text-sm liquid-glass-pill rounded-full text-slate-900 dark:text-[#F1F7FA] placeholder:text-slate-500 dark:placeholder:text-[#6F8796] focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
             />
             <select
               aria-label="Priority tier"
               value={addTier}
               onChange={(e) => setAddTier(e.target.value as TrackingTier)}
-              className="px-3 py-2.5 text-sm bg-[#101820] border border-[#263844] rounded-lg text-[#E8EEF2] focus:outline-none focus:border-[#48D597]"
+              className="px-4 py-2.5 text-sm liquid-glass-pill rounded-full text-slate-900 dark:text-[#F1F7FA] focus:outline-none"
             >
-              <option value="tier_1">Tier 1 (5m)</option>
-              <option value="tier_2">Tier 2 (15m)</option>
-              <option value="tier_3">Tier 3 (60m)</option>
+              <option value="tier_1" className="bg-white dark:bg-[#0D1A22]">
+                Tier 1 (5m)
+              </option>
+              <option value="tier_2" className="bg-white dark:bg-[#0D1A22]">
+                Tier 2 (15m)
+              </option>
+              <option value="tier_3" className="bg-white dark:bg-[#0D1A22]">
+                Tier 3 (60m)
+              </option>
             </select>
             <button
               type="submit"
               disabled={addingGame || !addInput.trim()}
-              className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 text-sm font-semibold bg-[#48D597] text-[#101820] rounded-lg hover:bg-[#3BC286] disabled:opacity-50 whitespace-nowrap cursor-pointer"
+              className="inline-flex items-center justify-center gap-1.5 px-5 py-2.5 text-sm font-semibold bg-emerald-600 dark:bg-[#10E89A] text-white dark:text-[#04130D] rounded-full hover:opacity-90 disabled:opacity-50 whitespace-nowrap cursor-pointer"
             >
               <Plus className="w-4 h-4" />
-              {addingGame ? 'Verifying...' : 'Add Game'}
+              {addingGame ? 'Adding...' : 'Add'}
             </button>
           </form>
         </div>
       </section>
 
-      {/* Tracked Catalog Management Table */}
+      {/* Managed Tracking List */}
       <section className="space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="font-display text-xl font-bold text-[#E8EEF2]">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="font-display text-xl font-bold text-slate-900 dark:text-[#F1F7FA]">
             Managed Tracking List ({games.length})
           </h2>
           <div className="flex items-center gap-2">
@@ -644,7 +649,7 @@ export default function AdminDashboardPage() {
                 type="button"
                 disabled={collecting || config.paused}
                 onClick={() => void handleRunCollection(tier)}
-                className="px-3 py-1.5 text-xs font-medium bg-[#1C2A32] border border-[#263844] text-[#9BB0BD] hover:text-[#48D597] hover:border-[#48D597]/50 rounded-md cursor-pointer disabled:opacity-50"
+                className="px-3.5 py-1.5 text-xs font-medium liquid-glass-pill text-slate-600 dark:text-[#9CB3C0] hover:text-emerald-600 dark:hover:text-[#10E89A] rounded-full cursor-pointer disabled:opacity-50"
               >
                 Collect {tier.replace('_', ' ').toUpperCase()}
               </button>
@@ -652,48 +657,48 @@ export default function AdminDashboardPage() {
           </div>
         </div>
 
-        <div className="bg-[#1C2A32] border border-[#263844] rounded-xl overflow-hidden">
+        <div className="liquid-glass rounded-3xl overflow-hidden">
           <div className="overflow-x-auto max-h-[420px]">
             <table className="w-full text-left border-collapse">
-              <thead className="sticky top-0 bg-[#162229] border-b border-[#263844] z-10">
-                <tr className="text-xs font-medium text-[#9BB0BD]">
-                  <th className="py-3 px-4">Experience</th>
-                  <th className="py-3 px-3 text-right">Live CCU</th>
-                  <th className="py-3 px-3 text-right">Snapshots</th>
-                  <th className="py-3 px-3">Priority Tier</th>
-                  <th className="py-3 px-3">Last Observed</th>
-                  <th className="py-3 px-4 text-right">Actions</th>
+              <thead className="sticky top-0 bg-white/85 dark:bg-[#0E1A22]/90 backdrop-blur-md border-b border-slate-900/8 dark:border-white/10 z-10">
+                <tr className="text-xs font-medium text-slate-500 dark:text-[#9CB3C0]">
+                  <th className="py-3.5 px-5">Game</th>
+                  <th className="py-3.5 px-3 text-right">Live CCU</th>
+                  <th className="py-3.5 px-3 text-right">Snapshots</th>
+                  <th className="py-3.5 px-3">Tier</th>
+                  <th className="py-3.5 px-3">Updated</th>
+                  <th className="py-3.5 px-5 text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-[#263844]/60 text-sm">
+              <tbody className="divide-y divide-slate-900/6 dark:divide-white/8 text-sm">
                 {games.map((g) => (
                   <tr
                     key={g.universeId}
-                    className="hover:bg-[#22333D]/70 transition-colors"
+                    className="hover:bg-black/[0.03] dark:hover:bg-white/[0.04] transition-colors"
                   >
-                    <td className="py-2.5 px-4">
-                      <div className="flex items-center gap-2.5">
+                    <td className="py-3 px-5">
+                      <div className="flex items-center gap-3">
                         <GameArtwork src={g.iconUrl} alt={g.name} size="sm" />
                         <div className="min-w-0">
                           <Link
                             href={`/games/${g.universeId}`}
-                            className="font-medium text-[#E8EEF2] hover:text-[#48D597] truncate block max-w-[240px]"
+                            className="font-medium text-slate-900 dark:text-[#F1F7FA] hover:text-emerald-600 dark:hover:text-[#10E89A] truncate block max-w-[240px]"
                           >
                             {g.name}
                           </Link>
-                          <span className="text-xs text-[#6E8492] tabular-nums">
-                            Universe {g.universeId}
+                          <span className="text-xs text-slate-500 dark:text-[#6F8796] tabular-nums">
+                            {g.universeId}
                           </span>
                         </div>
                       </div>
                     </td>
-                    <td className="py-2.5 px-3 text-right font-semibold text-[#E8EEF2] tabular-nums">
+                    <td className="py-3 px-3 text-right font-semibold text-slate-900 dark:text-[#F1F7FA] tabular-nums">
                       {formatCompactNumber(g.currentCcu)}
                     </td>
-                    <td className="py-2.5 px-3 text-right text-xs text-[#9BB0BD] tabular-nums">
+                    <td className="py-3 px-3 text-right text-xs text-slate-600 dark:text-[#9CB3C0] tabular-nums">
                       {g.snapshotCount ?? 0}
                     </td>
-                    <td className="py-2.5 px-3">
+                    <td className="py-3 px-3">
                       <select
                         aria-label={`Priority for ${g.name}`}
                         value={g.trackingTier}
@@ -704,23 +709,38 @@ export default function AdminDashboardPage() {
                             e.target.value as TrackingTier
                           )
                         }
-                        className="px-2.5 py-1 text-xs bg-[#101820] border border-[#263844] rounded-md text-[#E8EEF2]"
+                        className="px-3 py-1 text-xs liquid-glass-pill rounded-full text-slate-900 dark:text-[#F1F7FA]"
                       >
-                        <option value="tier_1">Tier 1 (5m)</option>
-                        <option value="tier_2">Tier 2 (15m)</option>
-                        <option value="tier_3">Tier 3 (60m)</option>
+                        <option
+                          value="tier_1"
+                          className="bg-white dark:bg-[#0D1A22]"
+                        >
+                          Tier 1 (5m)
+                        </option>
+                        <option
+                          value="tier_2"
+                          className="bg-white dark:bg-[#0D1A22]"
+                        >
+                          Tier 2 (15m)
+                        </option>
+                        <option
+                          value="tier_3"
+                          className="bg-white dark:bg-[#0D1A22]"
+                        >
+                          Tier 3 (60m)
+                        </option>
                       </select>
                     </td>
-                    <td className="py-2.5 px-3 text-xs text-[#6E8492] tabular-nums whitespace-nowrap">
+                    <td className="py-3 px-3 text-xs text-slate-500 dark:text-[#6F8796] tabular-nums whitespace-nowrap">
                       {formatRelativeTime(g.lastCollectedAt)}
                     </td>
-                    <td className="py-2.5 px-4 text-right">
+                    <td className="py-3 px-5 text-right">
                       <button
                         type="button"
                         disabled={dataMode !== 'persisted'}
                         onClick={() => void handleRemoveGame(g)}
-                        title="Remove game from tracking"
-                        className="p-1.5 text-[#6E8492] hover:text-rose-400 disabled:opacity-30 cursor-pointer"
+                        title="Remove"
+                        className="p-1.5 rounded-full text-slate-400 dark:text-[#6F8796] hover:text-rose-500 hover:bg-rose-500/10 disabled:opacity-30 cursor-pointer"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -733,72 +753,75 @@ export default function AdminDashboardPage() {
         </div>
       </section>
 
-      {/* Collection Jobs & System Error Logs */}
+      {/* Collection Jobs & Error Logs */}
       <section className="space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="font-display text-xl font-bold text-[#E8EEF2]">
-            Recent Collection Jobs & Error Logs
+          <h2 className="font-display text-xl font-bold text-slate-900 dark:text-[#F1F7FA]">
+            Recent Collection Jobs
           </h2>
           <button
             type="button"
             disabled={loadingAdmin}
             onClick={() => void loadAdminTelemetry()}
-            className="text-xs font-medium text-[#48D597] hover:underline cursor-pointer"
+            className="text-xs font-semibold text-emerald-600 dark:text-[#10E89A] hover:underline cursor-pointer"
           >
             Refresh logs
           </button>
         </div>
 
-        <div className="bg-[#1C2A32] border border-[#263844] rounded-xl overflow-hidden">
+        <div className="liquid-glass rounded-3xl overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="border-b border-[#263844] bg-[#162229] text-xs font-medium text-[#9BB0BD]">
-                  <th className="py-3 px-4">Completed (UTC)</th>
-                  <th className="py-3 px-3">Tier</th>
-                  <th className="py-3 px-3">Status</th>
-                  <th className="py-3 px-3 text-right">Games</th>
-                  <th className="py-3 px-3 text-right">API Calls</th>
-                  <th className="py-3 px-3 text-right">429s</th>
-                  <th className="py-3 px-3 text-right">Duration</th>
-                  <th className="py-3 px-4">Error Details</th>
+                <tr className="border-b border-slate-900/8 dark:border-white/10 bg-black/[0.02] dark:bg-white/[0.03] text-xs font-medium text-slate-500 dark:text-[#9CB3C0]">
+                  <th className="py-3.5 px-5">Completed (UTC)</th>
+                  <th className="py-3.5 px-3">Tier</th>
+                  <th className="py-3.5 px-3">Status</th>
+                  <th className="py-3.5 px-3 text-right">Games</th>
+                  <th className="py-3.5 px-3 text-right">Calls</th>
+                  <th className="py-3.5 px-3 text-right">429s</th>
+                  <th className="py-3.5 px-3 text-right">Duration</th>
+                  <th className="py-3.5 px-5">Errors</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-[#263844]/60 text-xs">
+              <tbody className="divide-y divide-slate-900/6 dark:divide-white/8 text-xs">
                 {jobs.map((job) => (
-                  <tr key={job.id} className="hover:bg-[#22333D]/50">
-                    <td className="py-3 px-4 text-[#9BB0BD] tabular-nums whitespace-nowrap">
+                  <tr
+                    key={job.id}
+                    className="hover:bg-black/[0.03] dark:hover:bg-white/[0.04]"
+                  >
+                    <td className="py-3 px-5 text-slate-600 dark:text-[#9CB3C0] tabular-nums whitespace-nowrap">
                       {formatUtcTimestamp(job.completedAt)}
                     </td>
-                    <td className="py-3 px-3 text-[#E8EEF2] uppercase">
+                    <td className="py-3 px-3 text-slate-900 dark:text-[#F1F7FA] uppercase">
                       {job.tier.replace('_', ' ')}
                     </td>
                     <td className="py-3 px-3">
                       <span
                         className={`font-semibold ${
                           job.status === 'success'
-                            ? 'text-[#48D597]'
+                            ? 'text-emerald-600 dark:text-[#10E89A]'
                             : job.status === 'partial'
-                              ? 'text-amber-400'
-                              : 'text-rose-400'
+                              ? 'text-amber-600 dark:text-amber-400'
+                              : 'text-rose-600 dark:text-rose-400'
                         }`}
                       >
                         {job.status}
                       </span>
                     </td>
-                    <td className="py-3 px-3 text-right text-[#E8EEF2] tabular-nums">
+                    <td className="py-3 px-3 text-right text-slate-900 dark:text-[#F1F7FA] tabular-nums">
                       {job.gamesSucceeded}/{job.gamesAttempted}
                     </td>
-                    <td className="py-3 px-3 text-right text-[#9BB0BD] tabular-nums">
+                    <td className="py-3 px-3 text-right text-slate-600 dark:text-[#9CB3C0] tabular-nums">
                       {job.apiRequests}
                     </td>
-                    <td className="py-3 px-3 text-right text-[#9BB0BD] tabular-nums">
+                    <td className="py-3 px-3 text-right text-slate-600 dark:text-[#9CB3C0] tabular-nums">
                       {job.http429Count}
                     </td>
-                    <td className="py-3 px-3 text-right text-[#9BB0BD] tabular-nums">
+                    <td className="py-3 px-3 text-right text-slate-600 dark:text-[#9CB3C0] tabular-nums">
                       {(job.durationMs / 1000).toFixed(1)}s
                     </td>
-                    <td className="py-3 px-4 text-[#6E8492] max-w-[280px] truncate">
+                    <td className="py-3 px-5 text-slate-500 dark:text-[#6F8796] max-w-[280px] truncate">
                       {job.errorSummary || 'None'}
                     </td>
                   </tr>
@@ -807,11 +830,9 @@ export default function AdminDashboardPage() {
                   <tr>
                     <td
                       colSpan={8}
-                      className="py-8 text-center text-[#6E8492]"
+                      className="py-8 text-center text-slate-500 dark:text-[#6F8796]"
                     >
-                      No collection jobs recorded yet. Click &ldquo;Sync Live
-                      Top Charts (80+ Games)&rdquo; above to capture the first
-                      persisted snapshot batch.
+                      No collection jobs yet.
                     </td>
                   </tr>
                 )}

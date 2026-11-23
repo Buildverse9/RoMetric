@@ -24,8 +24,12 @@ import { DEFAULT_ADMIN_EMAIL } from '@/lib/seed-universes';
 import type { DeveloperSummary, GameRecordData } from '@/lib/types';
 
 export type DataMode = 'persisted' | 'live_preview';
+export type ThemeMode = 'dark' | 'light';
 
 interface AppContextValue {
+  theme: ThemeMode;
+  setTheme: (next: ThemeMode) => void;
+  toggleTheme: () => void;
   user: User | null;
   authReady: boolean;
   isAdmin: boolean;
@@ -67,14 +71,13 @@ class RoMetricErrorBoundary extends React.Component<
   render() {
     if (this.state.hasError) {
       return (
-        <div className="min-h-screen bg-[#101820] text-[#E8EEF2] flex items-center justify-center p-6">
-          <div className="max-w-lg w-full bg-[#1C2A32] border border-[#263844] rounded-xl p-6 space-y-4">
-            <h2 className="text-xl font-semibold text-[#E8EEF2]">
-              Something went wrong loading this view
+        <div className="min-h-screen flex items-center justify-center p-6">
+          <div className="max-w-md w-full liquid-glass rounded-3xl p-6 space-y-4">
+            <h2 className="text-xl font-semibold text-slate-900 dark:text-[#F1F7FA]">
+              Something went wrong
             </h2>
-            <p className="text-sm text-[#9BB0BD] leading-relaxed">
-              RoMetric encountered a runtime error while rendering data. Your saved
-              database records remain intact.
+            <p className="text-sm text-slate-600 dark:text-[#9CB3C0] leading-relaxed">
+              Unable to render this view right now. Please reload the page.
             </p>
             <button
               type="button"
@@ -82,9 +85,9 @@ class RoMetricErrorBoundary extends React.Component<
                 this.setState({ hasError: false, message: '' });
                 if (typeof window !== 'undefined') window.location.reload();
               }}
-              className="px-4 py-2 text-sm font-medium bg-[#48D597] text-[#101820] rounded-lg hover:bg-[#3BC286] transition-colors"
+              className="px-4 py-2 text-sm font-semibold bg-emerald-600 dark:bg-[#10E89A] text-white dark:text-[#04130D] rounded-full hover:opacity-90 transition-opacity cursor-pointer"
             >
-              Reload RoMetric
+              Reload
             </button>
           </div>
         </div>
@@ -95,6 +98,7 @@ class RoMetricErrorBoundary extends React.Component<
 }
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
+  const [theme, setThemeState] = useState<ThemeMode>('dark');
   const [user, setUser] = useState<User | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -106,7 +110,47 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
 
-  // Startup Firestore connection check
+  // Hydrate theme preference from localStorage
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem('rometric-theme');
+      const initial: ThemeMode =
+        stored === 'light' || stored === 'dark' ? stored : 'dark';
+      setThemeState(initial);
+      document.documentElement.classList.toggle('dark', initial === 'dark');
+    } catch {
+      document.documentElement.classList.add('dark');
+    }
+  }, []);
+
+  const setTheme = useCallback((next: ThemeMode) => {
+    setThemeState(next);
+    try {
+      window.localStorage.setItem('rometric-theme', next);
+    } catch {
+      // Ignore storage failures
+    }
+    if (typeof document !== 'undefined') {
+      document.documentElement.classList.toggle('dark', next === 'dark');
+    }
+  }, []);
+
+  const toggleTheme = useCallback(() => {
+    setThemeState((prev) => {
+      const next: ThemeMode = prev === 'dark' ? 'light' : 'dark';
+      try {
+        window.localStorage.setItem('rometric-theme', next);
+      } catch {
+        // Ignore storage failures
+      }
+      if (typeof document !== 'undefined') {
+        document.documentElement.classList.toggle('dark', next === 'dark');
+      }
+      return next;
+    });
+  }, []);
+
+  // Startup connection check
   useEffect(() => {
     void testConnection();
   }, []);
@@ -162,7 +206,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
       }
 
-      // Live real-time fallback from official Roblox APIs (never simulated)
       const live = await fetchLiveFallbackGames();
       setGames(live.games);
       setDataMode('live_preview');
@@ -286,6 +329,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const value = useMemo<AppContextValue>(
     () => ({
+      theme,
+      setTheme,
+      toggleTheme,
       user,
       authReady,
       isAdmin,
@@ -302,6 +348,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setSearchOpen,
     }),
     [
+      theme,
+      setTheme,
+      toggleTheme,
       user,
       authReady,
       isAdmin,

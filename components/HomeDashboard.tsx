@@ -1,50 +1,58 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   ArrowRight,
+  Calendar,
+  ChevronRight,
   Clock,
-  GitCompare,
+  Flame,
   RefreshCw,
   Search,
-  TrendingUp,
   Users,
 } from 'lucide-react';
 import type { EChartsOption } from 'echarts';
 import { useApp } from './AppProvider';
+import { fetchGameHistory } from '@/lib/analytics-store';
 import {
   evaluateTrending,
   formatCompactNumber,
   formatExactNumber,
   formatRelativeTime,
-  formatUtcTimestamp,
 } from '@/lib/format';
+import type { TimeRange } from '@/lib/types';
 import { GameArtwork } from './GameArtwork';
 import { GrowthValue } from './GameTable';
 import { EChartWrapper } from './EChartWrapper';
 
+const HERO_RANGES: Array<{ id: TimeRange; label: string; icon: 'clock' | 'calendar' }> = [
+  { id: '24h', label: '1D', icon: 'clock' },
+  { id: '7d', label: '7D', icon: 'calendar' },
+  { id: '30d', label: '1M', icon: 'calendar' },
+];
+
 export function HomeDashboard() {
   const router = useRouter();
   const {
+    theme,
     games,
     developers,
     loadingGames,
     gamesError,
-    dataMode,
     lastUpdatedAt,
     refreshCatalog,
     setSearchOpen,
   } = useApp();
 
+  const isDark = theme === 'dark';
+  const [heroRange, setHeroRange] = useState<TimeRange>('24h');
+  const [heroSeries, setHeroSeries] = useState<Array<{ ts: number; ccu: number }>>([]);
   const [selectedGenre, setSelectedGenre] = useState<string>('All');
   const [heroQuery, setHeroQuery] = useState('');
 
-  const activeGames = useMemo(
-    () => games.filter((g) => g.active),
-    [games]
-  );
+  const activeGames = useMemo(() => games.filter((g) => g.active), [games]);
 
   const totalLiveCcu = useMemo(
     () => activeGames.reduce((sum, g) => sum + g.currentCcu, 0),
@@ -56,40 +64,93 @@ export function HomeDashboard() {
     [activeGames]
   );
 
-  const topLiveGame = activeGames[0] ?? null;
+  const weightedGrowth = useMemo(() => {
+    let weightedSum = 0;
+    let weightTotal = 0;
+    for (const g of activeGames) {
+      const val = g.growth1h ?? g.growth24h;
+      if (val !== null && val !== undefined && g.currentCcu > 0) {
+        weightedSum += val * g.currentCcu;
+        weightTotal += g.currentCcu;
+      }
+    }
+    if (weightTotal <= 0) return null;
+    return Number((weightedSum / weightTotal).toFixed(1));
+  }, [activeGames]);
 
-  const mostPlayed = useMemo(() => activeGames.slice(0, 10), [activeGames]);
+  const top5IdsKey = useMemo(
+    () =>
+      activeGames
+        .slice(0, 5)
+        .map((g) => g.universeId)
+        .join(','),
+    [activeGames]
+  );
 
-  const trendingCandidates = useMemo(() => {
+  useEffect(() => {
+    let cancelled = false;
+    async function loadAggregateTrend() {
+      if (!top5IdsKey) {
+        setHeroSeries([]);
+        return;
+      }
+      const ids = top5IdsKey.split(',');
+      const bucketMs =
+        heroRange === '24h'
+          ? 5 * 60_000
+          : heroRange === '7d'
+            ? 60 * 60_000
+            : 24 * 60 * 60_000;
+      const buckets = new Map<number, number>();
+
+      await Promise.all(
+        ids.map(async (id) => {
+          try {
+            const res = await fetchGameHistory(id, heroRange);
+            for (const pt of res.points) {
+              const b = Math.floor(pt.timestampMs / bucketMs) * bucketMs;
+              buckets.set(b, (buckets.get(b) ?? 0) + pt.ccu);
+            }
+          } catch {
+            // Skip failed single game fetch
+          }
+        })
+      );
+
+      if (!cancelled) {
+        const sorted = Array.from(buckets.entries())
+          .sort((a, b) => a[0] - b[0])
+          .map(([ts, ccu]) => ({ ts, ccu }));
+        setHeroSeries(sorted);
+      }
+    }
+    void loadAggregateTrend();
+    return () => {
+      cancelled = true;
+    };
+  }, [top5IdsKey, heroRange]);
+
+  const trendingList = useMemo(() => {
     const scored = activeGames
-      .map((game) => ({ game, eval: evaluateTrending(game) }))
-      .filter((item) => item.eval.eligible && item.eval.score !== null)
-      .sort((a, b) => (b.eval.score ?? 0) - (a.eval.score ?? 0));
-    return scored.slice(0, 6);
+      .map((game) => ({ game, ev: evaluateTrending(game) }))
+      .filter((item) => item.ev.eligible && item.ev.score !== null)
+      .sort((a, b) => (b.ev.score ?? 0) - (a.ev.score ?? 0))
+      .map((item) => ({
+        game: item.game,
+        change: item.ev.percentGain,
+      }));
+
+    if (scored.length >= 3) {
+      return scored.slice(0, 5);
+    }
+
+    return activeGames.slice(0, 5).map((game) => ({
+      game,
+      change: game.growth24h ?? game.growth1h ?? null,
+    }));
   }, [activeGames]);
 
-  const fastestGrowing = useMemo(() => {
-    return activeGames
-      .filter((g) => {
-        const val = g.growth24h ?? g.growth1h;
-        return val !== null && val !== undefined && g.currentCcu >= 50;
-      })
-      .sort(
-        (a, b) =>
-          (b.growth24h ?? b.growth1h ?? -999) -
-          (a.growth24h ?? a.growth1h ?? -999)
-      )
-      .slice(0, 6);
-  }, [activeGames]);
-
-  const recentlyUpdated = useMemo(() => {
-    return activeGames
-      .filter((g) => Boolean(g.robloxUpdatedAt))
-      .sort((a, b) =>
-        String(b.robloxUpdatedAt).localeCompare(String(a.robloxUpdatedAt))
-      )
-      .slice(0, 6);
-  }, [activeGames]);
+  const mostPlayed = useMemo(() => activeGames.slice(0, 8), [activeGames]);
 
   const genreStats = useMemo(() => {
     const map = new Map<string, { genre: string; ccu: number; count: number }>();
@@ -105,100 +166,210 @@ export function HomeDashboard() {
 
   const genreGames = useMemo(() => {
     if (selectedGenre === 'All') return activeGames.slice(0, 6);
-    return activeGames
-      .filter((g) => g.genre === selectedGenre)
-      .slice(0, 6);
+    return activeGames.filter((g) => g.genre === selectedGenre).slice(0, 6);
   }, [activeGames, selectedGenre]);
 
-  const genreChartOption = useMemo<EChartsOption>(() => {
-    const topGenres = genreStats.slice(0, 7).reverse();
+  const heroChartOption = useMemo<EChartsOption>(() => {
+    const accent = isDark ? '#10E89A' : '#059669';
+    const textMuted = isDark ? '#7893A3' : '#64748B';
+    const gridLine = isDark ? 'rgba(255,255,255,0.07)' : 'rgba(15,23,42,0.07)';
+    const tooltipBg = isDark ? 'rgba(9, 19, 25, 0.92)' : 'rgba(255, 255, 255, 0.96)';
+    const tooltipBorder = isDark ? 'rgba(255,255,255,0.14)' : 'rgba(15,23,42,0.1)';
+    const tooltipText = isDark ? '#F1F7FA' : '#0B141A';
+
+    if (heroSeries.length >= 2) {
+      const labels = heroSeries.map((p) => {
+        const d = new Date(p.ts);
+        if (heroRange === '24h') {
+          return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+        }
+        return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+      });
+      const values = heroSeries.map((p) => p.ccu);
+
+      return {
+        backgroundColor: 'transparent',
+        tooltip: {
+          trigger: 'axis',
+          backgroundColor: tooltipBg,
+          borderColor: tooltipBorder,
+          textStyle: { color: tooltipText, fontSize: 12 },
+        },
+        grid: { left: 6, right: 14, top: 18, bottom: 8, containLabel: true },
+        xAxis: {
+          type: 'category',
+          boundaryGap: false,
+          data: labels,
+          axisLine: { show: false },
+          axisTick: { show: false },
+          axisLabel: { color: textMuted, fontSize: 11 },
+        },
+        yAxis: {
+          type: 'value',
+          scale: true,
+          axisLabel: {
+            color: textMuted,
+            fontSize: 11,
+            formatter: (val: number) => formatCompactNumber(val),
+          },
+          splitLine: { lineStyle: { color: gridLine } },
+        },
+        series: [
+          {
+            name: 'Top 5 CCU',
+            type: 'line',
+            smooth: 0.35,
+            symbol: 'circle',
+            showSymbol: false,
+            symbolSize: 8,
+            data: values.map((v, i) =>
+              i === values.length - 1
+                ? {
+                    value: v,
+                    symbol: 'circle',
+                    symbolSize: 9,
+                    itemStyle: {
+                      color: '#FFFFFF',
+                      borderColor: accent,
+                      borderWidth: 3,
+                      shadowBlur: 14,
+                      shadowColor: accent,
+                    },
+                  }
+                : v
+            ),
+            lineStyle: {
+              color: accent,
+              width: 3,
+              shadowBlur: isDark ? 14 : 6,
+              shadowColor: isDark
+                ? 'rgba(16, 232, 154, 0.55)'
+                : 'rgba(5, 150, 105, 0.25)',
+            },
+            itemStyle: { color: accent },
+            areaStyle: {
+              color: {
+                type: 'linear',
+                x: 0,
+                y: 0,
+                x2: 0,
+                y2: 1,
+                colorStops: [
+                  {
+                    offset: 0,
+                    color: isDark
+                      ? 'rgba(16, 232, 154, 0.32)'
+                      : 'rgba(5, 150, 105, 0.22)',
+                  },
+                  {
+                    offset: 1,
+                    color: isDark
+                      ? 'rgba(16, 232, 154, 0.01)'
+                      : 'rgba(5, 150, 105, 0.01)',
+                  },
+                ],
+              },
+            },
+          },
+        ],
+      };
+    }
+
+    // Fallback when fewer than 2 historical points exist for the selected range:
+    // Render real current CCU across top live games
+    const topSlice = activeGames.slice(0, 7);
     return {
       backgroundColor: 'transparent',
       tooltip: {
         trigger: 'axis',
         axisPointer: { type: 'shadow' },
-        backgroundColor: '#101820',
-        borderColor: '#263844',
-        textStyle: { color: '#E8EEF2', fontSize: 12 },
+        backgroundColor: tooltipBg,
+        borderColor: tooltipBorder,
+        textStyle: { color: tooltipText, fontSize: 12 },
       },
-      grid: { left: 10, right: 24, top: 12, bottom: 8, containLabel: true },
+      grid: { left: 6, right: 12, top: 18, bottom: 8, containLabel: true },
       xAxis: {
+        type: 'category',
+        data: topSlice.map((g) =>
+          g.name.length > 12 ? g.name.slice(0, 11) + '…' : g.name
+        ),
+        axisLine: { show: false },
+        axisTick: { show: false },
+        axisLabel: { color: textMuted, fontSize: 11 },
+      },
+      yAxis: {
         type: 'value',
         axisLabel: {
-          color: '#6E8492',
+          color: textMuted,
           fontSize: 11,
           formatter: (val: number) => formatCompactNumber(val),
         },
-        splitLine: { lineStyle: { color: '#263844', type: 'dashed' } },
+        splitLine: { lineStyle: { color: gridLine } },
+      },
+      series: [
+        {
+          name: 'Live CCU',
+          type: 'bar',
+          barMaxWidth: 28,
+          data: topSlice.map((g) => g.currentCcu),
+          itemStyle: {
+            color: accent,
+            borderRadius: [8, 8, 2, 2],
+          },
+        },
+      ],
+    };
+  }, [heroSeries, heroRange, activeGames, isDark]);
+
+  const genreChartOption = useMemo<EChartsOption>(() => {
+    const topGenres = genreStats.slice(0, 6).reverse();
+    const accent = isDark ? '#10E89A' : '#059669';
+    const textPrimary = isDark ? '#E8F2F7' : '#0F172A';
+    const textMuted = isDark ? '#7893A3' : '#64748B';
+    const gridLine = isDark ? 'rgba(255,255,255,0.07)' : 'rgba(15,23,42,0.07)';
+    const tooltipBg = isDark ? 'rgba(9, 19, 25, 0.92)' : 'rgba(255, 255, 255, 0.96)';
+    const tooltipBorder = isDark ? 'rgba(255,255,255,0.14)' : 'rgba(15,23,42,0.1)';
+
+    return {
+      backgroundColor: 'transparent',
+      tooltip: {
+        trigger: 'axis',
+        axisPointer: { type: 'shadow' },
+        backgroundColor: tooltipBg,
+        borderColor: tooltipBorder,
+        textStyle: { color: textPrimary, fontSize: 12 },
+      },
+      grid: { left: 8, right: 20, top: 10, bottom: 6, containLabel: true },
+      xAxis: {
+        type: 'value',
+        axisLabel: {
+          color: textMuted,
+          fontSize: 11,
+          formatter: (val: number) => formatCompactNumber(val),
+        },
+        splitLine: { lineStyle: { color: gridLine } },
       },
       yAxis: {
         type: 'category',
         data: topGenres.map((g) => g.genre),
         axisLine: { show: false },
         axisTick: { show: false },
-        axisLabel: { color: '#E8EEF2', fontSize: 12 },
+        axisLabel: { color: textPrimary, fontSize: 12 },
       },
       series: [
         {
           name: 'Live CCU',
           type: 'bar',
-          barMaxWidth: 18,
+          barMaxWidth: 16,
           data: topGenres.map((g) => g.ccu),
           itemStyle: {
-            color: '#48D597',
-            borderRadius: [0, 4, 4, 0],
+            color: accent,
+            borderRadius: [0, 8, 8, 0],
           },
         },
       ],
     };
-  }, [genreStats]);
-
-  // Real computed market insights strictly from observed dataset
-  const marketInsights = useMemo(() => {
-    if (activeGames.length === 0) return [];
-    const top5Ccu = activeGames
-      .slice(0, 5)
-      .reduce((sum, g) => sum + g.currentCcu, 0);
-    const top5Share =
-      totalLiveCcu > 0 ? ((top5Ccu / totalLiveCcu) * 100).toFixed(1) : '0.0';
-
-    const topGenre = genreStats[0];
-    const topGenreShare =
-      topGenre && totalLiveCcu > 0
-        ? ((topGenre.ccu / totalLiveCcu) * 100).toFixed(1)
-        : '0.0';
-
-    const ratios = activeGames
-      .map((g) => g.likeRatio)
-      .filter((r): r is number => r !== null && r !== undefined);
-    const avgRatio =
-      ratios.length > 0
-        ? (ratios.reduce((a, b) => a + b, 0) / ratios.length).toFixed(1)
-        : null;
-
-    const groupGames = activeGames.filter((g) => g.creatorType === 'Group').length;
-    const groupPct = ((groupGames / activeGames.length) * 100).toFixed(0);
-
-    return [
-      {
-        title: 'Top-5 Experience Concentration',
-        metric: `${top5Share}%`,
-        detail: `The top 5 tracked Roblox experiences currently account for ${formatCompactNumber(top5Ccu)} of ${formatCompactNumber(totalLiveCcu)} total observed concurrent players.`,
-      },
-      {
-        title: `Leading Genre: ${topGenre?.genre ?? 'N/A'}`,
-        metric: `${topGenreShare}%`,
-        detail: topGenre
-          ? `${topGenre.genre} leads active concurrency with ${formatCompactNumber(topGenre.ccu)} live players across ${topGenre.count} tracked experiences.`
-          : 'Awaiting genre breakdown observations.',
-      },
-      {
-        title: 'Studio Group Dominance & Sentiment',
-        metric: avgRatio ? `${avgRatio}% avg like ratio` : `${groupPct}% studio groups`,
-        detail: `${groupPct}% of tracked experiences are published under Roblox Groups rather than individual accounts, with an average observed like ratio of ${avgRatio ? `${avgRatio}%` : 'N/A'}.`,
-      },
-    ];
-  }, [activeGames, genreStats, totalLiveCcu]);
+  }, [genreStats, isDark]);
 
   const heroSuggestions = useMemo(() => {
     const q = heroQuery.trim().toLowerCase();
@@ -232,551 +403,425 @@ export function HomeDashboard() {
   };
 
   return (
-    <div className="max-w-[1360px] mx-auto px-4 sm:px-6 py-8 sm:py-12 space-y-12">
-      {/* Hero Section */}
-      <section className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-stretch">
-        <div className="lg:col-span-7 flex flex-col justify-between space-y-6">
-          <div className="space-y-4">
-            <p className="text-xs font-medium text-[#48D597] tracking-wide">
-              Discover. Analyze. Grow.
-            </p>
-            <h1 className="font-display text-3xl sm:text-5xl font-bold text-[#E8EEF2] leading-[1.1] text-balance">
-              Real-time Roblox analytics built on verified observations.
-            </h1>
-            <p className="text-base text-[#9BB0BD] max-w-2xl leading-relaxed">
-              Track concurrent player counts, monitor historical trends, compare
-              competing experiences, and explore developer portfolios with zero
-              fabricated metrics.
-            </p>
-          </div>
+    <div className="max-w-[1280px] mx-auto px-4 sm:px-6 pt-6 sm:pt-8 pb-6 space-y-8">
+      {/* Liquid Glass Search Bar */}
+      <div className="relative max-w-2xl mx-auto">
+        <form onSubmit={handleHeroSubmit} className="relative flex items-center">
+          <Search className="w-4 h-4 text-slate-400 dark:text-[#7B95A5] absolute left-5 pointer-events-none" />
+          <input
+            type="text"
+            value={heroQuery}
+            onChange={(e) => setHeroQuery(e.target.value)}
+            placeholder="Search games, developers..."
+            className="w-full pl-12 pr-28 py-3.5 text-sm liquid-glass-pill rounded-full text-slate-900 dark:text-[#F1F7FA] placeholder:text-slate-500 dark:placeholder:text-[#7B95A5] focus:outline-none focus:ring-2 focus:ring-emerald-500/40 dark:focus:ring-[#10E89A]/40 transition-all"
+          />
+          <button
+            type="submit"
+            className="absolute right-2 px-4 py-2 text-xs font-semibold bg-emerald-600 dark:bg-[#10E89A] text-white dark:text-[#04130D] rounded-full hover:opacity-90 transition-opacity cursor-pointer"
+          >
+            Search
+          </button>
+        </form>
 
-          {/* Interactive Search Bar with Live Suggestions */}
-          <div className="relative max-w-xl">
-            <form onSubmit={handleHeroSubmit} className="flex items-center gap-2">
-              <div className="relative flex-1">
-                <Search className="w-4 h-4 text-[#6E8492] absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                <input
-                  type="text"
-                  value={heroQuery}
-                  onChange={(e) => setHeroQuery(e.target.value)}
-                  placeholder="Search a Roblox game, creator, or Universe ID..."
-                  className="w-full pl-10 pr-4 py-3 text-sm bg-[#1C2A32] border border-[#263844] rounded-lg text-[#E8EEF2] placeholder:text-[#6E8492] focus:outline-none focus:border-[#48D597] transition-colors"
-                />
-              </div>
-              <button
-                type="submit"
-                className="px-5 py-3 text-sm font-semibold bg-[#48D597] text-[#101820] rounded-lg hover:bg-[#3BC286] transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+        {heroSuggestions.length > 0 && (
+          <div className="absolute left-0 right-0 mt-2 liquid-glass-strong rounded-3xl z-30 overflow-hidden divide-y divide-slate-900/6 dark:divide-white/8">
+            {heroSuggestions.map((g) => (
+              <Link
+                key={g.universeId}
+                href={`/games/${g.universeId}`}
+                className="flex items-center justify-between px-4 py-3 hover:bg-black/[0.04] dark:hover:bg-white/[0.06] transition-colors"
               >
-                Analyze
-              </button>
-            </form>
-
-            {heroSuggestions.length > 0 && (
-              <div className="absolute left-0 right-0 mt-1.5 bg-[#1C2A32] border border-[#263844] rounded-lg shadow-xl z-20 overflow-hidden divide-y divide-[#263844]/70">
-                {heroSuggestions.map((g) => (
-                  <Link
-                    key={g.universeId}
-                    href={`/games/${g.universeId}`}
-                    className="flex items-center justify-between px-3.5 py-2.5 hover:bg-[#22333D] transition-colors"
-                  >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <GameArtwork src={g.iconUrl} alt={g.name} size="sm" />
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium text-[#E8EEF2] truncate">
-                          {g.name}
-                        </p>
-                        <p className="text-xs text-[#6E8492] truncate">
-                          {g.creatorName} · {g.genre}
-                        </p>
-                      </div>
-                    </div>
-                    <span className="text-sm font-semibold text-[#48D597] tabular-nums shrink-0">
-                      {formatCompactNumber(g.currentCcu)} CCU
-                    </span>
-                  </Link>
-                ))}
-              </div>
-            )}
+                <div className="flex items-center gap-3 min-w-0">
+                  <GameArtwork src={g.iconUrl} alt={g.name} size="sm" />
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-slate-900 dark:text-[#F1F7FA] truncate">
+                      {g.name}
+                    </p>
+                    <p className="text-xs text-slate-500 dark:text-[#6F8796] truncate">
+                      {g.creatorName} · {g.genre}
+                    </p>
+                  </div>
+                </div>
+                <span className="text-sm font-semibold text-emerald-600 dark:text-[#10E89A] tabular-nums shrink-0">
+                  {formatCompactNumber(g.currentCcu)} CCU
+                </span>
+              </Link>
+            ))}
           </div>
-
-          <div className="flex flex-wrap items-center gap-4 text-xs text-[#9BB0BD]">
-            <Link
-              href="/rankings"
-              className="inline-flex items-center gap-1.5 text-sm font-medium text-[#E8EEF2] hover:text-[#48D597] transition-colors"
-            >
-              Explore Full Rankings
-              <ArrowRight className="w-4 h-4" />
-            </Link>
-            <span className="text-[#263844]">|</span>
-            <Link
-              href="/compare"
-              className="inline-flex items-center gap-1.5 text-sm font-medium text-[#9BB0BD] hover:text-[#E8EEF2] transition-colors"
-            >
-              <GitCompare className="w-4 h-4" />
-              Compare Games
-            </Link>
-          </div>
-        </div>
-
-        {/* Right Live Market Overview Card */}
-        <div className="lg:col-span-5 bg-[#1C2A32] border border-[#263844] rounded-xl p-6 flex flex-col justify-between space-y-6">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <p className="text-xs font-medium text-[#9BB0BD]">
-                Observed Concurrent Players (Tracked Catalog)
-              </p>
-              <p className="mt-1 font-display text-4xl font-bold text-[#E8EEF2] tabular-nums">
-                {loadingGames ? '—' : formatExactNumber(totalLiveCcu)}
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => void refreshCatalog(true)}
-              disabled={loadingGames}
-              title="Refresh live Roblox observations"
-              className="p-2 rounded-lg border border-[#263844] text-[#9BB0BD] hover:text-[#48D597] hover:border-[#48D597]/50 transition-colors cursor-pointer disabled:opacity-50"
-            >
-              <RefreshCw
-                className={`w-4 h-4 ${loadingGames ? 'animate-spin' : ''}`}
-              />
-            </button>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4 pt-4 border-t border-[#263844]">
-            <div>
-              <p className="text-xs text-[#6E8492]">Tracked Experiences</p>
-              <p className="mt-1 text-lg font-semibold text-[#E8EEF2] tabular-nums">
-                {loadingGames ? '—' : formatExactNumber(activeGames.length)}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs text-[#6E8492]">Combined Total Visits</p>
-              <p className="mt-1 text-lg font-semibold text-[#E8EEF2] tabular-nums">
-                {loadingGames ? '—' : formatCompactNumber(totalVisitsTracked)}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs text-[#6E8492]">Top Experience Right Now</p>
-              {topLiveGame ? (
-                <Link
-                  href={`/games/${topLiveGame.universeId}`}
-                  className="mt-1 block text-sm font-semibold text-[#48D597] hover:underline truncate"
-                >
-                  {topLiveGame.name}
-                </Link>
-              ) : (
-                <p className="mt-1 text-sm text-[#6E8492]">N/A</p>
-              )}
-            </div>
-            <div>
-              <p className="text-xs text-[#6E8492]">Data Mode</p>
-              <p className="mt-1 text-sm font-medium text-[#E8EEF2]">
-                {dataMode === 'persisted'
-                  ? 'Historical Database'
-                  : 'Live Public Feed'}
-              </p>
-            </div>
-          </div>
-
-          <div className="pt-4 border-t border-[#263844] flex items-center justify-between text-xs text-[#6E8492]">
-            <span className="inline-flex items-center gap-1.5 tabular-nums">
-              <Clock className="w-3.5 h-3.5 text-[#48D597]" />
-              Updated {formatRelativeTime(lastUpdatedAt)} ({formatUtcTimestamp(lastUpdatedAt)})
-            </span>
-          </div>
-        </div>
-      </section>
+        )}
+      </div>
 
       {gamesError && (
-        <div className="bg-rose-500/10 border border-rose-500/30 rounded-xl p-4 flex items-center justify-between gap-4">
-          <p className="text-sm text-rose-300">{gamesError}</p>
+        <div className="liquid-glass rounded-3xl p-4 border-rose-500/30 flex items-center justify-between gap-4">
+          <p className="text-sm text-rose-600 dark:text-rose-300">{gamesError}</p>
           <button
             type="button"
             onClick={() => void refreshCatalog()}
-            className="px-3 py-1.5 text-xs font-medium bg-[#1C2A32] border border-[#263844] rounded-md text-[#E8EEF2] hover:border-[#48D597] cursor-pointer"
+            className="px-4 py-1.5 text-xs font-semibold rounded-full bg-rose-500/15 text-rose-600 dark:text-rose-300 hover:bg-rose-500/25 transition-colors cursor-pointer"
           >
             Retry
           </button>
         </div>
       )}
 
-      {/* Most Played & Trending Split */}
-      <section className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        {/* Most Played Live */}
-        <div className="lg:col-span-7 space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="font-display text-xl font-bold text-[#E8EEF2]">
-                Most-Played Right Now
-              </h2>
-              <p className="text-xs text-[#6E8492]">
-                Ranked by directly observed concurrent players via games.roblox.com
-              </p>
+      {/* Primary Hero Split: Live CCU Chart Card + Trending Games Card */}
+      <section className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+        {/* Live CCU Liquid Glass Hero Card */}
+        <div className="lg:col-span-7 liquid-glass-hero rounded-[28px] p-5 sm:p-6 flex flex-col justify-between space-y-5">
+          {/* Segmented Range Selector + Refresh */}
+          <div className="flex items-center justify-between gap-3">
+            <div className="inline-flex items-center gap-1 p-1 rounded-full bg-black/[0.04] dark:bg-white/[0.06] border border-slate-900/8 dark:border-white/10">
+              {HERO_RANGES.map((r) => {
+                const active = heroRange === r.id;
+                return (
+                  <button
+                    key={r.id}
+                    type="button"
+                    onClick={() => setHeroRange(r.id)}
+                    className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-full transition-all cursor-pointer ${
+                      active
+                        ? 'bg-emerald-600/15 dark:bg-[#10E89A]/20 text-emerald-700 dark:text-[#10E89A] border border-emerald-500/35 dark:border-[#10E89A]/45 shadow-sm'
+                        : 'text-slate-600 dark:text-[#9CB3C0] hover:text-slate-900 dark:hover:text-white border border-transparent'
+                    }`}
+                  >
+                    {r.icon === 'clock' ? (
+                      <Clock className="w-3.5 h-3.5" />
+                    ) : (
+                      <Calendar className="w-3.5 h-3.5" />
+                    )}
+                    {r.label}
+                  </button>
+                );
+              })}
             </div>
-            <Link
-              href="/rankings"
-              className="text-xs font-medium text-[#48D597] hover:underline whitespace-nowrap"
+
+            <button
+              type="button"
+              onClick={() => void refreshCatalog(true)}
+              disabled={loadingGames}
+              title="Refresh"
+              className="w-9 h-9 rounded-full flex items-center justify-center bg-black/[0.04] dark:bg-white/[0.06] border border-slate-900/8 dark:border-white/10 text-slate-600 dark:text-[#9CB3C0] hover:text-emerald-600 dark:hover:text-[#10E89A] transition-colors cursor-pointer disabled:opacity-50"
             >
-              View all rankings
-            </Link>
+              <RefreshCw className={`w-4 h-4 ${loadingGames ? 'animate-spin' : ''}`} />
+            </button>
           </div>
 
-          <div className="bg-[#1C2A32] border border-[#263844] rounded-xl overflow-hidden divide-y divide-[#263844]/60">
-            {loadingGames
-              ? Array.from({ length: 6 }).map((_, i) => (
-                  <div
-                    key={i}
-                    className="p-3.5 flex items-center justify-between animate-pulse"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="w-6 h-4 bg-[#263844] rounded" />
-                      <div className="w-10 h-10 bg-[#263844] rounded-lg" />
-                      <div className="space-y-1.5">
-                        <div className="w-36 h-4 bg-[#263844] rounded" />
-                        <div className="w-24 h-3 bg-[#263844]/70 rounded" />
-                      </div>
-                    </div>
-                    <div className="w-16 h-4 bg-[#263844] rounded" />
-                  </div>
-                ))
-              : mostPlayed.map((game, index) => (
-                  <Link
-                    key={game.universeId}
-                    href={`/games/${game.universeId}`}
-                    className="px-4 py-3 flex items-center justify-between gap-4 hover:bg-[#22333D] transition-colors"
-                  >
-                    <div className="flex items-center gap-3.5 min-w-0">
-                      <span className="w-6 text-xs font-semibold text-[#6E8492] tabular-nums">
-                        {index + 1}
-                      </span>
-                      <GameArtwork src={game.iconUrl} alt={game.name} size="sm" />
-                      <div className="min-w-0">
-                        <p className="text-sm font-semibold text-[#E8EEF2] truncate">
-                          {game.name}
-                        </p>
-                        <p className="text-xs text-[#6E8492] truncate">
-                          {game.creatorName} · {game.genre} ·{' '}
-                          {game.likeRatio !== null && game.likeRatio !== undefined
-                            ? `${game.likeRatio}% likes`
-                            : 'Votes N/A'}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="text-right shrink-0">
-                      <p className="text-sm font-semibold text-[#E8EEF2] tabular-nums">
-                        {formatCompactNumber(game.currentCcu)}
-                      </p>
-                      <div className="mt-0.5">
-                        <GrowthValue value={game.growth24h ?? game.growth1h} />
-                      </div>
-                    </div>
-                  </Link>
-                ))}
+          {/* Hero Stat Readout */}
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <p className="text-xs font-medium text-slate-500 dark:text-[#9CB3C0]">
+                Live CCU
+              </p>
+              <h1 className="mt-1 font-display text-4xl sm:text-5xl font-extrabold text-slate-950 dark:text-white tracking-tight tabular-nums">
+                {loadingGames ? '—' : formatCompactNumber(totalLiveCcu)}
+              </h1>
+              <div className="mt-1.5 flex items-center gap-2 text-xs text-slate-500 dark:text-[#9CB3C0]">
+                {weightedGrowth !== null && (
+                  <>
+                    <GrowthValue value={weightedGrowth} />
+                    <span>vs last hour</span>
+                  </>
+                )}
+                {weightedGrowth === null && (
+                  <span className="tabular-nums">
+                    {formatExactNumber(activeGames.length)} tracked games
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-6 text-right">
+              <div>
+                <p className="text-[11px] text-slate-500 dark:text-[#6F8796]">
+                  Games
+                </p>
+                <p className="text-sm font-bold text-slate-900 dark:text-[#F1F7FA] tabular-nums">
+                  {loadingGames ? '—' : formatExactNumber(activeGames.length)}
+                </p>
+              </div>
+              <div>
+                <p className="text-[11px] text-slate-500 dark:text-[#6F8796]">
+                  Total Visits
+                </p>
+                <p className="text-sm font-bold text-slate-900 dark:text-[#F1F7FA] tabular-nums">
+                  {loadingGames ? '—' : formatCompactNumber(totalVisitsTracked)}
+                </p>
+              </div>
+              <div className="hidden sm:block">
+                <p className="text-[11px] text-slate-500 dark:text-[#6F8796]">
+                  Updated
+                </p>
+                <p className="text-sm font-medium text-slate-700 dark:text-[#9CB3C0] tabular-nums">
+                  {formatRelativeTime(lastUpdatedAt)}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Live Emerald Area Chart */}
+          <div className="pt-1">
+            {loadingGames ? (
+              <div className="h-[230px] rounded-2xl bg-black/[0.04] dark:bg-white/[0.04] animate-pulse" />
+            ) : (
+              <EChartWrapper option={heroChartOption} height={230} />
+            )}
           </div>
         </div>
 
-        {/* Trending & Fastest Growing */}
-        <div className="lg:col-span-5 space-y-8">
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="font-display text-xl font-bold text-[#E8EEF2]">
-                  Trending & Fastest-Growing
+        {/* Trending Games Liquid Glass Card (Mockup Style) */}
+        <div className="lg:col-span-5 liquid-glass rounded-[28px] p-5 sm:p-6 flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between gap-3 mb-4">
+              <div className="flex items-center gap-2">
+                <Flame className="w-5 h-5 text-emerald-600 dark:text-[#10E89A]" />
+                <h2 className="font-display text-lg font-bold text-slate-900 dark:text-[#F1F7FA]">
+                  Trending Games
                 </h2>
-                <p className="text-xs text-[#6E8492]">
-                  Requires &ge;50 CCU and &ge;2 stored snapshots to prevent false spikes
-                </p>
               </div>
               <Link
                 href="/trending"
-                className="text-xs font-medium text-[#48D597] hover:underline whitespace-nowrap"
+                className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 dark:text-[#10E89A] hover:opacity-80 transition-opacity whitespace-nowrap"
               >
-                Trending hub
+                View All
+                <ArrowRight className="w-3.5 h-3.5" />
               </Link>
             </div>
 
-            <div className="bg-[#1C2A32] border border-[#263844] rounded-xl overflow-hidden">
-              {trendingCandidates.length > 0 ? (
-                <div className="divide-y divide-[#263844]/60">
-                  {trendingCandidates.map(({ game, eval: ev }) => (
+            <div className="divide-y divide-slate-900/6 dark:divide-white/8">
+              {loadingGames
+                ? Array.from({ length: 5 }).map((_, i) => (
+                    <div
+                      key={i}
+                      className="py-3 flex items-center justify-between animate-pulse"
+                    >
+                      <div className="flex items-center gap-3.5">
+                        <div className="w-4 h-4 bg-slate-900/10 dark:bg-white/10 rounded" />
+                        <div className="w-12 h-12 bg-slate-900/10 dark:bg-white/10 rounded-2xl" />
+                        <div className="space-y-1.5">
+                          <div className="w-28 h-4 bg-slate-900/10 dark:bg-white/10 rounded" />
+                          <div className="w-20 h-3 bg-slate-900/6 dark:bg-white/6 rounded" />
+                        </div>
+                      </div>
+                      <div className="w-14 h-4 bg-slate-900/10 dark:bg-white/10 rounded" />
+                    </div>
+                  ))
+                : trendingList.map(({ game, change }, idx) => (
                     <Link
                       key={game.universeId}
                       href={`/games/${game.universeId}`}
-                      className="px-4 py-3 flex items-center justify-between gap-3 hover:bg-[#22333D] transition-colors"
+                      className="py-3 -mx-2 px-2 rounded-2xl flex items-center justify-between gap-3 hover:bg-black/[0.03] dark:hover:bg-white/[0.05] transition-colors group"
                     >
-                      <div className="flex items-center gap-3 min-w-0">
-                        <GameArtwork src={game.iconUrl} alt={game.name} size="sm" />
+                      <div className="flex items-center gap-3.5 min-w-0">
+                        <span className="w-5 text-sm font-bold text-slate-400 dark:text-[#8BA3B2] tabular-nums text-center">
+                          {idx + 1}
+                        </span>
+                        <GameArtwork src={game.iconUrl} alt={game.name} size="md" />
                         <div className="min-w-0">
-                          <p className="text-sm font-semibold text-[#E8EEF2] truncate">
+                          <p className="text-sm font-semibold text-slate-900 dark:text-[#F1F7FA] group-hover:text-emerald-600 dark:group-hover:text-[#10E89A] transition-colors truncate">
                             {game.name}
                           </p>
-                          <p className="text-xs text-[#6E8492] truncate">
-                            {formatCompactNumber(game.currentCcu)} CCU · Score{' '}
-                            {ev.score}
+                          <p className="text-xs text-slate-500 dark:text-[#8BA3B2] tabular-nums">
+                            {formatCompactNumber(game.currentCcu)} CCU
                           </p>
                         </div>
                       </div>
-                      <GrowthValue value={ev.percentGain} />
+                      <div className="flex items-center gap-2 shrink-0">
+                        <GrowthValue value={change} />
+                        <ChevronRight className="w-4 h-4 text-slate-400 dark:text-[#6F8796] group-hover:translate-x-0.5 transition-transform" />
+                      </div>
                     </Link>
                   ))}
-                </div>
-              ) : (
-                <div className="p-6 space-y-3">
-                  <div className="flex items-center gap-2 text-[#48D597]">
-                    <TrendingUp className="w-4 h-4" />
-                    <span className="text-sm font-semibold text-[#E8EEF2]">
-                      Collecting Baseline Snapshots
-                    </span>
-                  </div>
-                  <p className="text-xs text-[#9BB0BD] leading-relaxed">
-                    RoMetric never fabricates growth percentages. Trending velocity
-                    activates automatically once at least two timed collection cycles
-                    have been recorded in the database.
-                  </p>
-                  <div className="pt-1 flex items-center gap-3">
-                    <Link
-                      href="/admin"
-                      className="text-xs font-medium text-[#48D597] hover:underline"
-                    >
-                      Run collection in Admin Console
-                    </Link>
-                    <span className="text-[#263844]">·</span>
-                    <Link
-                      href="/methodology"
-                      className="text-xs text-[#9BB0BD] hover:text-[#E8EEF2]"
-                    >
-                      How growth is measured
-                    </Link>
-                  </div>
-                </div>
-              )}
             </div>
           </div>
 
-          {/* Recently Updated Experiences */}
-          <div className="space-y-4">
-            <div>
-              <h2 className="font-display text-lg font-bold text-[#E8EEF2]">
-                Recently Updated Experiences
-              </h2>
-              <p className="text-xs text-[#6E8492]">
-                Verified from official Roblox last-updated timestamps
-              </p>
-            </div>
-            <div className="bg-[#1C2A32] border border-[#263844] rounded-xl divide-y divide-[#263844]/60">
-              {recentlyUpdated.slice(0, 5).map((game) => (
-                <Link
-                  key={game.universeId}
-                  href={`/games/${game.universeId}`}
-                  className="px-4 py-2.5 flex items-center justify-between gap-3 hover:bg-[#22333D] transition-colors"
-                >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <GameArtwork src={game.iconUrl} alt={game.name} size="sm" />
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-[#E8EEF2] truncate">
-                        {game.name}
-                      </p>
-                      <p className="text-xs text-[#6E8492]">
-                        Updated {formatRelativeTime(game.robloxUpdatedAt)}
-                      </p>
-                    </div>
-                  </div>
-                  <span className="text-xs font-medium text-[#9BB0BD] tabular-nums shrink-0">
-                    {formatCompactNumber(game.currentCcu)} CCU
-                  </span>
-                </Link>
-              ))}
-              {!loadingGames && recentlyUpdated.length === 0 && (
-                <p className="p-4 text-xs text-[#6E8492]">
-                  No verified update timestamps available yet.
-                </p>
-              )}
-            </div>
+          <div className="pt-4 mt-2 border-t border-slate-900/6 dark:border-white/8 flex items-center justify-between text-xs text-slate-500 dark:text-[#6F8796]">
+            <span>Top live momentum</span>
+            <Link
+              href="/compare"
+              className="font-medium text-slate-700 dark:text-[#9CB3C0] hover:text-emerald-600 dark:hover:text-[#10E89A] transition-colors"
+            >
+              Compare games →
+            </Link>
           </div>
         </div>
       </section>
 
-      {/* Top Games by Genre + ECharts Breakdown */}
+      {/* Most Played Right Now */}
       <section className="space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
-          <div>
-            <h2 className="font-display text-xl font-bold text-[#E8EEF2]">
-              Top Games by Genre
-            </h2>
-            <p className="text-xs text-[#6E8492]">
-              Live concurrency distribution across official Roblox experience categories
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-1.5">
-            {['All', ...genreStats.slice(0, 5).map((g) => g.genre)].map(
-              (genre) => (
-                <button
-                  key={genre}
-                  type="button"
-                  onClick={() => setSelectedGenre(genre)}
-                  className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap cursor-pointer ${
-                    selectedGenre === genre
-                      ? 'bg-[#48D597] text-[#101820]'
-                      : 'bg-[#1C2A32] border border-[#263844] text-[#9BB0BD] hover:text-[#E8EEF2]'
-                  }`}
-                >
-                  {genre}
-                </button>
-              )
-            )}
-          </div>
+        <div className="flex items-center justify-between">
+          <h2 className="font-display text-xl font-bold text-slate-900 dark:text-[#F1F7FA]">
+            Most Played
+          </h2>
+          <Link
+            href="/rankings"
+            className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 dark:text-[#10E89A] hover:opacity-80 transition-opacity"
+          >
+            All Rankings
+            <ArrowRight className="w-3.5 h-3.5" />
+          </Link>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          <div className="lg:col-span-5 bg-[#1C2A32] border border-[#263844] rounded-xl p-5">
-            <p className="text-xs font-medium text-[#9BB0BD] mb-2">
-              Live CCU Share by Genre
-            </p>
-            {genreStats.length > 0 ? (
-              <EChartWrapper option={genreChartOption} height={260} />
-            ) : (
-              <div className="h-[260px] flex items-center justify-center text-xs text-[#6E8492]">
-                Loading genre distribution...
-              </div>
-            )}
+        <div className="liquid-glass rounded-[28px] overflow-hidden divide-y divide-slate-900/6 dark:divide-white/8">
+          {loadingGames
+            ? Array.from({ length: 6 }).map((_, i) => (
+                <div
+                  key={i}
+                  className="px-5 py-3.5 flex items-center justify-between animate-pulse"
+                >
+                  <div className="flex items-center gap-3.5">
+                    <div className="w-6 h-4 bg-slate-900/10 dark:bg-white/10 rounded" />
+                    <div className="w-10 h-10 bg-slate-900/10 dark:bg-white/10 rounded-xl" />
+                    <div className="space-y-1.5">
+                      <div className="w-36 h-4 bg-slate-900/10 dark:bg-white/10 rounded" />
+                      <div className="w-24 h-3 bg-slate-900/6 dark:bg-white/6 rounded" />
+                    </div>
+                  </div>
+                  <div className="w-16 h-4 bg-slate-900/10 dark:bg-white/10 rounded" />
+                </div>
+              ))
+            : mostPlayed.map((game, index) => (
+                <Link
+                  key={game.universeId}
+                  href={`/games/${game.universeId}`}
+                  className="px-5 py-3.5 flex items-center justify-between gap-4 hover:bg-black/[0.03] dark:hover:bg-white/[0.04] transition-colors group"
+                >
+                  <div className="flex items-center gap-3.5 min-w-0">
+                    <span className="w-6 text-xs font-bold text-slate-400 dark:text-[#6F8796] tabular-nums">
+                      {index + 1}
+                    </span>
+                    <GameArtwork src={game.iconUrl} alt={game.name} size="sm" />
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-slate-900 dark:text-[#F1F7FA] group-hover:text-emerald-600 dark:group-hover:text-[#10E89A] transition-colors truncate">
+                        {game.name}
+                      </p>
+                      <p className="text-xs text-slate-500 dark:text-[#6F8796] truncate">
+                        {game.creatorName} · {game.genre}
+                        {game.likeRatio !== null && game.likeRatio !== undefined
+                          ? ` · ${game.likeRatio}% likes`
+                          : ''}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-5 shrink-0">
+                    <div className="text-right hidden sm:block">
+                      <p className="text-xs text-slate-500 dark:text-[#6F8796] tabular-nums">
+                        {formatCompactNumber(game.totalVisits)} visits
+                      </p>
+                    </div>
+                    <div className="text-right min-w-[72px]">
+                      <p className="text-sm font-bold text-slate-900 dark:text-[#F1F7FA] tabular-nums">
+                        {formatCompactNumber(game.currentCcu)}
+                      </p>
+                      <GrowthValue value={game.growth24h ?? game.growth1h} />
+                    </div>
+                  </div>
+                </Link>
+              ))}
+        </div>
+      </section>
+
+      {/* Genres & Top Developers */}
+      <section className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        {/* Top Genres */}
+        <div className="lg:col-span-7 liquid-glass rounded-[28px] p-5 sm:p-6 space-y-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="font-display text-lg font-bold text-slate-900 dark:text-[#F1F7FA]">
+              Genres
+            </h2>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {['All', ...genreStats.slice(0, 4).map((g) => g.genre)].map(
+                (genre) => (
+                  <button
+                    key={genre}
+                    type="button"
+                    onClick={() => setSelectedGenre(genre)}
+                    className={`px-3 py-1 text-xs font-medium rounded-full transition-all whitespace-nowrap cursor-pointer ${
+                      selectedGenre === genre
+                        ? 'bg-emerald-600 dark:bg-[#10E89A] text-white dark:text-[#04130D] font-semibold'
+                        : 'bg-black/[0.04] dark:bg-white/[0.06] text-slate-600 dark:text-[#9CB3C0] hover:text-slate-950 dark:hover:text-white'
+                    }`}
+                  >
+                    {genre}
+                  </button>
+                )
+              )}
+            </div>
           </div>
 
-          <div className="lg:col-span-7 grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {genreGames.map((game) => (
+          {genreStats.length > 0 && (
+            <EChartWrapper option={genreChartOption} height={210} />
+          )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-slate-900/6 dark:border-white/8">
+            {genreGames.slice(0, 4).map((game) => (
               <Link
                 key={game.universeId}
                 href={`/games/${game.universeId}`}
-                className="bg-[#1C2A32] border border-[#263844] rounded-xl p-4 hover:border-[#48D597]/50 transition-colors flex flex-col justify-between gap-3"
+                className="p-3 rounded-2xl hover:bg-black/[0.04] dark:hover:bg-white/[0.05] transition-colors flex items-center justify-between gap-3"
               >
-                <div className="flex items-start gap-3">
-                  <GameArtwork src={game.iconUrl} alt={game.name} size="md" />
+                <div className="flex items-center gap-3 min-w-0">
+                  <GameArtwork src={game.iconUrl} alt={game.name} size="sm" />
                   <div className="min-w-0">
-                    <p className="text-sm font-semibold text-[#E8EEF2] truncate">
+                    <p className="text-sm font-semibold text-slate-900 dark:text-[#F1F7FA] truncate">
                       {game.name}
                     </p>
-                    <p className="text-xs text-[#6E8492] truncate">
-                      {game.creatorName} · {game.genre}
+                    <p className="text-xs text-slate-500 dark:text-[#6F8796] truncate">
+                      {game.creatorName}
                     </p>
                   </div>
                 </div>
-                <div className="pt-3 border-t border-[#263844]/70 flex items-center justify-between text-xs">
-                  <span className="font-semibold text-[#48D597] tabular-nums">
-                    {formatCompactNumber(game.currentCcu)} CCU
-                  </span>
-                  <span className="text-[#9BB0BD] tabular-nums">
-                    {formatCompactNumber(game.totalVisits)} visits
-                  </span>
-                </div>
+                <span className="text-xs font-semibold text-emerald-600 dark:text-[#10E89A] tabular-nums shrink-0">
+                  {formatCompactNumber(game.currentCcu)}
+                </span>
               </Link>
             ))}
           </div>
         </div>
-      </section>
 
-      {/* Popular Developer Profiles + Computed Market Insights */}
-      <section className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        <div className="lg:col-span-7 space-y-4">
+        {/* Top Developers */}
+        <div className="lg:col-span-5 liquid-glass rounded-[28px] p-5 sm:p-6 space-y-4">
           <div className="flex items-center justify-between">
-            <div>
-              <h2 className="font-display text-xl font-bold text-[#E8EEF2]">
-                Popular Developer Profiles
+            <div className="flex items-center gap-2">
+              <Users className="w-4 h-4 text-emerald-600 dark:text-[#10E89A]" />
+              <h2 className="font-display text-lg font-bold text-slate-900 dark:text-[#F1F7FA]">
+                Top Developers
               </h2>
-              <p className="text-xs text-[#6E8492]">
-                Studios and creators ranked by combined live concurrency
-              </p>
             </div>
             <Link
               href="/developers"
-              className="text-xs font-medium text-[#48D597] hover:underline"
+              className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 dark:text-[#10E89A] hover:opacity-80"
             >
-              All developers
+              View All
+              <ArrowRight className="w-3.5 h-3.5" />
             </Link>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="divide-y divide-slate-900/6 dark:divide-white/8">
             {developers.slice(0, 6).map((dev) => (
               <Link
                 key={`${dev.creatorType}_${dev.creatorId}`}
                 href={`/developers/${dev.creatorId}`}
-                className="bg-[#1C2A32] border border-[#263844] rounded-xl p-4 hover:border-[#48D597]/50 transition-colors space-y-3"
+                className="py-3 -mx-2 px-2 rounded-2xl flex items-center justify-between gap-3 hover:bg-black/[0.03] dark:hover:bg-white/[0.05] transition-colors group"
               >
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <Users className="w-4 h-4 text-[#48D597] shrink-0" />
-                    <p className="text-sm font-semibold text-[#E8EEF2] truncate">
-                      {dev.creatorName}
-                    </p>
-                  </div>
-                  <span className="text-xs text-[#6E8492] shrink-0">
-                    {dev.creatorType}
-                  </span>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-slate-900 dark:text-[#F1F7FA] group-hover:text-emerald-600 dark:group-hover:text-[#10E89A] transition-colors truncate">
+                    {dev.creatorName}
+                  </p>
+                  <p className="text-xs text-slate-500 dark:text-[#6F8796] truncate">
+                    {dev.topGame.name} · {dev.gameCount}{' '}
+                    {dev.gameCount === 1 ? 'game' : 'games'}
+                  </p>
                 </div>
-                <div className="flex items-baseline justify-between text-xs">
-                  <div>
-                    <p className="text-[#6E8492]">Combined CCU</p>
-                    <p className="text-base font-bold text-[#E8EEF2] tabular-nums">
-                      {formatCompactNumber(dev.combinedCcu)}
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-[#6E8492]">Total Visits</p>
-                    <p className="text-sm font-medium text-[#9BB0BD] tabular-nums">
-                      {formatCompactNumber(dev.totalVisits)}
-                    </p>
-                  </div>
+                <div className="text-right shrink-0">
+                  <p className="text-sm font-bold text-slate-900 dark:text-[#F1F7FA] tabular-nums">
+                    {formatCompactNumber(dev.combinedCcu)}
+                  </p>
+                  <p className="text-[11px] text-slate-500 dark:text-[#6F8796] tabular-nums">
+                    {formatCompactNumber(dev.totalVisits)} visits
+                  </p>
                 </div>
-                <p className="text-xs text-[#6E8492] truncate pt-2 border-t border-[#263844]/70">
-                  Top game: {dev.topGame.name}
-                </p>
               </Link>
             ))}
-          </div>
-        </div>
-
-        {/* Latest Roblox Market Insights */}
-        <div className="lg:col-span-5 space-y-4">
-          <div>
-            <h2 className="font-display text-xl font-bold text-[#E8EEF2]">
-              Latest Market Insights
-            </h2>
-            <p className="text-xs text-[#6E8492]">
-              Calculated automatically from current observed snapshot data
-            </p>
-          </div>
-          <div className="bg-[#1C2A32] border border-[#263844] rounded-xl divide-y divide-[#263844]">
-            {marketInsights.map((insight) => (
-              <div key={insight.title} className="p-5 space-y-1.5">
-                <div className="flex items-baseline justify-between gap-3">
-                  <h3 className="text-sm font-semibold text-[#E8EEF2]">
-                    {insight.title}
-                  </h3>
-                  <span className="text-sm font-bold text-[#48D597] tabular-nums shrink-0">
-                    {insight.metric}
-                  </span>
-                </div>
-                <p className="text-xs text-[#9BB0BD] leading-relaxed">
-                  {insight.detail}
-                </p>
-              </div>
-            ))}
-            {fastestGrowing.length > 0 && (
-              <div className="p-5 space-y-1.5">
-                <div className="flex items-baseline justify-between gap-3">
-                  <h3 className="text-sm font-semibold text-[#E8EEF2]">
-                    Fastest Measured Mover
-                  </h3>
-                  <GrowthValue
-                    value={
-                      fastestGrowing[0].growth24h ?? fastestGrowing[0].growth1h
-                    }
-                  />
-                </div>
-                <p className="text-xs text-[#9BB0BD] leading-relaxed">
-                  {fastestGrowing[0].name} leads tracked velocity at{' '}
-                  {formatCompactNumber(fastestGrowing[0].currentCcu)} live CCU.
-                </p>
-              </div>
-            )}
           </div>
         </div>
       </section>

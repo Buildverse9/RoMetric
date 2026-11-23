@@ -26,7 +26,7 @@ export function GameArtwork({
   if (variant === 'banner') {
     return (
       <div
-        className={`relative w-full aspect-video rounded-lg overflow-hidden bg-[#101820] border border-[#263844] ${className}`}
+        className={`relative w-full aspect-video rounded-3xl overflow-hidden bg-slate-200/70 dark:bg-white/[0.04] border border-slate-900/8 dark:border-white/12 shadow-sm ${className}`}
       >
         {validSrc ? (
           <Image
@@ -39,8 +39,8 @@ export function GameArtwork({
             className="object-cover"
           />
         ) : (
-          <div className="w-full h-full flex flex-col items-center justify-center gap-2 bg-gradient-to-br from-[#1C2A32] to-[#101820] text-[#6E8492]">
-            <Gamepad2 className="w-8 h-8 text-[#48D597]/60" />
+          <div className="w-full h-full flex flex-col items-center justify-center gap-2 bg-gradient-to-br from-emerald-500/10 to-slate-200/40 dark:from-[#10E89A]/10 dark:to-[#08131A] text-slate-500 dark:text-[#6F8796]">
+            <Gamepad2 className="w-8 h-8 text-emerald-600/70 dark:text-[#10E89A]/70" />
             <span className="text-xs font-medium px-3 text-center truncate max-w-[85%]">
               {alt}
             </span>
@@ -52,16 +52,16 @@ export function GameArtwork({
 
   const sizeClass =
     size === 'sm'
-      ? 'w-9 h-9 rounded-md'
+      ? 'w-10 h-10 rounded-xl'
       : size === 'lg'
-        ? 'w-16 h-16 rounded-xl'
-        : 'w-11 h-11 rounded-lg';
+        ? 'w-16 h-16 rounded-2xl'
+        : 'w-12 h-12 rounded-2xl';
 
-  const pxSize = size === 'sm' ? 36 : size === 'lg' ? 64 : 44;
+  const pxSize = size === 'sm' ? 40 : size === 'lg' ? 64 : 48;
 
   return (
     <div
-      className={`relative shrink-0 overflow-hidden bg-[#101820] border border-[#263844] ${sizeClass} ${className}`}
+      className={`relative shrink-0 overflow-hidden bg-slate-200/70 dark:bg-white/[0.05] border border-slate-900/8 dark:border-white/12 ${sizeClass} ${className}`}
     >
       {validSrc ? (
         <Image
@@ -74,7 +74,7 @@ export function GameArtwork({
           className="w-full h-full object-cover"
         />
       ) : (
-        <div className="w-full h-full flex items-center justify-center bg-[#1C2A32] text-[#48D597]/70">
+        <div className="w-full h-full flex items-center justify-center bg-emerald-500/10 text-emerald-600 dark:text-[#10E89A]">
           <Gamepad2 className="w-4 h-4" />
         </div>
       )}
