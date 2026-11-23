@@ -776,7 +776,7 @@ export async function runCodesCollectionCycle(options: {
     }
     const dbSrc = sourceMap.get(adapter.id);
     if (dbSrc && !dbSrc.enabled) {
-      if (adapter.requiresApiKey && adapter.isConfigured() && dbSrc.last_status === 'disabled') {
+      if (adapter.requiresApiKey && adapter.isConfigured() && dbSrc.lastStatus === 'disabled') {
         return true;
       }
       return false;
