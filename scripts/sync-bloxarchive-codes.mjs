@@ -234,7 +234,7 @@ BLOXARCHIVE_API_KEY="${bloxApiKey}"
   // 2. Fetch existing games from Supabase to build fast ID lookup maps
   console.log('Loading existing games catalog from Supabase...');
   const gamesRes = await fetch(
-    `${supabaseUrl}/rest/v1/games?select=universe_id,root_place_id,slug,name&limit=5000`,
+    `${supabaseUrl}/rest/v1/games?select=universe_id,root_place_id,slug,name,codes_last_checked_at,active_code_count,total_code_count&limit=5000`,
     { headers: sbHeaders }
   );
   if (!gamesRes.ok) {
@@ -293,18 +293,27 @@ BLOXARCHIVE_API_KEY="${bloxApiKey}"
     if (rootPlaceMap.has(sPlaceId)) return rootPlaceMap.get(sPlaceId);
     if (resolvedPlaceToUniverse.has(sPlaceId)) return resolvedPlaceToUniverse.get(sPlaceId);
 
-    try {
-      const res = await fetch(`https://apis.roblox.com/universes/v1/places/${sPlaceId}/universe`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.universeId) {
-          const uId = String(data.universeId);
-          resolvedPlaceToUniverse.set(sPlaceId, uId);
-          return uId;
+    for (let attempt = 1; attempt <= 4; attempt++) {
+      try {
+        const res = await fetch(`https://apis.roblox.com/universes/v1/places/${sPlaceId}/universe`);
+        if (res.status === 429) {
+          const resetHeader = res.headers.get('x-ratelimit-reset') || res.headers.get('retry-after');
+          const waitSec = Math.min(Math.max(parseInt(resetHeader, 10) || (2 * attempt), 2), 10);
+          await sleep(waitSec * 1000);
+          continue;
         }
+        if (res.ok) {
+          const data = await res.json();
+          if (data.universeId) {
+            const uId = String(data.universeId);
+            resolvedPlaceToUniverse.set(sPlaceId, uId);
+            rootPlaceMap.set(sPlaceId, uId);
+            return uId;
+          }
+        }
+      } catch {
+        await sleep(500);
       }
-    } catch {
-      // Fallback
     }
     return null;
   }
@@ -398,6 +407,26 @@ BLOXARCHIVE_API_KEY="${bloxApiKey}"
 
   async function processGame(bg) {
     const slug = bg.slug;
+    const isForce = hasFlag('force');
+    const existingEntry = slugMap.has(slug.toLowerCase())
+      ? universeIdMap.get(slugMap.get(slug.toLowerCase()))
+      : null;
+
+    if (!isForce && existingEntry?.codes_last_checked_at) {
+      const checkedMs = Date.parse(existingEntry.codes_last_checked_at);
+      if (Date.now() - checkedMs < 12 * 3600 * 1000) {
+        return {
+          ok: true,
+          alreadySynced: true,
+          name: existingEntry.name || bg.name,
+          active: existingEntry.active_code_count || 0,
+          expired: 0,
+          pending: 0,
+          total: existingEntry.total_code_count || 0,
+        };
+      }
+    }
+
     const detailUrl = `${BLOXARCHIVE_BASE}/games/${encodeURIComponent(slug)}?locale=en`;
 
     let res;
@@ -512,29 +541,31 @@ BLOXARCHIVE_API_KEY="${bloxApiKey}"
       });
     }
 
-    if (codeRows.length > 0 && !dryRun) {
-      const upsertRes = await fetch(
-        `${supabaseUrl}/rest/v1/game_codes?on_conflict=universe_id,normalized_code`,
-        {
-          method: 'POST',
-          headers: {
-            ...sbHeaders,
-            Prefer: 'resolution=merge-duplicates,return=minimal',
-          },
-          body: JSON.stringify(codeRows),
-        }
-      );
+    if (!dryRun) {
+      if (codeRows.length > 0) {
+        const upsertRes = await fetch(
+          `${supabaseUrl}/rest/v1/game_codes?on_conflict=universe_id,normalized_code`,
+          {
+            method: 'POST',
+            headers: {
+              ...sbHeaders,
+              Prefer: 'resolution=merge-duplicates,return=minimal',
+            },
+            body: JSON.stringify(codeRows),
+          }
+        );
 
-      if (!upsertRes.ok) {
-        const errText = await upsertRes.text();
-        return {
-          skipped: true,
-          name: gameName,
-          reason: `Supabase upsert failed: ${errText.slice(0, 100)}`,
-        };
+        if (!upsertRes.ok) {
+          const errText = await upsertRes.text();
+          return {
+            skipped: true,
+            name: gameName,
+            reason: `Supabase upsert failed: ${errText.slice(0, 100)}`,
+          };
+        }
       }
 
-      // Update game's denormalized code counts
+      // Update game's denormalized code counts & timestamp
       await fetch(`${supabaseUrl}/rest/v1/games?universe_id=eq.${universeId}`, {
         method: 'PATCH',
         headers: { ...sbHeaders, Prefer: 'return=minimal' },
@@ -571,7 +602,12 @@ BLOXARCHIVE_API_KEY="${bloxApiKey}"
         processedCount++;
         const elapsedMs = Date.now() - startMs;
 
-        if (result.ok) {
+        if (result.alreadySynced) {
+          totalActiveSaved += result.active;
+          if (processedCount % 40 === 0 || processedCount === gamesToProcess.length) {
+            process.stdout.write(`  [${processedCount}/${gamesToProcess.length}] Progress: already synced ${result.name}...\r`);
+          }
+        } else if (result.ok) {
           totalActiveSaved += result.active;
           totalExpiredSaved += result.expired;
           totalPendingSaved += result.pending;

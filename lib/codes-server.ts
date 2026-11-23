@@ -515,7 +515,7 @@ export async function fetchGameCodesBySlugOrId(
     : 'universe_id,root_place_id,name,slug,creator_id,creator_name,creator_verified,genre,icon_url,thumbnail_url,current_ccu,total_visits';
 
   const filterQuery = isNumeric
-    ? `universe_id=eq.${clean}`
+    ? `or=(universe_id.eq.${clean},root_place_id.eq.${clean})`
     : `slug=eq.${encodeURIComponent(clean)}`;
 
   let gameRes = await supabaseRest(
@@ -525,16 +525,29 @@ export async function fetchGameCodesBySlugOrId(
     ? ((await gameRes.json()) as DbGameCodesMetaRow[])
     : [];
 
-  // Fallback: match slug suffix with universeId e.g. "blox-fruits-994732206"
+  // Fallback 1: match with or without trailing '-codes'
   if (gameRows.length === 0 && !isNumeric) {
-    const trailingId = clean.match(/-([0-9]{5,20})$/)?.[1];
+    const altSlug = clean.endsWith('-codes')
+      ? clean.replace(/-codes$/, '')
+      : `${clean}-codes`;
+    gameRes = await supabaseRest(
+      `games?select=${selectCols}&slug=eq.${encodeURIComponent(altSlug)}&order=current_ccu.desc&limit=1`
+    );
+    if (gameRes.ok) {
+      gameRows = (await gameRes.json()) as DbGameCodesMetaRow[];
+    }
+  }
+
+  // Fallback 2: match slug suffix with universeId or rootPlaceId e.g. "blox-fruits-994732206"
+  if (gameRows.length === 0 && !isNumeric) {
+    const trailingId = clean.match(/-?([0-9]{5,20})$/)?.[1];
     if (trailingId) {
       gameRes = await supabaseRest(
-        `games?select=${selectCols}&universe_id=eq.${trailingId}&limit=1`
+        `games?select=${selectCols}&or=(universe_id.eq.${trailingId},root_place_id.eq.${trailingId})&limit=1`
       );
-      gameRows = gameRes.ok
-        ? ((await gameRes.json()) as DbGameCodesMetaRow[])
-        : [];
+      if (gameRes.ok) {
+        gameRows = (await gameRes.json()) as DbGameCodesMetaRow[];
+      }
     }
   }
 
