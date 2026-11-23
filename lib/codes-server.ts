@@ -662,6 +662,8 @@ export async function fetchGameCodesBySlugOrId(
   };
 }
 
+export const fetchGameCodesDetail = fetchGameCodesBySlugOrId;
+
 /**
  * Returns ONLY games that actually have codes (total_code_count > 0) for XML sitemap,
  * ensuring RoMetric never emits thousands of thin/empty SEO pages.

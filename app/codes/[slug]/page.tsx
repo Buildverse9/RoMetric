@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
-import { fetchGameCodesDetail } from '@/lib/codes-server';
+import { fetchGameCodesBySlugOrId } from '@/lib/codes-server';
 import { GameCodesDetailClient } from '@/components/GameCodesDetailClient';
 
 export const dynamic = 'force-dynamic';
@@ -11,7 +11,7 @@ interface PageProps {
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { slug } = await params;
-  const payload = await fetchGameCodesDetail(slug);
+  const payload = await fetchGameCodesBySlugOrId(slug);
   const game = payload.game;
 
   if (!game) {
@@ -50,7 +50,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 
 export default async function GameCodesDetailPage({ params }: PageProps) {
   const { slug } = await params;
-  const payload = await fetchGameCodesDetail(slug);
+  const payload = await fetchGameCodesBySlugOrId(slug);
 
   if (!payload.game) {
     notFound();

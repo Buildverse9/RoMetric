@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { fetchGameCodesDetail } from '@/lib/codes-server';
+import { fetchGameCodesBySlugOrId } from '@/lib/codes-server';
 
 export const dynamic = 'force-dynamic';
 
@@ -11,7 +11,7 @@ export async function GET(req: NextRequest, context: RouteContext) {
   const { slug } = await context.params;
 
   try {
-    const data = await fetchGameCodesDetail(slug);
+    const data = await fetchGameCodesBySlugOrId(slug);
     if (!data.game) {
       return NextResponse.json({ error: 'Game not found' }, { status: 404 });
     }
