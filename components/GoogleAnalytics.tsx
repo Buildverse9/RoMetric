@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import Script from 'next/script';
 import { usePathname } from 'next/navigation';
 
@@ -16,12 +16,27 @@ const VALID_GA_ID = /^G-[A-Z0-9]{4,20}$/i.test(RAW_GA_ID) ? RAW_GA_ID : '';
 
 export function GoogleAnalytics() {
   const pathname = usePathname();
+  const isFirstRender = useRef(true);
 
   useEffect(() => {
-    if (!VALID_GA_ID || typeof window === 'undefined' || !window.gtag) return;
-    window.gtag('config', VALID_GA_ID, {
-      page_path: pathname,
-    });
+    if (typeof window === 'undefined') return;
+
+    // Push SPA route transitions to Google Tag Manager dataLayer
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+    } else {
+      window.dataLayer = window.dataLayer || [];
+      window.dataLayer.push({
+        event: 'page_view',
+        page_path: pathname,
+      });
+    }
+
+    if (VALID_GA_ID && window.gtag) {
+      window.gtag('config', VALID_GA_ID, {
+        page_path: pathname,
+      });
+    }
   }, [pathname]);
 
   if (!VALID_GA_ID) return null;

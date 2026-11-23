@@ -115,6 +115,17 @@ const THEME_INIT_SCRIPT = `
 })();
 `;
 
+const RAW_GTM_ID = (
+  process.env.NEXT_PUBLIC_GTM_ID || 'GTM-5B3QCDG2'
+).trim();
+const VALID_GTM_ID = /^GTM-[A-Z0-9]{4,16}$/i.test(RAW_GTM_ID)
+  ? RAW_GTM_ID
+  : '';
+
+const GTM_INIT_SCRIPT = VALID_GTM_ID
+  ? `(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src='https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);})(window,document,'script','dataLayer','${VALID_GTM_ID}');`
+  : '';
+
 export default function RootLayout({
   children,
 }: {
@@ -123,6 +134,12 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
+        {VALID_GTM_ID && (
+          <script
+            id="rometric-gtm-head"
+            dangerouslySetInnerHTML={{ __html: GTM_INIT_SCRIPT }}
+          />
+        )}
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
         <script
           type="application/ld+json"
@@ -145,6 +162,16 @@ export default function RootLayout({
         suppressHydrationWarning
         className="min-h-screen flex flex-col text-slate-900 dark:text-[#F1F7FA] selection:bg-emerald-500/25 selection:text-emerald-950 dark:selection:text-white transition-colors duration-200 pb-20 md:pb-0"
       >
+        {VALID_GTM_ID && (
+          <noscript>
+            <iframe
+              src={`https://www.googletagmanager.com/ns.html?id=${encodeURIComponent(VALID_GTM_ID)}`}
+              height="0"
+              width="0"
+              className="hidden"
+            />
+          </noscript>
+        )}
         <GoogleAnalytics />
         <AppProvider>
           <Navbar />
