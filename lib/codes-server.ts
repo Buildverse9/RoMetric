@@ -760,7 +760,12 @@ export async function runCodesCollectionCycle(options: {
       return adapter.id === options.providerId;
     }
     const dbSrc = sourceMap.get(adapter.id);
-    if (dbSrc && !dbSrc.enabled) return false;
+    if (dbSrc && !dbSrc.enabled) {
+      if (adapter.requiresApiKey && adapter.isConfigured() && dbSrc.last_status === 'disabled') {
+        return true;
+      }
+      return false;
+    }
     return adapter.isConfigured();
   });
 

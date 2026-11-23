@@ -120,7 +120,7 @@ export function validatePublicHttpsUrl(raw: string | null | undefined): string |
 export function isValidPromoCodeFormat(raw: string): boolean {
   const trimmed = raw.trim();
   if (trimmed.length < 3 || trimmed.length > 42) return false;
-  if (!/^[A-Za-z0-9_!@#$%&*+?-]+$/.test(trimmed)) return false;
+  if (!/^[A-Za-z0-9_!@#$%&*+?-]+(?: [A-Za-z0-9_!@#$%&*+?-]+)*$/.test(trimmed)) return false;
   // Reject obvious common non-code English words or pure punctuation
   const upper = trimmed.toUpperCase();
   const stopWords = new Set([
@@ -647,15 +647,36 @@ interface BloxArchiveCodeItem {
   status?: string;
   verified?: boolean;
   expired?: boolean;
+  first_seen_at?: string | null;
+  expired_at?: string | null;
   expiresAt?: string | null;
   expires_at?: string | null;
 }
 
 interface BloxArchiveGamePayload {
+  locale?: string;
   url?: string;
   pageUrl?: string;
   slug?: string;
-  codes?: BloxArchiveCodeItem[];
+  game?: {
+    slug?: string;
+    name?: string;
+    title?: string;
+    code_kind?: string;
+    icon_url?: string;
+    thumb_url?: string;
+    root_place_id?: number;
+    playing?: number;
+    codes_checked_at?: string;
+    url?: string;
+  };
+  codes?:
+    | BloxArchiveCodeItem[]
+    | {
+        active?: BloxArchiveCodeItem[];
+        pending?: BloxArchiveCodeItem[];
+        expired?: BloxArchiveCodeItem[];
+      };
   active?: BloxArchiveCodeItem[];
   active_codes?: BloxArchiveCodeItem[];
   confirmed?: BloxArchiveCodeItem[];
@@ -663,10 +684,22 @@ interface BloxArchiveGamePayload {
   pending_codes?: BloxArchiveCodeItem[];
   expired?: BloxArchiveCodeItem[];
   expired_codes?: BloxArchiveCodeItem[];
+  attribution?: {
+    required?: boolean;
+    url?: string;
+    html?: string;
+  };
+  notice?: string | null;
   data?: {
     url?: string;
     pageUrl?: string;
-    codes?: BloxArchiveCodeItem[];
+    codes?:
+      | BloxArchiveCodeItem[]
+      | {
+          active?: BloxArchiveCodeItem[];
+          pending?: BloxArchiveCodeItem[];
+          expired?: BloxArchiveCodeItem[];
+        };
     active_codes?: BloxArchiveCodeItem[];
     expired_codes?: BloxArchiveCodeItem[];
   };
@@ -710,22 +743,38 @@ export const bloxArchiveProvider: CodeProviderAdapter = {
     }
 
     const cleanBase = baseUrl.replace(/\/+$/, '');
-    const cleanSlug = target.slug
-      .toLowerCase()
-      .replace(/[^a-z0-9-]+/g, '-')
-      .replace(/^-+|-+$/g, '');
-    const slugWithCodes = cleanSlug.endsWith('-codes')
-      ? cleanSlug
-      : `${cleanSlug}-codes`;
+    const candidateSlugs = new Set<string>();
 
-    const candidateUrls = [
-      `${cleanBase}/games/${encodeURIComponent(slugWithCodes)}?locale=en`,
-      `${cleanBase}/games/${encodeURIComponent(cleanSlug)}?locale=en`,
-    ];
+    const addCandidate = (str: string | null | undefined) => {
+      if (!str) return;
+      const clean = str
+        .toLowerCase()
+        .replace(/[^a-z0-9-]+/g, '-')
+        .replace(/^-+|-+$/g, '');
+      if (!clean) return;
+      if (!clean.endsWith('-codes')) {
+        candidateSlugs.add(`${clean}-codes`);
+      }
+      candidateSlugs.add(clean);
+    };
+
+    // 1. From target slug (e.g. "blox-fruits" -> "blox-fruits-codes")
+    addCandidate(target.slug);
+
+    // 2. From target name without apostrophes (e.g. "Dandy's World" -> "dandys-world-codes", "Sol's RNG" -> "sols-rng-codes")
+    if (target.name) {
+      addCandidate(target.name.replace(/['’]/g, ''));
+      addCandidate(target.name);
+    }
+
+    const candidateUrls = Array.from(candidateSlugs).map(
+      (slug) => `${cleanBase}/games/${encodeURIComponent(slug)}?locale=en`
+    );
 
     let apiRequests = 0;
     let http429Count = 0;
     let payload: BloxArchiveGamePayload | null = null;
+    let matchedUrl = candidateUrls[0] || `${cleanBase}/games/${encodeURIComponent(target.slug)}?locale=en`;
     let lastError: string | undefined;
 
     for (const url of candidateUrls) {
@@ -741,6 +790,7 @@ export const bloxArchiveProvider: CodeProviderAdapter = {
 
       if (res.status >= 200 && res.status < 300 && res.data) {
         payload = res.data;
+        matchedUrl = url;
         break;
       }
       if (res.status !== 404 && res.status !== 0) {
@@ -775,7 +825,17 @@ export const bloxArchiveProvider: CodeProviderAdapter = {
       }
     };
 
-    pushList(payload.codes);
+    // Official BloxArchive API v1 format: payload.codes as { active: [], pending: [], expired: [] }
+    const codesObj = payload.codes || nested?.codes;
+    if (codesObj && !Array.isArray(codesObj) && typeof codesObj === 'object') {
+      pushList(codesObj.active, 'active');
+      pushList(codesObj.pending, 'unverified');
+      pushList(codesObj.expired, 'expired');
+    } else if (Array.isArray(codesObj)) {
+      pushList(codesObj);
+    }
+
+    // Direct root arrays (compatibility fallback)
     pushList(payload.active, 'active');
     pushList(payload.active_codes, 'active');
     pushList(payload.confirmed, 'active');
@@ -783,14 +843,28 @@ export const bloxArchiveProvider: CodeProviderAdapter = {
     pushList(payload.pending_codes, 'unverified');
     pushList(payload.expired, 'expired');
     pushList(payload.expired_codes, 'expired');
-    pushList(nested?.codes);
+
+    // Nested data arrays (compatibility fallback)
     pushList(nested?.active_codes, 'active');
     pushList(nested?.expired_codes, 'expired');
 
+    const cleanSlug = target.slug
+      .toLowerCase()
+      .replace(/[^a-z0-9-]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+    const slugWithCodes = cleanSlug.endsWith('-codes')
+      ? cleanSlug
+      : `${cleanSlug}-codes`;
+
     const attributionUrl =
       validatePublicHttpsUrl(
-        payload.url || payload.pageUrl || nested?.url || nested?.pageUrl
-      ) || `https://bloxarchive.com/${encodeURIComponent(slugWithCodes)}`;
+        payload.attribution?.url ||
+        payload.game?.url ||
+        payload.url ||
+        payload.pageUrl ||
+        nested?.url ||
+        nested?.pageUrl
+      ) || `https://bloxarchive.com/${encodeURIComponent(payload.game?.slug || slugWithCodes)}`;
 
     const parsed: ProviderDiscoveredCode[] = [];
     const seen = new Set<string>();
@@ -802,11 +876,12 @@ export const bloxArchiveProvider: CodeProviderAdapter = {
       if (seen.has(norm)) continue;
       seen.add(norm);
 
+      const isItemExpired = Boolean(item.expired || item.expired_at);
       const rawStatus = String(
         item.status ??
-          (item.expired
+          (isItemExpired
             ? 'expired'
-            : item.verified
+            : item.verified || hintedStatus === 'active'
               ? 'active'
               : hintedStatus ?? 'unverified')
       ).toLowerCase();
@@ -817,11 +892,13 @@ export const bloxArchiveProvider: CodeProviderAdapter = {
         rawStatus === 'confirmed' ||
         rawStatus === 'verified'
           ? 'active'
-          : rawStatus === 'expired' || rawStatus === 'inactive'
+          : rawStatus === 'expired' || rawStatus === 'inactive' || isItemExpired
             ? 'expired'
             : hintedStatus ?? 'unverified';
 
-      const expiryRaw = item.expiresAt ?? item.expires_at ?? null;
+      const expiryRaw =
+        item.expired_at ?? item.expiresAt ?? item.expires_at ?? null;
+
       parsed.push({
         code: rawCode,
         rewardDescription: sanitizePlainText(
