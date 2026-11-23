@@ -10,11 +10,11 @@ import {
   BarChart2,
   Compass,
   Flame,
-  GitCompare,
   Home,
   Moon,
   Search,
   Sun,
+  Ticket,
   Users,
   X,
 } from 'lucide-react';
@@ -27,6 +27,7 @@ import { APPLE_EASE, APPLE_SPRING } from './MotionPrimitives';
 const NAV_LINKS = [
   { href: '/rankings', label: 'Rankings' },
   { href: '/trending', label: 'Trending' },
+  { href: '/codes', label: 'Codes' },
   { href: '/compare', label: 'Compare' },
   { href: '/developers', label: 'Developers' },
 ];
@@ -34,8 +35,8 @@ const NAV_LINKS = [
 const MOBILE_DOCK_ITEMS = [
   { href: '/', label: 'Home', icon: Home },
   { href: '/rankings', label: 'Rankings', icon: BarChart2 },
+  { href: '/codes', label: 'Codes', icon: Ticket },
   { href: '/trending', label: 'Trending', icon: Flame },
-  { href: '/compare', label: 'Compare', icon: GitCompare },
   { href: '/developers', label: 'Explore', icon: Compass },
 ];
 

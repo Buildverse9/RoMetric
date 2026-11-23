@@ -15,6 +15,7 @@ import {
   Plus,
   RefreshCw,
   Shield,
+  Ticket,
   Trash2,
 } from 'lucide-react';
 import { useApp } from '@/components/AppProvider';
@@ -45,6 +46,7 @@ import type {
 } from '@/lib/types';
 import { GameArtwork } from '@/components/GameArtwork';
 import { LiquidGlassCard } from '@/components/MotionPrimitives';
+import { AdminCodesPanel } from '@/components/AdminCodesPanel';
 
 export default function AdminDashboardPage() {
   const {
@@ -77,6 +79,7 @@ export default function AdminDashboardPage() {
   const [pruning, setPruning] = useState(false);
   const [listFilter, setListFilter] = useState('');
   const [telemetryNowMs, setTelemetryNowMs] = useState<number>(0);
+  const [adminTab, setAdminTab] = useState<'analytics' | 'codes'>('analytics');
 
   const loadAdminTelemetry = useCallback(async () => {
     if (!isAdmin) return;
@@ -499,6 +502,38 @@ export default function AdminDashboardPage() {
         </div>
       </div>
 
+      {/* Admin Section Switcher */}
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setAdminTab('analytics')}
+          className={`inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-full transition-colors cursor-pointer ${
+            adminTab === 'analytics'
+              ? 'bg-emerald-600 dark:bg-[#10E89A] text-white dark:text-[#04130D]'
+              : 'liquid-glass-pill text-slate-600 dark:text-[#9CB3C0] hover:text-slate-950 dark:hover:text-white'
+          }`}
+        >
+          <Database className="w-3.5 h-3.5" />
+          Analytics & Collector
+        </button>
+        <button
+          type="button"
+          onClick={() => setAdminTab('codes')}
+          className={`inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-full transition-colors cursor-pointer ${
+            adminTab === 'codes'
+              ? 'bg-emerald-600 dark:bg-[#10E89A] text-white dark:text-[#04130D]'
+              : 'liquid-glass-pill text-slate-600 dark:text-[#9CB3C0] hover:text-slate-950 dark:hover:text-white'
+          }`}
+        >
+          <Ticket className="w-3.5 h-3.5" />
+          Game Codes
+        </button>
+      </div>
+
+      {adminTab === 'codes' ? (
+        <AdminCodesPanel />
+      ) : (
+        <>
       {statusMessage && (
         <div
           className={`liquid-glass rounded-3xl p-4 text-sm flex items-center justify-between gap-4 ${
@@ -932,6 +967,8 @@ export default function AdminDashboardPage() {
           </div>
         </LiquidGlassCard>
       </section>
+        </>
+      )}
     </div>
   );
 }

@@ -232,5 +232,209 @@ BEGIN
   DELETE FROM public.game_hourly_stats WHERE hour_bucket < NOW() - INTERVAL '7 days';
   DELETE FROM public.collection_jobs WHERE started_at < NOW() - INTERVAL '30 days';
   DELETE FROM public.game_daily_stats WHERE day_bucket < (CURRENT_DATE - INTERVAL '365 days');
+  IF to_regclass('public.code_collection_logs') IS NOT NULL THEN
+    DELETE FROM public.code_collection_logs WHERE started_at < NOW() - INTERVAL '90 days';
+  END IF;
 END;
 $$;
+
+-- ============================================================================
+-- Automated Roblox Game Codes System Schema (UTC Timestamps, Idempotent)
+-- ============================================================================
+
+ALTER TABLE public.games
+  ADD COLUMN IF NOT EXISTS code_coverage_status TEXT NOT NULL DEFAULT 'unchecked'
+    CHECK (code_coverage_status IN ('covered', 'no_provider_data', 'unchecked')),
+  ADD COLUMN IF NOT EXISTS active_code_count INTEGER NOT NULL DEFAULT 0 CHECK (active_code_count >= 0),
+  ADD COLUMN IF NOT EXISTS total_code_count INTEGER NOT NULL DEFAULT 0 CHECK (total_code_count >= 0),
+  ADD COLUMN IF NOT EXISTS wiki_subdomain TEXT,
+  ADD COLUMN IF NOT EXISTS codes_last_checked_at TIMESTAMPTZ;
+
+CREATE INDEX IF NOT EXISTS idx_games_slug ON public.games (slug);
+CREATE INDEX IF NOT EXISTS idx_games_code_coverage ON public.games (code_coverage_status, active_code_count DESC, current_ccu DESC);
+
+CREATE TABLE IF NOT EXISTS public.code_sources (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  provider_type TEXT NOT NULL CHECK (provider_type IN ('roblox_official', 'mediawiki', 'bloxarchive', 'community')),
+  enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  requires_api_key BOOLEAN NOT NULL DEFAULT FALSE,
+  attribution_label TEXT NOT NULL,
+  attribution_url TEXT,
+  license_notice TEXT,
+  rate_limit_rpm INTEGER NOT NULL DEFAULT 30,
+  last_run_at TIMESTAMPTZ,
+  last_status TEXT CHECK (last_status IN ('healthy', 'degraded', 'error', 'disabled', 'idle')),
+  last_error TEXT,
+  consecutive_failures INTEGER NOT NULL DEFAULT 0,
+  requests_today INTEGER NOT NULL DEFAULT 0,
+  requests_reset_date DATE NOT NULL DEFAULT CURRENT_DATE,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.game_codes (
+  id BIGSERIAL PRIMARY KEY,
+  universe_id BIGINT NOT NULL REFERENCES public.games(universe_id) ON DELETE CASCADE,
+  code TEXT NOT NULL,
+  normalized_code TEXT NOT NULL,
+  reward_description TEXT,
+  status TEXT NOT NULL DEFAULT 'unverified'
+    CHECK (status IN ('active', 'pending_verification', 'expired', 'unverified')),
+  source_id TEXT NOT NULL REFERENCES public.code_sources(id),
+  source_url TEXT,
+  source_reported_status TEXT,
+  admin_locked BOOLEAN NOT NULL DEFAULT FALSE,
+  submitted_by_note TEXT,
+  discovered_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  last_verified_at TIMESTAMPTZ,
+  expires_at TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT uq_game_codes_universe_norm UNIQUE (universe_id, normalized_code)
+);
+
+CREATE INDEX IF NOT EXISTS idx_game_codes_universe_status ON public.game_codes (universe_id, status, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_game_codes_status_updated ON public.game_codes (status, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_game_codes_norm_code ON public.game_codes (normalized_code);
+
+CREATE TABLE IF NOT EXISTS public.code_collection_logs (
+  id BIGSERIAL PRIMARY KEY,
+  source_id TEXT NOT NULL REFERENCES public.code_sources(id),
+  triggered_by TEXT NOT NULL,
+  started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  completed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  duration_ms INTEGER NOT NULL DEFAULT 0,
+  games_checked INTEGER NOT NULL DEFAULT 0,
+  games_with_provider_data INTEGER NOT NULL DEFAULT 0,
+  codes_discovered INTEGER NOT NULL DEFAULT 0,
+  codes_updated INTEGER NOT NULL DEFAULT 0,
+  codes_expired INTEGER NOT NULL DEFAULT 0,
+  api_requests INTEGER NOT NULL DEFAULT 0,
+  http_429_count INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL CHECK (status IN ('success', 'partial', 'failed', 'skipped')),
+  error_summary TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_code_collection_logs_started ON public.code_collection_logs (started_at DESC);
+
+CREATE TABLE IF NOT EXISTS public.code_verification_logs (
+  id BIGSERIAL PRIMARY KEY,
+  code_id BIGINT REFERENCES public.game_codes(id) ON DELETE SET NULL,
+  universe_id BIGINT NOT NULL,
+  code_text TEXT NOT NULL,
+  previous_status TEXT,
+  new_status TEXT NOT NULL,
+  actor TEXT NOT NULL,
+  reason TEXT,
+  verified_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_code_verification_logs_time ON public.code_verification_logs (verified_at DESC);
+
+-- RLS Policies for Game Codes tables
+ALTER TABLE public.code_sources ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.game_codes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.code_collection_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.code_verification_logs ENABLE ROW LEVEL SECURITY;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'code_sources' AND policyname = 'Public read code sources'
+  ) THEN
+    CREATE POLICY "Public read code sources" ON public.code_sources FOR SELECT USING (true);
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'game_codes' AND policyname = 'Public read game codes'
+  ) THEN
+    CREATE POLICY "Public read game codes" ON public.game_codes FOR SELECT USING (true);
+  END IF;
+END $$;
+-- Note: code_collection_logs and code_verification_logs have NO public SELECT policy (service_role only).
+
+-- Helper to keep denormalized game code counts synchronized
+CREATE OR REPLACE FUNCTION public.recompute_game_code_counts(p_universe_id BIGINT)
+RETURNS VOID
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_active INTEGER;
+  v_total INTEGER;
+BEGIN
+  SELECT
+    COUNT(*) FILTER (WHERE status = 'active'),
+    COUNT(*)
+  INTO v_active, v_total
+  FROM public.game_codes
+  WHERE universe_id = p_universe_id;
+
+  UPDATE public.games
+  SET
+    active_code_count = COALESCE(v_active, 0),
+    total_code_count = COALESCE(v_total, 0),
+    code_coverage_status = CASE
+      WHEN COALESCE(v_total, 0) > 0 THEN 'covered'
+      ELSE code_coverage_status
+    END,
+    codes_last_checked_at = COALESCE(codes_last_checked_at, NOW()),
+    updated_at = NOW()
+  WHERE universe_id = p_universe_id;
+END;
+$$;
+
+-- Seed Modular Code Providers
+INSERT INTO public.code_sources (
+  id, name, provider_type, enabled, requires_api_key,
+  attribution_label, attribution_url, license_notice, rate_limit_rpm, last_status
+)
+VALUES
+  (
+    'roblox_official_signals',
+    'Roblox Official Game Descriptions & Group Shouts',
+    'roblox_official',
+    TRUE,
+    FALSE,
+    'Official Roblox Experience & Group',
+    'https://www.roblox.com',
+    'Publicly published developer announcements via official Roblox APIs',
+    45,
+    'idle'
+  ),
+  (
+    'fandom_mediawiki_api',
+    'Community Wiki MediaWiki Action API',
+    'mediawiki',
+    TRUE,
+    FALSE,
+    'Fandom Community Wiki',
+    'https://www.fandom.com',
+    'Community wiki text licensed under CC BY-SA (attribution & source link required)',
+    25,
+    'idle'
+  ),
+  (
+    'bloxarchive_api',
+    'BloxArchive JSON API',
+    'bloxarchive',
+    FALSE,
+    TRUE,
+    'BloxArchive',
+    'https://bloxarchive.com',
+    'Requires authorized BloxArchive API key and mandatory visible backlink attribution',
+    20,
+    'disabled'
+  ),
+  (
+    'community_submissions',
+    'Developer & Community Submissions',
+    'community',
+    TRUE,
+    FALSE,
+    'Community / Developer Submission',
+    NULL,
+    'User-submitted codes strictly enter Pending Verification until Admin review',
+    10,
+    'healthy'
+  )
+ON CONFLICT (id) DO NOTHING;
+

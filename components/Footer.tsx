@@ -22,8 +22,18 @@ export function Footer() {
               className="h-10 w-auto object-contain"
             />
           </Link>
-          <p className="text-xs text-slate-500 dark:text-[#6F8796] max-w-md">
-            Independent Roblox analytics. Not affiliated with Roblox Corporation.
+          <p className="text-xs text-slate-500 dark:text-[#6F8796] max-w-md leading-relaxed">
+            Independent Roblox analytics &amp; codes directory. Not affiliated
+            with Roblox Corporation. Codes attribution includes{' '}
+            <a
+              href="https://bloxarchive.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-slate-700 dark:text-[#9CB3C0] underline decoration-emerald-500/40 underline-offset-2 hover:text-emerald-600 dark:hover:text-[#10E89A] transition-colors"
+            >
+              BloxArchive
+            </a>
+            .
           </p>
         </div>
 
@@ -39,6 +49,12 @@ export function Footer() {
             className="hover:text-emerald-600 dark:hover:text-[#10E89A] transition-colors"
           >
             Trending
+          </Link>
+          <Link
+            href="/codes"
+            className="hover:text-emerald-600 dark:hover:text-[#10E89A] transition-colors"
+          >
+            Game Codes
           </Link>
           <Link
             href="/compare"

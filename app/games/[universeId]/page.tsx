@@ -13,6 +13,7 @@ import {
   ShieldCheck,
   ThumbsDown,
   ThumbsUp,
+  Ticket,
 } from 'lucide-react';
 import type { EChartsOption } from 'echarts';
 import { useApp } from '@/components/AppProvider';
@@ -469,7 +470,20 @@ export default function GameDetailPage() {
               </div>
             </div>
 
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <motion.div
+                whileHover={{ scale: 1.03 }}
+                whileTap={{ scale: 0.95 }}
+                transition={APPLE_SPRING}
+              >
+                <Link
+                  href={`/codes/${encodeURIComponent(game.slug || game.universeId)}`}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold liquid-glass-pill text-emerald-700 dark:text-[#10E89A] border-emerald-500/35 hover:border-emerald-500/60 rounded-full transition-all whitespace-nowrap"
+                >
+                  <Ticket className="w-3.5 h-3.5" />
+                  Codes
+                </Link>
+              </motion.div>
               <motion.div
                 whileHover={{ scale: 1.03 }}
                 whileTap={{ scale: 0.95 }}

@@ -27,6 +27,16 @@
  *        Google Drive under `/RoMetric-Archive/YYYY/MM/rometric-YYYY-MM-DD.json.gz`
  *        right before Supabase's 03:00 UTC cleanup runs.
  *
+ *   4) Every 6 hours  -> `runCodesCollection()`
+ *        Runs automated, compliant promotional code collection across a rotating
+ *        batch of stalest active games using enabled modular providers:
+ *          • Official Roblox Public Signals (game descriptions + group shouts)
+ *          • Fandom MediaWiki Action API (`api.php`, CC BY-SA attributed)
+ *          • Optional BloxArchive API (only if enabled & Script Properties set)
+ *        Idempotently upserts `game_codes` (respecting `admin_locked`), logs
+ *        verification changes and provider health, and distinguishes
+ *        `no_provider_data` from games with verified coverage.
+ *
  * ----------------------------------------------------------------------------
  * ONE-TIME SETUP (2 minutes):
  *   1. Open https://script.google.com -> Click "New project" -> Name it "RoMetric Sidecar".
@@ -34,10 +44,12 @@
  *   3. Go to Project Settings (gear icon) -> Script Properties -> Add 2 properties:
  *        - SUPABASE_URL              = https://YOUR_PROJECT_REF.supabase.co
  *        - SUPABASE_SERVICE_ROLE_KEY = your_supabase_service_role_or_secret_key
+ *      Optional (only if you have a commercial BloxArchive API key):
+ *        - BLOXARCHIVE_API_KEY       = your_key
+ *        - BLOXARCHIVE_API_BASE_URL  = https://api.bloxarchive.example
  *   4. Return to Editor, select `setupRoMetricSidecar` in the top toolbar, and click Run.
  *      Approve Google Drive + External Request permissions once.
- *   5. Done! (Optionally run `runDiscoveryAndHygiene` once manually to immediately
- *      expand your catalog toward 1,000–3,000 active games.)
+ *   5. Done! (Optionally run `runDiscoveryAndHygiene` or `runCodesCollection` once manually.)
  * ============================================================================
  */
 
@@ -77,7 +89,8 @@ function setupRoMetricSidecar() {
     if (
       fn === 'runDiscoveryAndHygiene' ||
       fn === 'runVotesAndMetadataRefresh' ||
-      fn === 'runNightlyDriveArchive'
+      fn === 'runNightlyDriveArchive' ||
+      fn === 'runCodesCollection'
     ) {
       ScriptApp.deleteTrigger(existing[i]);
     }
@@ -104,8 +117,14 @@ function setupRoMetricSidecar() {
     .everyDays(1)
     .create();
 
+  // 4) Every 6 hours: Automated Roblox Game Codes Collection
+  ScriptApp.newTrigger('runCodesCollection')
+    .timeBased()
+    .everyHours(6)
+    .create();
+
   Logger.log(
-    'RoMetric Sidecar configured for ' + cfg.baseUrl + '. Triggers registered.'
+    'RoMetric Sidecar configured for ' + cfg.baseUrl + '. All 4 triggers registered.'
   );
 }
 
@@ -782,6 +801,583 @@ function runNightlyDriveArchive() {
           Math.round(savedBytes / 1024) +
           ' KB gz) to Drive',
   });
+}
+
+/* ============================================================================
+ * 4) EVERY 6 HOURS: AUTOMATED ROBLOX GAME CODES COLLECTION
+ * ============================================================================ */
+
+var CURATED_WIKI_MAP = {
+  '994732206': 'blox-fruits',
+  '245662005': 'jailbreak',
+  '111958650': 'roblox-arsenal',
+  '2862098693': 'project-slayers',
+  '1451439645': 'shindo-life-rell',
+  '3183403065': 'anime-adventures',
+  '601130232': 'bee-swarm-simulator',
+  '1119466531': 'all-star-tower-defense',
+  '1720936166': 'grand-piece-online',
+  '4777817887': 'blade-ball',
+  '5040354225': 'dress-to-impress',
+  '6505338302': 'anime-vanguards',
+  '1686885941': 'bedwars',
+  '3808081382': 'the-strongest-battlegrounds',
+  '5750914919': 'fisch',
+  '3317771874': 'pet-simulator-99',
+  '2619619496': 'bedwars',
+};
+
+function runCodesCollection() {
+  var cfg = getSupabaseConfig_();
+  var props = PropertiesService.getScriptProperties();
+  var bloxKey = (props.getProperty('BLOXARCHIVE_API_KEY') || '').trim();
+  var bloxBase = (
+    props.getProperty('BLOXARCHIVE_API_BASE_URL') ||
+    'https://bloxarchive.com/api/partner/v1'
+  )
+    .trim()
+    .replace(/\/+$/, '');
+
+  // 1) Fetch enabled code sources
+  var sourcesRes = UrlFetchApp.fetch(
+    cfg.baseUrl + '/rest/v1/code_sources?select=*&order=id.asc',
+    {
+      method: 'get',
+      headers: getSupabaseHeaders_(),
+      muteHttpExceptions: true,
+    }
+  );
+  if (sourcesRes.getResponseCode() < 200 || sourcesRes.getResponseCode() >= 300) {
+    Logger.log('Codes schema not ready or code_sources unreachable.');
+    return;
+  }
+  var allSources = JSON.parse(sourcesRes.getContentText() || '[]');
+  var enabledMap = {};
+  for (var si = 0; si < allSources.length; si++) {
+    if (allSources[si].enabled) {
+      enabledMap[allSources[si].id] = allSources[si];
+    }
+  }
+
+  // 2) Fetch rotating batch of 60 stalest active games (fits safely in 6-min Apps Script limit)
+  var gamesRes = UrlFetchApp.fetch(
+    cfg.baseUrl +
+      '/rest/v1/games?select=universe_id,root_place_id,name,slug,description,creator_id,creator_type,wiki_subdomain,codes_last_checked_at&active=eq.true&order=codes_last_checked_at.asc.nullsfirst,current_ccu.desc&limit=60',
+    {
+      method: 'get',
+      headers: getSupabaseHeaders_(),
+      muteHttpExceptions: true,
+    }
+  );
+  if (gamesRes.getResponseCode() < 200 || gamesRes.getResponseCode() >= 300) {
+    return;
+  }
+  var targets = JSON.parse(gamesRes.getContentText() || '[]');
+  if (!targets || targets.length === 0) return;
+
+  var providerList = ['roblox_official_signals', 'fandom_mediawiki_api'];
+  if (enabledMap['bloxarchive_api'] && bloxKey && bloxBase) {
+    providerList.push('bloxarchive_api');
+  }
+
+  var gameHadProviderData = {};
+  var resolvedWikiByUid = {};
+
+  for (var pi = 0; pi < providerList.length; pi++) {
+    var sourceId = providerList[pi];
+    if (!enabledMap[sourceId]) continue;
+
+    var startedAt = new Date().toISOString();
+    var startedMs = Date.now();
+    var counters = { apiRequests: 0, http429Count: 0 };
+    var gamesWithData = 0;
+    var codesDiscovered = 0;
+    var codesUpdated = 0;
+    var codesExpired = 0;
+    var errors = [];
+
+    for (var gi = 0; gi < targets.length; gi++) {
+      var game = targets[gi];
+      var uid = String(game.universe_id);
+      var result = null;
+
+      try {
+        if (sourceId === 'roblox_official_signals') {
+          result = collectRobloxOfficialSignalsGas_(game, counters);
+        } else if (sourceId === 'fandom_mediawiki_api') {
+          result = collectFandomMediaWikiGas_(game, counters);
+          if (result && result.resolvedWikiSubdomain) {
+            resolvedWikiByUid[uid] = result.resolvedWikiSubdomain;
+          }
+          Utilities.sleep(350); // Polite MediaWiki pacing
+        } else if (sourceId === 'bloxarchive_api') {
+          result = collectBloxArchiveGas_(game, bloxBase, bloxKey, counters);
+          Utilities.sleep(250);
+        }
+      } catch (e) {
+        errors.push(uid + ': ' + String(e).slice(0, 120));
+        continue;
+      }
+
+      if (!result) continue;
+      if (result.error) errors.push(result.error);
+      if (!result.hasProviderData) continue;
+
+      gamesWithData += 1;
+      gameHadProviderData[uid] = true;
+
+      if (result.codes && result.codes.length > 0) {
+        var persistStats = upsertGameCodesGas_(uid, sourceId, result.codes);
+        codesDiscovered += persistStats.discovered;
+        codesUpdated += persistStats.updated;
+        codesExpired += persistStats.expired;
+      }
+    }
+
+    var completedAt = new Date().toISOString();
+    var runStatus =
+      errors.length > 0 && gamesWithData === 0
+        ? 'failed'
+        : errors.length > 0
+          ? 'partial'
+          : 'success';
+
+    supabaseWrite_('code_collection_logs', 'POST', {
+      source_id: sourceId,
+      triggered_by: 'google_apps_script_codes',
+      started_at: startedAt,
+      completed_at: completedAt,
+      duration_ms: Date.now() - startedMs,
+      games_checked: targets.length,
+      games_with_provider_data: gamesWithData,
+      codes_discovered: codesDiscovered,
+      codes_updated: codesUpdated,
+      codes_expired: codesExpired,
+      api_requests: counters.apiRequests,
+      http_429_count: counters.http429Count,
+      status: runStatus,
+      error_summary: errors.length ? errors.slice(0, 6).join(' | ').slice(0, 900) : null,
+    });
+
+    var prevReq = Number(enabledMap[sourceId].requests_today || 0);
+    supabasePatchByFilter_('code_sources?id=eq.' + encodeURIComponent(sourceId), {
+      last_run_at: completedAt,
+      last_status: runStatus === 'failed' ? 'error' : runStatus === 'partial' ? 'degraded' : 'healthy',
+      last_error: errors.length ? errors[0].slice(0, 500) : null,
+      consecutive_failures: runStatus === 'failed' ? Number(enabledMap[sourceId].consecutive_failures || 0) + 1 : 0,
+      requests_today: prevReq + counters.apiRequests,
+      updated_at: completedAt,
+    });
+  }
+
+  // 3) Update checked games' coverage status, counts, and timestamp
+  var nowIso = new Date().toISOString();
+  for (var ui = 0; ui < targets.length; ui++) {
+    var tGame = targets[ui];
+    var tUid = String(tGame.universe_id);
+    var countRes = UrlFetchApp.fetch(
+      cfg.baseUrl + '/rest/v1/game_codes?select=status&universe_id=eq.' + tUid,
+      {
+        method: 'get',
+        headers: getSupabaseHeaders_(),
+        muteHttpExceptions: true,
+      }
+    );
+    var existingCodes =
+      countRes.getResponseCode() >= 200 && countRes.getResponseCode() < 300
+        ? JSON.parse(countRes.getContentText() || '[]')
+        : [];
+
+    var activeCount = 0;
+    for (var ci = 0; ci < existingCodes.length; ci++) {
+      if (existingCodes[ci].status === 'active') activeCount += 1;
+    }
+    var totalCount = existingCodes.length;
+    var coverageStatus =
+      totalCount > 0 || gameHadProviderData[tUid] ? 'covered' : 'no_provider_data';
+
+    var patch = {
+      code_coverage_status: coverageStatus,
+      active_code_count: activeCount,
+      total_code_count: totalCount,
+      codes_last_checked_at: nowIso,
+      updated_at: nowIso,
+    };
+    if (resolvedWikiByUid[tUid]) {
+      patch.wiki_subdomain = resolvedWikiByUid[tUid];
+    }
+    supabasePatchByFilter_('games?universe_id=eq.' + tUid, patch);
+  }
+}
+
+function normalizePromoCodeGas_(raw) {
+  return String(raw || '').trim().toUpperCase().replace(/\s+/g, '');
+}
+
+function isValidPromoCodeGas_(code) {
+  if (!code || code.length < 3 || code.length > 32) return false;
+  if (!/^[A-Za-z0-9_!@#$%&*-]+$/.test(code)) return false;
+  var upper = code.toUpperCase();
+  var stop = {
+    CODE: 1, CODES: 1, ACTIVE: 1, EXPIRED: 1, WORKING: 1, REWARD: 1,
+    REWARDS: 1, FREE: 1, NEW: 1, UPDATE: 1, ROBLOX: 1, GAME: 1,
+    HTTPS: 1, HTTP: 1, NONE: 1, TBA: 1, TBD: 1, COMING: 1, SOON: 1,
+    LIKE: 1, LIKES: 1, GOAL: 1, NEXT: 1, GROUP: 1, DISCORD: 1,
+  };
+  return !stop[upper];
+}
+
+function extractCodesFromTextGas_(text, sourceUrl) {
+  if (!text) return [];
+  var seen = {};
+  var out = [];
+  var patterns = [
+    /(?:use\s+)?code\s*[:=\-–]\s*["'`*]?([A-Za-z0-9_!@#$%&*-]{3,32})["'`*]?(?:\s*[-–(:]\s*([^\n\r)]{3,120}))?/gi,
+    /new\s+code\s+(?:at\s+[\d,kKmM]+\s+likes\s*[:\-]\s*)?["'`]([A-Za-z0-9_!@#$%&*-]{3,32})["'`]/gi,
+  ];
+  for (var p = 0; p < patterns.length; p++) {
+    var re = patterns[p];
+    var m;
+    while ((m = re.exec(text)) !== null) {
+      var rawCode = String(m[1] || '').trim();
+      var norm = normalizePromoCodeGas_(rawCode);
+      if (!isValidPromoCodeGas_(rawCode) || seen[norm]) continue;
+      seen[norm] = true;
+      var reward = m[2] ? String(m[2]).replace(/\s+/g, ' ').trim().slice(0, 180) : null;
+      out.push({
+        code: rawCode,
+        rewardDescription: reward,
+        status: 'unverified',
+        sourceReportedStatus: 'announced_in_official_text',
+        sourceUrl: sourceUrl,
+        expiresAt: null,
+      });
+    }
+  }
+  return out;
+}
+
+function collectRobloxOfficialSignalsGas_(game, counters) {
+  var placeUrl = 'https://www.roblox.com/games/' + (game.root_place_id || game.universe_id);
+  var found = extractCodesFromTextGas_(game.description || '', placeUrl);
+
+  if (game.creator_type === 'Group' && game.creator_id) {
+    var groupData = fetchJsonSafe_(
+      'https://groups.roblox.com/v1/groups/' + game.creator_id,
+      counters
+    );
+    var shoutBody = groupData && groupData.shout && groupData.shout.body;
+    if (shoutBody) {
+      var groupUrl = 'https://www.roblox.com/groups/' + game.creator_id;
+      var shoutCodes = extractCodesFromTextGas_(shoutBody, groupUrl);
+      var seen = {};
+      for (var i = 0; i < found.length; i++) seen[normalizePromoCodeGas_(found[i].code)] = true;
+      for (var j = 0; j < shoutCodes.length; j++) {
+        var norm = normalizePromoCodeGas_(shoutCodes[j].code);
+        if (!seen[norm]) {
+          seen[norm] = true;
+          found.push(shoutCodes[j]);
+        }
+      }
+    }
+  }
+
+  return {
+    hasProviderData: found.length > 0,
+    codes: found,
+  };
+}
+
+function collectFandomMediaWikiGas_(game, counters) {
+  var uid = String(game.universe_id);
+  var candidates = [];
+  if (game.wiki_subdomain) candidates.push(game.wiki_subdomain);
+  if (CURATED_WIKI_MAP[uid] && candidates.indexOf(CURATED_WIKI_MAP[uid]) === -1) {
+    candidates.push(CURATED_WIKI_MAP[uid]);
+  }
+  var slugBase = slugify_(game.name).replace(/-simulator$/, '-simulator');
+  if (slugBase && slugBase.length >= 4 && candidates.indexOf(slugBase) === -1) {
+    candidates.push(slugBase);
+  }
+
+  for (var i = 0; i < Math.min(2, candidates.length); i++) {
+    var sub = candidates[i];
+    if (!/^[a-z0-9-]{2,64}$/.test(sub)) continue;
+    var apiUrl =
+      'https://' +
+      sub +
+      '.fandom.com/api.php?action=parse&page=Codes&prop=wikitext&format=json&redirects=1';
+    var data = fetchJsonSafe_(apiUrl, counters);
+    var wikitext = data && data.parse && data.parse.wikitext && data.parse.wikitext['*'];
+    if (!wikitext || wikitext.length < 30) continue;
+
+    var wikiPageUrl = 'https://' + sub + '.fandom.com/wiki/Codes';
+    var parsedCodes = parseMediaWikiCodesGas_(wikitext, wikiPageUrl);
+    if (parsedCodes.length > 0) {
+      return {
+        hasProviderData: true,
+        codes: parsedCodes,
+        resolvedWikiSubdomain: sub,
+      };
+    }
+  }
+
+  return { hasProviderData: false, codes: [] };
+}
+
+function parseMediaWikiCodesGas_(wikitext, sourceUrl) {
+  var lines = String(wikitext).split(/\r?\n/);
+  var sectionStatus = 'unverified';
+  var seen = {};
+  var out = [];
+
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i].trim();
+    if (!line) continue;
+
+    if (/^==+.*==+$/.test(line)) {
+      var h = line.toLowerCase();
+      if (h.indexOf('expired') !== -1 || h.indexOf('inactive') !== -1 || h.indexOf('old') !== -1) {
+        sectionStatus = 'expired';
+      } else if (h.indexOf('active') !== -1 || h.indexOf('working') !== -1 || h.indexOf('current') !== -1) {
+        sectionStatus = 'active';
+      } else {
+        sectionStatus = 'unverified';
+      }
+      continue;
+    }
+
+    // Wikitext table row: | Code || Reward || Status
+    if (line.indexOf('|') === 0 && line.indexOf('|-') !== 0 && line.indexOf('|}') !== 0 && line.indexOf('{|') !== 0) {
+      var cells = line.replace(/^\|+/, '').split('||');
+      if (cells.length >= 2) {
+        var c0 = cleanWikiCellGas_(cells[0]);
+        var c1 = cleanWikiCellGas_(cells[1]);
+        var c2 = cells[2] ? cleanWikiCellGas_(cells[2]).toLowerCase() : '';
+        var rowStatus = sectionStatus;
+        if (c2.indexOf('expired') !== -1 || c2.indexOf('inactive') !== -1) rowStatus = 'expired';
+        else if (c2.indexOf('active') !== -1 || c2.indexOf('working') !== -1) rowStatus = 'active';
+        var norm = normalizePromoCodeGas_(c0);
+        if (isValidPromoCodeGas_(c0) && !seen[norm]) {
+          seen[norm] = true;
+          out.push({
+            code: c0,
+            rewardDescription: c1 && c1.length >= 2 ? c1.slice(0, 220) : null,
+            status: rowStatus,
+            sourceReportedStatus: c2 || ('wiki_section:' + sectionStatus),
+            sourceUrl: sourceUrl,
+            expiresAt: null,
+          });
+        }
+      }
+      continue;
+    }
+
+    // Bullet item: * '''CODE''' - Reward
+    if (line.indexOf('*') === 0) {
+      var bm = line.match(/^\*+\s*(?:'''|<code>|<b>)?([A-Za-z0-9_!@#$%&*-]{3,32})(?:'''|<\/code>|<\/b>)?\s*[:\-–—]\s*(.+)$/);
+      if (bm) {
+        var bCode = bm[1].trim();
+        var bNorm = normalizePromoCodeGas_(bCode);
+        var bReward = cleanWikiCellGas_(bm[2]).slice(0, 220);
+        if (isValidPromoCodeGas_(bCode) && !seen[bNorm]) {
+          seen[bNorm] = true;
+          out.push({
+            code: bCode,
+            rewardDescription: bReward || null,
+            status: sectionStatus,
+            sourceReportedStatus: 'wiki_list:' + sectionStatus,
+            sourceUrl: sourceUrl,
+            expiresAt: null,
+          });
+        }
+      }
+    }
+  }
+
+  return out.slice(0, 80);
+}
+
+function cleanWikiCellGas_(raw) {
+  return String(raw || '')
+    .replace(/\[\[(?:[^|\]]*\|)?([^\]]+)\]\]/g, '$1')
+    .replace(/\{\{[^}]+\}\}/g, '')
+    .replace(/'''|''|<[^>]+>/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function collectBloxArchiveGas_(game, baseUrl, apiKey, counters) {
+  var cleanSlug = slugify_(game.slug || game.name);
+  var slugWithCodes =
+    cleanSlug.slice(-6) === '-codes' ? cleanSlug : cleanSlug + '-codes';
+  var url =
+    baseUrl +
+    '/games/' +
+    encodeURIComponent(slugWithCodes) +
+    '?locale=en';
+  counters.apiRequests += 1;
+  var res = UrlFetchApp.fetch(url, {
+    method: 'get',
+    headers: {
+      Accept: 'application/json',
+      'X-API-Key': apiKey,
+      'User-Agent': 'RoMetricSidecar/1.0',
+    },
+    muteHttpExceptions: true,
+  });
+  var code = res.getResponseCode();
+  if (code === 429) counters.http429Count += 1;
+  if (code < 200 || code >= 300) return { hasProviderData: false, codes: [] };
+
+  var payload = JSON.parse(res.getContentText() || '{}');
+  var rawList =
+    payload.codes ||
+    payload.active_codes ||
+    payload.active ||
+    (payload.data && payload.data.codes) ||
+    [];
+  var attributionUrl =
+    payload.url ||
+    payload.pageUrl ||
+    'https://bloxarchive.com/' + encodeURIComponent(slugWithCodes);
+  var out = [];
+  for (var i = 0; i < rawList.length; i++) {
+    var item = rawList[i];
+    var c = String(item.code || item.value || '').trim();
+    if (!isValidPromoCodeGas_(c)) continue;
+    var st = String(
+      item.status || (item.expired ? 'expired' : item.verified ? 'active' : 'unverified')
+    ).toLowerCase();
+    var mapped =
+      st === 'active' || st === 'working' || st === 'confirmed' || st === 'verified'
+        ? 'active'
+        : st === 'expired' || st === 'inactive'
+          ? 'expired'
+          : 'unverified';
+    out.push({
+      code: c,
+      rewardDescription:
+        item.reward || item.rewards || item.description
+          ? String(item.reward || item.rewards || item.description).slice(0, 220)
+          : null,
+      status: mapped,
+      sourceReportedStatus: st || 'unverified',
+      sourceUrl: attributionUrl,
+      expiresAt: item.expiresAt || item.expires_at || null,
+    });
+  }
+  return { hasProviderData: out.length > 0, codes: out };
+}
+
+function upsertGameCodesGas_(universeId, sourceId, discoveredCodes) {
+  var cfg = getSupabaseConfig_();
+  var stats = { discovered: 0, updated: 0, expired: 0 };
+  var nowIso = new Date().toISOString();
+
+  var existingRes = UrlFetchApp.fetch(
+    cfg.baseUrl +
+      '/rest/v1/game_codes?select=id,normalized_code,status,reward_description,admin_locked&universe_id=eq.' +
+      universeId,
+    {
+      method: 'get',
+      headers: getSupabaseHeaders_(),
+      muteHttpExceptions: true,
+    }
+  );
+  var existingRows =
+    existingRes.getResponseCode() >= 200 && existingRes.getResponseCode() < 300
+      ? JSON.parse(existingRes.getContentText() || '[]')
+      : [];
+
+  var existingMap = {};
+  for (var i = 0; i < existingRows.length; i++) {
+    existingMap[existingRows[i].normalized_code] = existingRows[i];
+  }
+
+  var toUpsert = [];
+  var verLogs = [];
+
+  for (var j = 0; j < discoveredCodes.length; j++) {
+    var item = discoveredCodes[j];
+    var norm = normalizePromoCodeGas_(item.code);
+    var prev = existingMap[norm];
+
+    if (prev && prev.admin_locked) continue;
+
+    if (!prev) {
+      stats.discovered += 1;
+      toUpsert.push({
+        universe_id: Number(universeId),
+        code: item.code,
+        normalized_code: norm,
+        reward_description: item.rewardDescription,
+        status: item.status,
+        source_id: sourceId,
+        source_url: item.sourceUrl,
+        source_reported_status: item.sourceReportedStatus,
+        discovered_at: nowIso,
+        last_verified_at: nowIso,
+        expires_at: item.expiresAt,
+        updated_at: nowIso,
+      });
+      verLogs.push({
+        universe_id: Number(universeId),
+        code_text: item.code,
+        previous_status: null,
+        new_status: item.status,
+        actor: 'apps_script:' + sourceId,
+        reason: 'Discovered by scheduled sidecar collection',
+        verified_at: nowIso,
+      });
+    } else {
+      var statusChanged = prev.status !== item.status;
+      var rewardChanged = Boolean(item.rewardDescription) && prev.reward_description !== item.rewardDescription;
+      if (statusChanged || rewardChanged) {
+        stats.updated += 1;
+        if (statusChanged && item.status === 'expired') stats.expired += 1;
+        toUpsert.push({
+          universe_id: Number(universeId),
+          code: item.code,
+          normalized_code: norm,
+          reward_description: item.rewardDescription || prev.reward_description,
+          status: item.status,
+          source_id: sourceId,
+          source_url: item.sourceUrl,
+          source_reported_status: item.sourceReportedStatus,
+          last_verified_at: nowIso,
+          expires_at: item.expiresAt,
+          updated_at: nowIso,
+        });
+        if (statusChanged) {
+          verLogs.push({
+            code_id: prev.id,
+            universe_id: Number(universeId),
+            code_text: item.code,
+            previous_status: prev.status,
+            new_status: item.status,
+            actor: 'apps_script:' + sourceId,
+            reason: 'Status refreshed by scheduled sidecar collection',
+            verified_at: nowIso,
+          });
+        }
+      }
+    }
+  }
+
+  if (toUpsert.length > 0) {
+    supabaseWrite_(
+      'game_codes?on_conflict=universe_id,normalized_code',
+      'POST',
+      toUpsert,
+      'resolution=merge-duplicates'
+    );
+  }
+  if (verLogs.length > 0) {
+    supabaseWrite_('code_verification_logs', 'POST', verLogs);
+  }
+
+  return stats;
 }
 
 /* ============================================================================
