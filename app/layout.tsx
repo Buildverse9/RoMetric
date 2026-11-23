@@ -6,6 +6,7 @@ import { Footer } from '@/components/Footer';
 import { PageTransition } from '@/components/MotionPrimitives';
 
 export const metadata: Metadata = {
+  metadataBase: new URL('https://rometrics.vercel.app'),
   title: {
     default: 'RoMetric — Roblox Analytics',
     template: '%s | RoMetric',

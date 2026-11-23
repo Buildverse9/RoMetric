@@ -150,9 +150,9 @@ export default function GameDetailPage() {
           prev
             ? {
                 ...prev,
-                currentCcu: latest.playing,
-                totalVisits: latest.visits || prev.totalVisits,
-                favorites: latest.favoritedCount || prev.favorites,
+                currentCcu: latest.currentCcu,
+                totalVisits: latest.totalVisits || prev.totalVisits,
+                favorites: latest.favorites || prev.favorites,
                 lastCollectedAt: data.capturedAt,
               }
             : prev

@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+export const dynamic = 'force-dynamic';
+
 const ALLOWED_HOST_SUFFIXES = ['.rbxcdn.com'];
 
 function isAllowedRobloxImageUrl(raw: string): URL | null {
