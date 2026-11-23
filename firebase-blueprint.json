@@ -1,0 +1,286 @@
+{
+  "entities": {
+    "Game": {
+      "title": "Game",
+      "description": "Master tracked Roblox experience metadata and latest observed metrics.",
+      "type": "object",
+      "properties": {
+        "universeId": { "type": "string", "minLength": 1, "maxLength": 32, "pattern": "^[0-9]+$" },
+        "rootPlaceId": { "type": "string", "minLength": 1, "maxLength": 32, "pattern": "^[0-9]+$" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "slug": { "type": "string", "minLength": 1, "maxLength": 220 },
+        "description": { "type": "string", "maxLength": 2000 },
+        "creatorId": { "type": "string", "minLength": 1, "maxLength": 32 },
+        "creatorName": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "creatorType": { "type": "string", "enum": ["User", "Group"] },
+        "creatorVerified": { "type": "boolean" },
+        "genre": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "iconUrl": { "type": "string", "maxLength": 500 },
+        "thumbnailUrl": { "type": "string", "maxLength": 500 },
+        "currentCcu": { "type": "number" },
+        "totalVisits": { "type": "number" },
+        "favorites": { "type": "number" },
+        "upVotes": { "type": "number" },
+        "downVotes": { "type": "number" },
+        "likeRatio": { "type": "number" },
+        "growth1h": { "type": "number" },
+        "growth24h": { "type": "number" },
+        "growth7d": { "type": "number" },
+        "growth30d": { "type": "number" },
+        "peakCcuObserved": { "type": "number" },
+        "peakCcuAt": { "type": "string", "maxLength": 40 },
+        "snapshotCount": { "type": "number" },
+        "trackingTier": { "type": "string", "enum": ["tier_1", "tier_2", "tier_3"] },
+        "active": { "type": "boolean" },
+        "dataSource": { "type": "string", "maxLength": 80 },
+        "collectionStatus": { "type": "string", "enum": ["observed", "partial", "error", "pending"] },
+        "lastCollectedAt": { "type": "string", "maxLength": 40 },
+        "firstObservedAt": { "type": "string", "maxLength": 40 },
+        "robloxUpdatedAt": { "type": "string", "maxLength": 40 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "universeId",
+        "rootPlaceId",
+        "name",
+        "slug",
+        "creatorId",
+        "creatorName",
+        "creatorType",
+        "genre",
+        "currentCcu",
+        "totalVisits",
+        "favorites",
+        "peakCcuObserved",
+        "trackingTier",
+        "active",
+        "dataSource",
+        "collectionStatus",
+        "lastCollectedAt",
+        "firstObservedAt"
+      ]
+    },
+    "GameSnapshot": {
+      "title": "GameSnapshot",
+      "description": "Immutable raw timestamped observation of a Roblox game.",
+      "type": "object",
+      "properties": {
+        "universeId": { "type": "string", "minLength": 1, "maxLength": 32, "pattern": "^[0-9]+$" },
+        "ccu": { "type": "number" },
+        "visits": { "type": "number" },
+        "favorites": { "type": "number" },
+        "upVotes": { "type": "number" },
+        "downVotes": { "type": "number" },
+        "capturedAt": { "type": "string", "minLength": 10, "maxLength": 40 },
+        "capturedAtMs": { "type": "number" },
+        "dataSource": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "collectionStatus": { "type": "string", "enum": ["observed", "partial"] }
+      },
+      "required": [
+        "universeId",
+        "ccu",
+        "visits",
+        "favorites",
+        "capturedAt",
+        "capturedAtMs",
+        "dataSource",
+        "collectionStatus"
+      ]
+    },
+    "GameHourlyStat": {
+      "title": "GameHourlyStat",
+      "description": "Hourly aggregated statistics for a Roblox experience.",
+      "type": "object",
+      "properties": {
+        "universeId": { "type": "string", "minLength": 1, "maxLength": 32, "pattern": "^[0-9]+$" },
+        "hourBucket": { "type": "string", "minLength": 10, "maxLength": 32 },
+        "bucketMs": { "type": "number" },
+        "avgCcu": { "type": "number" },
+        "minCcu": { "type": "number" },
+        "maxCcu": { "type": "number" },
+        "latestVisits": { "type": "number" },
+        "latestFavorites": { "type": "number" },
+        "sampleCount": { "type": "number" },
+        "updatedAt": { "type": "string", "maxLength": 40 }
+      },
+      "required": [
+        "universeId",
+        "hourBucket",
+        "bucketMs",
+        "avgCcu",
+        "minCcu",
+        "maxCcu",
+        "latestVisits",
+        "latestFavorites",
+        "sampleCount"
+      ]
+    },
+    "GameDailyStat": {
+      "title": "GameDailyStat",
+      "description": "Permanent daily aggregated statistics for long-term charts.",
+      "type": "object",
+      "properties": {
+        "universeId": { "type": "string", "minLength": 1, "maxLength": 32, "pattern": "^[0-9]+$" },
+        "dayBucket": { "type": "string", "minLength": 10, "maxLength": 16 },
+        "bucketMs": { "type": "number" },
+        "avgCcu": { "type": "number" },
+        "minCcu": { "type": "number" },
+        "maxCcu": { "type": "number" },
+        "visitsEnd": { "type": "number" },
+        "favoritesEnd": { "type": "number" },
+        "likeRatio": { "type": "number" },
+        "sampleCount": { "type": "number" },
+        "updatedAt": { "type": "string", "maxLength": 40 }
+      },
+      "required": [
+        "universeId",
+        "dayBucket",
+        "bucketMs",
+        "avgCcu",
+        "minCcu",
+        "maxCcu",
+        "visitsEnd",
+        "favoritesEnd",
+        "sampleCount"
+      ]
+    },
+    "GameRecord": {
+      "title": "GameRecord",
+      "description": "Observed CCU peak and verified provenance records per game.",
+      "type": "object",
+      "properties": {
+        "universeId": { "type": "string", "minLength": 1, "maxLength": 32, "pattern": "^[0-9]+$" },
+        "gameName": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "highestObservedCcu": { "type": "number" },
+        "highestObservedAt": { "type": "string", "minLength": 10, "maxLength": 40 },
+        "provenance": { "type": "string", "enum": ["observed_peak", "verified_external"] },
+        "updatedAt": { "type": "string", "maxLength": 40 }
+      },
+      "required": [
+        "universeId",
+        "gameName",
+        "highestObservedCcu",
+        "highestObservedAt",
+        "provenance"
+      ]
+    },
+    "CollectionJob": {
+      "title": "CollectionJob",
+      "description": "Audit log for each scheduled or manual Roblox data collection run.",
+      "type": "object",
+      "properties": {
+        "tier": { "type": "string", "enum": ["all", "tier_1", "tier_2", "tier_3", "manual"] },
+        "triggeredBy": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "startedAt": { "type": "string", "minLength": 10, "maxLength": 40 },
+        "completedAt": { "type": "string", "minLength": 10, "maxLength": 40 },
+        "durationMs": { "type": "number" },
+        "gamesAttempted": { "type": "number" },
+        "gamesSucceeded": { "type": "number" },
+        "gamesFailed": { "type": "number" },
+        "apiRequests": { "type": "number" },
+        "http429Count": { "type": "number" },
+        "status": { "type": "string", "enum": ["success", "partial", "failed"] },
+        "errorSummary": { "type": "string", "maxLength": 1000 }
+      },
+      "required": [
+        "tier",
+        "triggeredBy",
+        "startedAt",
+        "completedAt",
+        "durationMs",
+        "gamesAttempted",
+        "gamesSucceeded",
+        "gamesFailed",
+        "apiRequests",
+        "http429Count",
+        "status"
+      ]
+    },
+    "DataSource": {
+      "title": "DataSource",
+      "description": "Authorized Roblox public data source provenance metadata.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "endpoint": { "type": "string", "minLength": 1, "maxLength": 240 },
+        "batchLimit": { "type": "number" },
+        "status": { "type": "string", "enum": ["active", "degraded", "disabled"] },
+        "notes": { "type": "string", "maxLength": 500 },
+        "updatedAt": { "type": "string", "maxLength": 40 }
+      },
+      "required": ["name", "endpoint", "batchLimit", "status"]
+    },
+    "SystemConfig": {
+      "title": "SystemConfig",
+      "description": "Global collector settings and free-tier retention policies.",
+      "type": "object",
+      "properties": {
+        "paused": { "type": "boolean" },
+        "retentionRawHours": { "type": "number" },
+        "retentionHourlyDays": { "type": "number" },
+        "tier1IntervalMin": { "type": "number" },
+        "tier2IntervalMin": { "type": "number" },
+        "tier3IntervalMin": { "type": "number" },
+        "updatedBy": { "type": "string", "maxLength": 120 },
+        "updatedAt": { "type": "string", "maxLength": 40 }
+      },
+      "required": [
+        "paused",
+        "retentionRawHours",
+        "retentionHourlyDays",
+        "tier1IntervalMin",
+        "tier2IntervalMin",
+        "tier3IntervalMin"
+      ]
+    },
+    "AdminUser": {
+      "title": "AdminUser",
+      "description": "Authorized admin role document keyed by Firebase Auth UID.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "role": { "type": "string", "enum": ["admin"] },
+        "addedAt": { "type": "string", "maxLength": 40 }
+      },
+      "required": ["uid", "role"]
+    }
+  },
+  "firestore": {
+    "/games/{universeId}": {
+      "schema": { "$ref": "#/entities/Game" },
+      "description": "Publicly readable Roblox game catalog and latest observed metrics. Writable only by verified admins."
+    },
+    "/game_snapshots/{snapshotId}": {
+      "schema": { "$ref": "#/entities/GameSnapshot" },
+      "description": "Immutable raw player count snapshots. Publicly readable for historical charts; create/delete only by verified admins; updates strictly forbidden."
+    },
+    "/game_hourly_stats/{statId}": {
+      "schema": { "$ref": "#/entities/GameHourlyStat" },
+      "description": "Hourly rollups for 24h-7d charts. Publicly readable; writable only by verified admins."
+    },
+    "/game_daily_stats/{statId}": {
+      "schema": { "$ref": "#/entities/GameDailyStat" },
+      "description": "Permanent daily rollups for 30d-All-Time charts. Publicly readable; writable only by verified admins."
+    },
+    "/game_records/{universeId}": {
+      "schema": { "$ref": "#/entities/GameRecord" },
+      "description": "Highest observed CCU records with provenance. Publicly readable; writable only by verified admins."
+    },
+    "/collection_jobs/{jobId}": {
+      "schema": { "$ref": "#/entities/CollectionJob" },
+      "description": "Private admin operational audit log of collector runs and error counts."
+    },
+    "/data_sources/{sourceId}": {
+      "schema": { "$ref": "#/entities/DataSource" },
+      "description": "Public provenance registry of official Roblox API sources."
+    },
+    "/system_config/{configId}": {
+      "schema": { "$ref": "#/entities/SystemConfig" },
+      "description": "Private admin configuration for collection pause state and retention policies."
+    },
+    "/admins/{uid}": {
+      "schema": { "$ref": "#/entities/AdminUser" },
+      "description": "Admin role allowlist managed strictly by the bootstrapped owner."
+    }
+  }
+}

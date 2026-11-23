@@ -1,0 +1,380 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Safety Net — Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // -------------------------------------------------------------------------
+    // Core Primitives & Identity Helpers
+    // -------------------------------------------------------------------------
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isNumericId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 32 && id.matches('^[0-9]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+
+    function isBootstrappedOwner() {
+      return isSignedIn() && request.auth.token.email == 'shraddhavengurlekar200216@gmail.com';
+    }
+
+    function isAdmin() {
+      return isBootstrappedOwner() ||
+        (isSignedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid)));
+    }
+
+    function isOptionalNumber(data, key) {
+      return !(key in data) || data[key] == null || data[key] is number;
+    }
+
+    function isOptionalString(data, key, maxLen) {
+      return !(key in data) || data[key] == null || (data[key] is string && data[key].size() <= maxLen);
+    }
+
+    function isOptionalBool(data, key) {
+      return !(key in data) || data[key] is bool;
+    }
+
+    // -------------------------------------------------------------------------
+    // Validation Blueprints
+    // -------------------------------------------------------------------------
+    function isValidGame(data) {
+      return data.keys().hasAll([
+          'universeId', 'rootPlaceId', 'name', 'slug',
+          'creatorId', 'creatorName', 'creatorType', 'genre',
+          'currentCcu', 'totalVisits', 'favorites', 'peakCcuObserved',
+          'trackingTier', 'active', 'dataSource', 'collectionStatus',
+          'lastCollectedAt', 'firstObservedAt'
+        ])
+        && data.keys().hasOnly([
+          'universeId', 'rootPlaceId', 'name', 'slug', 'description',
+          'creatorId', 'creatorName', 'creatorType', 'creatorVerified',
+          'genre', 'iconUrl', 'thumbnailUrl',
+          'currentCcu', 'totalVisits', 'favorites', 'upVotes', 'downVotes', 'likeRatio',
+          'growth1h', 'growth24h', 'growth7d', 'growth30d',
+          'peakCcuObserved', 'peakCcuAt', 'snapshotCount',
+          'trackingTier', 'active', 'dataSource', 'collectionStatus',
+          'lastCollectedAt', 'firstObservedAt', 'robloxUpdatedAt', 'updatedAt'
+        ])
+        && isNumericId(data.universeId)
+        && isNumericId(data.rootPlaceId)
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 200
+        && data.slug is string && data.slug.size() >= 1 && data.slug.size() <= 220
+        && isOptionalString(data, 'description', 2000)
+        && data.creatorId is string && data.creatorId.size() >= 1 && data.creatorId.size() <= 32
+        && data.creatorName is string && data.creatorName.size() >= 1 && data.creatorName.size() <= 120
+        && data.creatorType in ['User', 'Group']
+        && isOptionalBool(data, 'creatorVerified')
+        && data.genre is string && data.genre.size() >= 1 && data.genre.size() <= 80
+        && isOptionalString(data, 'iconUrl', 500)
+        && isOptionalString(data, 'thumbnailUrl', 500)
+        && data.currentCcu is number && data.currentCcu >= 0
+        && data.totalVisits is number && data.totalVisits >= 0
+        && data.favorites is number && data.favorites >= 0
+        && isOptionalNumber(data, 'upVotes')
+        && isOptionalNumber(data, 'downVotes')
+        && isOptionalNumber(data, 'likeRatio')
+        && isOptionalNumber(data, 'growth1h')
+        && isOptionalNumber(data, 'growth24h')
+        && isOptionalNumber(data, 'growth7d')
+        && isOptionalNumber(data, 'growth30d')
+        && data.peakCcuObserved is number && data.peakCcuObserved >= 0
+        && isOptionalString(data, 'peakCcuAt', 40)
+        && isOptionalNumber(data, 'snapshotCount')
+        && data.trackingTier in ['tier_1', 'tier_2', 'tier_3']
+        && data.active is bool
+        && data.dataSource is string && data.dataSource.size() >= 1 && data.dataSource.size() <= 80
+        && data.collectionStatus in ['observed', 'partial', 'error', 'pending']
+        && data.lastCollectedAt is string && data.lastCollectedAt.size() >= 10 && data.lastCollectedAt.size() <= 40
+        && data.firstObservedAt is string && data.firstObservedAt.size() >= 10 && data.firstObservedAt.size() <= 40
+        && isOptionalString(data, 'robloxUpdatedAt', 40)
+        && isOptionalString(data, 'updatedAt', 40);
+    }
+
+    function isValidGameSnapshot(data) {
+      return data.keys().hasAll([
+          'universeId', 'ccu', 'visits', 'favorites',
+          'capturedAt', 'capturedAtMs', 'dataSource', 'collectionStatus'
+        ])
+        && data.keys().hasOnly([
+          'universeId', 'ccu', 'visits', 'favorites',
+          'upVotes', 'downVotes',
+          'capturedAt', 'capturedAtMs', 'dataSource', 'collectionStatus'
+        ])
+        && isNumericId(data.universeId)
+        && data.ccu is number && data.ccu >= 0
+        && data.visits is number && data.visits >= 0
+        && data.favorites is number && data.favorites >= 0
+        && isOptionalNumber(data, 'upVotes')
+        && isOptionalNumber(data, 'downVotes')
+        && data.capturedAt is string && data.capturedAt.size() >= 10 && data.capturedAt.size() <= 40
+        && data.capturedAtMs is number && data.capturedAtMs > 0
+        && data.dataSource is string && data.dataSource.size() >= 1 && data.dataSource.size() <= 80
+        && data.collectionStatus in ['observed', 'partial'];
+    }
+
+    function isValidHourlyStat(data) {
+      return data.keys().hasAll([
+          'universeId', 'hourBucket', 'bucketMs',
+          'avgCcu', 'minCcu', 'maxCcu', 'latestVisits', 'latestFavorites', 'sampleCount'
+        ])
+        && data.keys().hasOnly([
+          'universeId', 'hourBucket', 'bucketMs',
+          'avgCcu', 'minCcu', 'maxCcu', 'latestVisits', 'latestFavorites', 'sampleCount', 'updatedAt'
+        ])
+        && isNumericId(data.universeId)
+        && data.hourBucket is string && data.hourBucket.size() >= 10 && data.hourBucket.size() <= 32
+        && data.bucketMs is number && data.bucketMs > 0
+        && data.avgCcu is number && data.avgCcu >= 0
+        && data.minCcu is number && data.minCcu >= 0
+        && data.maxCcu is number && data.maxCcu >= 0
+        && data.latestVisits is number && data.latestVisits >= 0
+        && data.latestFavorites is number && data.latestFavorites >= 0
+        && data.sampleCount is number && data.sampleCount >= 1
+        && isOptionalString(data, 'updatedAt', 40);
+    }
+
+    function isValidDailyStat(data) {
+      return data.keys().hasAll([
+          'universeId', 'dayBucket', 'bucketMs',
+          'avgCcu', 'minCcu', 'maxCcu', 'visitsEnd', 'favoritesEnd', 'sampleCount'
+        ])
+        && data.keys().hasOnly([
+          'universeId', 'dayBucket', 'bucketMs',
+          'avgCcu', 'minCcu', 'maxCcu', 'visitsEnd', 'favoritesEnd', 'likeRatio', 'sampleCount', 'updatedAt'
+        ])
+        && isNumericId(data.universeId)
+        && data.dayBucket is string && data.dayBucket.size() >= 10 && data.dayBucket.size() <= 16
+        && data.bucketMs is number && data.bucketMs > 0
+        && data.avgCcu is number && data.avgCcu >= 0
+        && data.minCcu is number && data.minCcu >= 0
+        && data.maxCcu is number && data.maxCcu >= 0
+        && data.visitsEnd is number && data.visitsEnd >= 0
+        && data.favoritesEnd is number && data.favoritesEnd >= 0
+        && isOptionalNumber(data, 'likeRatio')
+        && data.sampleCount is number && data.sampleCount >= 1
+        && isOptionalString(data, 'updatedAt', 40);
+    }
+
+    function isValidGameRecord(data) {
+      return data.keys().hasAll([
+          'universeId', 'gameName', 'highestObservedCcu', 'highestObservedAt', 'provenance'
+        ])
+        && data.keys().hasOnly([
+          'universeId', 'gameName', 'highestObservedCcu', 'highestObservedAt', 'provenance', 'updatedAt'
+        ])
+        && isNumericId(data.universeId)
+        && data.gameName is string && data.gameName.size() >= 1 && data.gameName.size() <= 200
+        && data.highestObservedCcu is number && data.highestObservedCcu >= 0
+        && data.highestObservedAt is string && data.highestObservedAt.size() >= 10 && data.highestObservedAt.size() <= 40
+        && data.provenance in ['observed_peak', 'verified_external']
+        && isOptionalString(data, 'updatedAt', 40);
+    }
+
+    function isValidCollectionJob(data) {
+      return data.keys().hasAll([
+          'tier', 'triggeredBy', 'startedAt', 'completedAt',
+          'durationMs', 'gamesAttempted', 'gamesSucceeded', 'gamesFailed',
+          'apiRequests', 'http429Count', 'status'
+        ])
+        && data.keys().hasOnly([
+          'tier', 'triggeredBy', 'startedAt', 'completedAt',
+          'durationMs', 'gamesAttempted', 'gamesSucceeded', 'gamesFailed',
+          'apiRequests', 'http429Count', 'status', 'errorSummary'
+        ])
+        && data.tier in ['all', 'tier_1', 'tier_2', 'tier_3', 'manual']
+        && data.triggeredBy is string && data.triggeredBy.size() >= 1 && data.triggeredBy.size() <= 120
+        && data.startedAt is string && data.startedAt.size() >= 10 && data.startedAt.size() <= 40
+        && data.completedAt is string && data.completedAt.size() >= 10 && data.completedAt.size() <= 40
+        && data.durationMs is number && data.durationMs >= 0
+        && data.gamesAttempted is number && data.gamesAttempted >= 0
+        && data.gamesSucceeded is number && data.gamesSucceeded >= 0
+        && data.gamesFailed is number && data.gamesFailed >= 0
+        && data.apiRequests is number && data.apiRequests >= 0
+        && data.http429Count is number && data.http429Count >= 0
+        && data.status in ['success', 'partial', 'failed']
+        && isOptionalString(data, 'errorSummary', 1000);
+    }
+
+    function isValidDataSource(data) {
+      return data.keys().hasAll(['name', 'endpoint', 'batchLimit', 'status'])
+        && data.keys().hasOnly(['name', 'endpoint', 'batchLimit', 'status', 'notes', 'updatedAt'])
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 120
+        && data.endpoint is string && data.endpoint.size() >= 1 && data.endpoint.size() <= 240
+        && data.batchLimit is number && data.batchLimit >= 1 && data.batchLimit <= 100
+        && data.status in ['active', 'degraded', 'disabled']
+        && isOptionalString(data, 'notes', 500)
+        && isOptionalString(data, 'updatedAt', 40);
+    }
+
+    function isValidSystemConfig(data) {
+      return data.keys().hasAll([
+          'paused', 'retentionRawHours', 'retentionHourlyDays',
+          'tier1IntervalMin', 'tier2IntervalMin', 'tier3IntervalMin'
+        ])
+        && data.keys().hasOnly([
+          'paused', 'retentionRawHours', 'retentionHourlyDays',
+          'tier1IntervalMin', 'tier2IntervalMin', 'tier3IntervalMin',
+          'updatedBy', 'updatedAt'
+        ])
+        && data.paused is bool
+        && data.retentionRawHours is number && data.retentionRawHours >= 1 && data.retentionRawHours <= 720
+        && data.retentionHourlyDays is number && data.retentionHourlyDays >= 1 && data.retentionHourlyDays <= 365
+        && data.tier1IntervalMin is number && data.tier1IntervalMin >= 1 && data.tier1IntervalMin <= 1440
+        && data.tier2IntervalMin is number && data.tier2IntervalMin >= 5 && data.tier2IntervalMin <= 1440
+        && data.tier3IntervalMin is number && data.tier3IntervalMin >= 15 && data.tier3IntervalMin <= 1440
+        && isOptionalString(data, 'updatedBy', 120)
+        && isOptionalString(data, 'updatedAt', 40);
+    }
+
+    function isValidAdminUser(data) {
+      return data.keys().hasAll(['uid', 'role'])
+        && data.keys().hasOnly(['uid', 'role', 'addedAt'])
+        && isValidId(data.uid)
+        && data.role == 'admin'
+        && isOptionalString(data, 'addedAt', 40);
+    }
+
+    // -------------------------------------------------------------------------
+    // Public Analytics Collections (Zero PII, Read-Only to Public, Admin-Write)
+    // -------------------------------------------------------------------------
+    match /games/{universeId} {
+      allow get: if isNumericId(universeId);
+      allow list: if true;
+      allow create: if isNumericId(universeId)
+        && isValidGame(incoming())
+        && incoming().universeId == universeId
+        && isAdmin();
+      allow update: if isNumericId(universeId)
+        && isValidGame(incoming())
+        && incoming().universeId == existing().universeId
+        && incoming().firstObservedAt == existing().firstObservedAt
+        && isAdmin();
+      allow delete: if isNumericId(universeId) && isAdmin();
+    }
+
+    match /game_snapshots/{snapshotId} {
+      allow get: if isValidId(snapshotId);
+      allow list: if true;
+      allow create: if isValidId(snapshotId)
+        && isValidGameSnapshot(incoming())
+        && isAdmin();
+      // Historical snapshots are strictly immutable and may never be overwritten.
+      allow update: if false;
+      allow delete: if isValidId(snapshotId) && isAdmin();
+    }
+
+    match /game_hourly_stats/{statId} {
+      allow get: if isValidId(statId);
+      allow list: if true;
+      allow create: if isValidId(statId)
+        && isValidHourlyStat(incoming())
+        && isAdmin();
+      allow update: if isValidId(statId)
+        && isValidHourlyStat(incoming())
+        && incoming().universeId == existing().universeId
+        && incoming().hourBucket == existing().hourBucket
+        && isAdmin();
+      allow delete: if isValidId(statId) && isAdmin();
+    }
+
+    match /game_daily_stats/{statId} {
+      allow get: if isValidId(statId);
+      allow list: if true;
+      allow create: if isValidId(statId)
+        && isValidDailyStat(incoming())
+        && isAdmin();
+      allow update: if isValidId(statId)
+        && isValidDailyStat(incoming())
+        && incoming().universeId == existing().universeId
+        && incoming().dayBucket == existing().dayBucket
+        && isAdmin();
+      allow delete: if isValidId(statId) && isAdmin();
+    }
+
+    match /game_records/{universeId} {
+      allow get: if isNumericId(universeId);
+      allow list: if true;
+      allow create: if isNumericId(universeId)
+        && isValidGameRecord(incoming())
+        && incoming().universeId == universeId
+        && isAdmin();
+      allow update: if isNumericId(universeId)
+        && isValidGameRecord(incoming())
+        && incoming().universeId == existing().universeId
+        && isAdmin();
+      allow delete: if isNumericId(universeId) && isAdmin();
+    }
+
+    match /data_sources/{sourceId} {
+      allow get: if isValidId(sourceId);
+      allow list: if true;
+      allow create: if isValidId(sourceId)
+        && isValidDataSource(incoming())
+        && isAdmin();
+      allow update: if isValidId(sourceId)
+        && isValidDataSource(incoming())
+        && isAdmin();
+      allow delete: if isValidId(sourceId) && isAdmin();
+    }
+
+    // -------------------------------------------------------------------------
+    // Private Admin & Operational Collections
+    // -------------------------------------------------------------------------
+    match /collection_jobs/{jobId} {
+      allow get: if isValidId(jobId) && isAdmin();
+      allow list: if isAdmin();
+      allow create: if isValidId(jobId)
+        && isValidCollectionJob(incoming())
+        && isAdmin();
+      allow update: if false;
+      allow delete: if isValidId(jobId) && isAdmin();
+    }
+
+    match /system_config/{configId} {
+      allow get: if isValidId(configId) && isAdmin();
+      allow list: if isAdmin();
+      allow create: if isValidId(configId)
+        && isValidSystemConfig(incoming())
+        && isAdmin();
+      allow update: if isValidId(configId)
+        && isValidSystemConfig(incoming())
+        && isAdmin();
+      allow delete: if isValidId(configId) && isAdmin();
+    }
+
+    match /admins/{uid} {
+      allow get: if isValidId(uid) && isAdmin();
+      allow list: if isAdmin();
+      allow create: if isValidId(uid)
+        && isValidAdminUser(incoming())
+        && incoming().uid == uid
+        && isBootstrappedOwner();
+      allow update: if false;
+      allow delete: if isValidId(uid) && isBootstrappedOwner();
+    }
+
+    // Connectivity probe path used by startup testConnection()
+    match /test/connection {
+      allow get: if true;
+      allow write: if false;
+    }
+  }
+}

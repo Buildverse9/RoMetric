@@ -1,0 +1,14 @@
+name = "rometric-collector"
+main = "cloudflare-collector-worker.ts"
+compatibility_date = "2026-01-01"
+
+# Cloudflare Workers Free allows up to 3 Cron Triggers per Worker:
+# 1) Every 5 minutes -> Tier 1 (Top 100 games)
+# 2) Every 15 minutes -> Tier 2 & Tier 3 chunked rotation
+# 3) Daily 03:00 UTC -> Roll up raw -> hourly -> daily & prune expired rows (<500 MB)
+[triggers]
+crons = [
+  "*/5 * * * *",
+  "*/15 * * * *",
+  "0 3 * * *"
+]

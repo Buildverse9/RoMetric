@@ -1,0 +1,6 @@
+{
+  "name": "RoMetric — Roblox Analytics & Intelligence",
+  "description": "Independent Roblox game analytics and market intelligence platform. Discover trending games, track live player counts, explore historical trends, and compare experiences.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
