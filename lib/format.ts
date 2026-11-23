@@ -165,3 +165,78 @@ export function evaluateTrending(game: GameRecordData): TrendingEvaluation {
     percentGain: pct,
   };
 }
+
+export interface BreakoutCandidate {
+  game: GameRecordData;
+  growthPct: number | null;
+  breakoutScore: number;
+  tag: 'Surging' | 'Near Peak' | 'Fast Climber' | 'Rising Hit';
+  peakRatio: number;
+}
+
+/**
+ * Identifies Breakout Games: fast-rising and surging experiences breaking out
+ * with strong momentum, near-peak demand, or rapid player acceleration.
+ */
+export function evaluateBreakoutGames(
+  games: GameRecordData[],
+  limit = 6
+): BreakoutCandidate[] {
+  const active = games.filter((g) => g.active && g.currentCcu >= 100);
+  if (active.length === 0) return [];
+
+  const scored: BreakoutCandidate[] = active.map((game) => {
+    const pct = game.growth1h ?? game.growth24h ?? null;
+    const peak = Math.max(game.currentCcu, game.peakCcuObserved || 0);
+    const peakRatio = peak > 0 ? game.currentCcu / peak : 0;
+
+    // Favor rising momentum + emerging-to-mid viral scale + strong player approval
+    const positivePct = pct !== null ? Math.max(0, Math.min(pct, 400)) : 0;
+    const likeBonus =
+      game.likeRatio !== null && game.likeRatio !== undefined
+        ? Math.max(0, (game.likeRatio - 70) * 0.45)
+        : 4;
+    // Emerging / viral breakout bonus: high CCU relative to lifetime visits signals a brand-new breakout hit!
+    const visitsPerCcu =
+      game.currentCcu > 0 ? game.totalVisits / game.currentCcu : 1_000_000;
+    const freshnessBonus =
+      visitsPerCcu < 1_500
+        ? 38
+        : visitsPerCcu < 5_000
+          ? 24
+          : visitsPerCcu < 15_000
+            ? 12
+            : 0;
+    const nearPeakBonus = peakRatio >= 0.92 ? 18 : peakRatio >= 0.8 ? 8 : 0;
+    const scaleFactor = Math.log10(Math.max(100, game.currentCcu));
+
+    const breakoutScore =
+      positivePct * 1.45 +
+      freshnessBonus +
+      nearPeakBonus +
+      likeBonus +
+      scaleFactor * 4;
+
+    let tag: BreakoutCandidate['tag'] = 'Rising Hit';
+    if (positivePct >= 15) {
+      tag = 'Surging';
+    } else if (freshnessBonus >= 24) {
+      tag = 'Fast Climber';
+    } else if (peakRatio >= 0.92) {
+      tag = 'Near Peak';
+    }
+
+    return {
+      game,
+      growthPct: pct,
+      breakoutScore: Number(breakoutScore.toFixed(1)),
+      tag,
+      peakRatio,
+    };
+  });
+
+  return scored
+    .sort((a, b) => b.breakoutScore - a.breakoutScore)
+    .slice(0, limit);
+}
+

@@ -3,9 +3,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
+import { motion } from 'motion/react';
 import {
   ArrowLeft,
   Clock,
+  DollarSign,
   ExternalLink,
   GitCompare,
   ShieldCheck,
@@ -25,6 +27,7 @@ import {
   formatRelativeTime,
   formatUtcTimestamp,
 } from '@/lib/format';
+import { estimateGameRevenue, formatCurrencyCompact } from '@/lib/revenue';
 import type {
   GamePeakRecord,
   GameRecordData,
@@ -34,6 +37,13 @@ import type {
 import { GameArtwork } from '@/components/GameArtwork';
 import { GrowthValue } from '@/components/GameTable';
 import { EChartWrapper } from '@/components/EChartWrapper';
+import {
+  APPLE_EASE,
+  APPLE_SPRING,
+  AnimatedNumber,
+  FadeInSection,
+  LiquidGlassCard,
+} from '@/components/MotionPrimitives';
 
 const TIME_RANGES: Array<{ id: TimeRange; label: string }> = [
   { id: '1h', label: '1H' },
@@ -157,8 +167,12 @@ export default function GameDetailPage() {
     const textMuted = isDark ? '#7893A3' : '#64748B';
     const textLegend = isDark ? '#9CB3C0' : '#475569';
     const gridLine = isDark ? 'rgba(255,255,255,0.07)' : 'rgba(15,23,42,0.08)';
-    const tooltipBg = isDark ? 'rgba(9, 19, 25, 0.92)' : 'rgba(255, 255, 255, 0.96)';
-    const tooltipBorder = isDark ? 'rgba(255,255,255,0.14)' : 'rgba(15,23,42,0.1)';
+    const tooltipBg = isDark
+      ? 'rgba(9, 19, 25, 0.92)'
+      : 'rgba(255, 255, 255, 0.96)';
+    const tooltipBorder = isDark
+      ? 'rgba(255,255,255,0.14)'
+      : 'rgba(15,23,42,0.1)';
     const tooltipText = isDark ? '#F1F7FA' : '#0B141A';
 
     const labels = historyPoints.map((p) => {
@@ -177,6 +191,8 @@ export default function GameDetailPage() {
 
     return {
       backgroundColor: 'transparent',
+      animationDuration: 650,
+      animationEasing: 'cubicOut',
       tooltip: {
         trigger: 'axis',
         backgroundColor: tooltipBg,
@@ -315,7 +331,7 @@ export default function GameDetailPage() {
   if (error || !game) {
     return (
       <div className="max-w-[1280px] mx-auto px-4 sm:px-6 py-16">
-        <div className="max-w-md mx-auto liquid-glass rounded-3xl p-8 text-center space-y-4">
+        <LiquidGlassCard className="max-w-md mx-auto rounded-3xl p-8 text-center space-y-4">
           <h1 className="font-display text-2xl font-bold text-slate-900 dark:text-[#F1F7FA]">
             Game Unavailable
           </h1>
@@ -329,7 +345,7 @@ export default function GameDetailPage() {
             <ArrowLeft className="w-4 h-4" />
             Back to Rankings
           </Link>
-        </div>
+        </LiquidGlassCard>
       </div>
     );
   }
@@ -337,6 +353,7 @@ export default function GameDetailPage() {
   const highestPeak =
     peakRecord?.highestObservedCcu ?? game.peakCcuObserved ?? game.currentCcu;
   const highestPeakAt = peakRecord?.highestObservedAt ?? game.peakCcuAt;
+  const estRev = estimateGameRevenue(game);
 
   return (
     <div className="max-w-[1280px] mx-auto px-4 sm:px-6 pt-6 sm:pt-8 pb-6 space-y-6">
@@ -362,13 +379,18 @@ export default function GameDetailPage() {
 
       {/* Header Split */}
       <section className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        <div className="lg:col-span-5">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.98 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.36, ease: APPLE_EASE }}
+          className="lg:col-span-5"
+        >
           <GameArtwork
             src={game.thumbnailUrl || game.iconUrl}
             alt={game.name}
             variant="banner"
           />
-        </div>
+        </motion.div>
 
         <div className="lg:col-span-7 space-y-5">
           <div className="flex flex-wrap items-start justify-between gap-4">
@@ -395,14 +417,23 @@ export default function GameDetailPage() {
             </div>
 
             <div className="flex items-center gap-2 shrink-0">
-              <Link
-                href={`/compare?ids=${game.universeId}`}
-                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold bg-emerald-600 dark:bg-[#10E89A] text-white dark:text-[#04130D] rounded-full hover:opacity-90 transition-opacity whitespace-nowrap"
+              <motion.div
+                whileHover={{ scale: 1.03 }}
+                whileTap={{ scale: 0.95 }}
+                transition={APPLE_SPRING}
               >
-                <GitCompare className="w-3.5 h-3.5" />
-                Compare
-              </Link>
-              <a
+                <Link
+                  href={`/compare?ids=${game.universeId}`}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold bg-emerald-600 dark:bg-[#10E89A] text-white dark:text-[#04130D] rounded-full hover:opacity-90 transition-opacity whitespace-nowrap"
+                >
+                  <GitCompare className="w-3.5 h-3.5" />
+                  Compare
+                </Link>
+              </motion.div>
+              <motion.a
+                whileHover={{ scale: 1.03 }}
+                whileTap={{ scale: 0.95 }}
+                transition={APPLE_SPRING}
                 href={`https://www.roblox.com/games/${game.rootPlaceId}`}
                 target="_blank"
                 rel="noopener noreferrer"
@@ -410,37 +441,40 @@ export default function GameDetailPage() {
               >
                 Play
                 <ExternalLink className="w-3.5 h-3.5" />
-              </a>
+              </motion.a>
             </div>
           </div>
 
           {/* Primary Metrics */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
-            <div className="liquid-glass rounded-3xl p-4">
+            <LiquidGlassCard interactive className="rounded-3xl p-4">
               <p className="text-xs text-slate-500 dark:text-[#6F8796]">
                 Live CCU
               </p>
               <p className="mt-1 font-display text-2xl font-bold text-emerald-600 dark:text-[#10E89A] tabular-nums">
-                {formatExactNumber(game.currentCcu)}
+                <AnimatedNumber
+                  value={game.currentCcu}
+                  formatter={(v) => formatExactNumber(Math.round(v))}
+                />
               </p>
-            </div>
-            <div className="liquid-glass rounded-3xl p-4">
+            </LiquidGlassCard>
+            <LiquidGlassCard interactive className="rounded-3xl p-4">
               <p className="text-xs text-slate-500 dark:text-[#6F8796]">
                 Visits
               </p>
               <p className="mt-1 font-display text-2xl font-bold text-slate-900 dark:text-[#F1F7FA] tabular-nums">
                 {formatCompactNumber(game.totalVisits)}
               </p>
-            </div>
-            <div className="liquid-glass rounded-3xl p-4">
+            </LiquidGlassCard>
+            <LiquidGlassCard interactive className="rounded-3xl p-4">
               <p className="text-xs text-slate-500 dark:text-[#6F8796]">
                 Favorites
               </p>
               <p className="mt-1 font-display text-2xl font-bold text-slate-900 dark:text-[#F1F7FA] tabular-nums">
                 {formatCompactNumber(game.favorites)}
               </p>
-            </div>
-            <div className="liquid-glass rounded-3xl p-4">
+            </LiquidGlassCard>
+            <LiquidGlassCard interactive className="rounded-3xl p-4">
               <p className="text-xs text-slate-500 dark:text-[#6F8796]">
                 Rating
               </p>
@@ -449,12 +483,12 @@ export default function GameDetailPage() {
                   ? `${game.likeRatio.toFixed(1)}%`
                   : '—'}
               </p>
-            </div>
+            </LiquidGlassCard>
           </div>
 
           {/* Votes & Peak */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-            <div className="liquid-glass rounded-3xl p-4 flex items-center justify-between">
+            <LiquidGlassCard className="rounded-3xl p-4 flex items-center justify-between">
               <div className="space-y-1">
                 <p className="text-xs text-slate-500 dark:text-[#6F8796]">
                   Votes
@@ -470,9 +504,9 @@ export default function GameDetailPage() {
                   </span>
                 </div>
               </div>
-            </div>
+            </LiquidGlassCard>
 
-            <div className="liquid-glass rounded-3xl p-4 flex items-center justify-between">
+            <LiquidGlassCard className="rounded-3xl p-4 flex items-center justify-between">
               <div className="space-y-1">
                 <p className="text-xs text-slate-500 dark:text-[#6F8796]">
                   Peak CCU
@@ -484,89 +518,161 @@ export default function GameDetailPage() {
               <span className="text-xs text-slate-500 dark:text-[#6F8796] text-right tabular-nums">
                 {highestPeakAt ? formatUtcTimestamp(highestPeakAt) : '—'}
               </span>
-            </div>
+            </LiquidGlassCard>
           </div>
         </div>
       </section>
 
+      {/* Estimated Revenue Card */}
+      <FadeInSection>
+        <LiquidGlassCard className="rounded-[28px] p-5 sm:p-6 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <DollarSign className="w-5 h-5 text-emerald-600 dark:text-[#10E89A]" />
+              <h2 className="font-display text-lg font-bold text-slate-900 dark:text-[#F1F7FA]">
+                Estimated Revenue
+              </h2>
+            </div>
+            <span className="text-xs text-slate-500 dark:text-[#6F8796] tabular-nums">
+              Range: {formatCurrencyCompact(estRev.monthlyLowUsd)} –{' '}
+              {formatCurrencyCompact(estRev.monthlyHighUsd)} / mo
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-1">
+            <div className="p-4 rounded-2xl bg-black/[0.025] dark:bg-white/[0.035]">
+              <p className="text-xs text-slate-500 dark:text-[#6F8796]">
+                Est. Daily
+              </p>
+              <p className="mt-1 font-display text-2xl font-bold text-slate-900 dark:text-[#F1F7FA] tabular-nums">
+                <AnimatedNumber
+                  value={estRev.dailyUsd}
+                  formatter={(v) => formatCurrencyCompact(v)}
+                />
+              </p>
+            </div>
+            <div className="p-4 rounded-2xl bg-emerald-500/[0.08] dark:bg-[#10E89A]/[0.08] border border-emerald-500/20 dark:border-[#10E89A]/25">
+              <p className="text-xs text-emerald-700 dark:text-[#10E89A] font-medium">
+                Est. Monthly
+              </p>
+              <p className="mt-1 font-display text-2xl font-bold text-emerald-600 dark:text-[#10E89A] tabular-nums">
+                <AnimatedNumber
+                  value={estRev.monthlyUsd}
+                  formatter={(v) => formatCurrencyCompact(v)}
+                />
+              </p>
+            </div>
+            <div className="p-4 rounded-2xl bg-black/[0.025] dark:bg-white/[0.035]">
+              <p className="text-xs text-slate-500 dark:text-[#6F8796]">
+                Est. Annual
+              </p>
+              <p className="mt-1 font-display text-2xl font-bold text-slate-900 dark:text-[#F1F7FA] tabular-nums">
+                <AnimatedNumber
+                  value={estRev.yearlyUsd}
+                  formatter={(v) => formatCurrencyCompact(v)}
+                />
+              </p>
+            </div>
+          </div>
+        </LiquidGlassCard>
+      </FadeInSection>
+
       {/* Growth Windows */}
-      <section className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
+      <FadeInSection className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
         {[
           { label: '1h', value: game.growth1h },
           { label: '24h', value: game.growth24h },
           { label: '7d', value: game.growth7d },
           { label: '30d', value: game.growth30d },
         ].map((item) => (
-          <div
+          <LiquidGlassCard
             key={item.label}
-            className="liquid-glass rounded-3xl px-5 py-4 flex items-center justify-between"
+            interactive
+            className="rounded-3xl px-5 py-4 flex items-center justify-between"
           >
             <span className="text-xs font-medium text-slate-500 dark:text-[#9CB3C0]">
               {item.label}
             </span>
             <GrowthValue value={item.value} />
-          </div>
+          </LiquidGlassCard>
         ))}
-      </section>
+      </FadeInSection>
 
       {/* Player History Chart */}
-      <section className="liquid-glass-hero rounded-[28px] p-6 space-y-5">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <h2 className="font-display text-lg font-bold text-slate-900 dark:text-[#F1F7FA]">
-            Player History
-          </h2>
+      <FadeInSection>
+        <LiquidGlassCard
+          variant="hero"
+          className="rounded-[28px] p-6 space-y-5"
+        >
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <h2 className="font-display text-lg font-bold text-slate-900 dark:text-[#F1F7FA]">
+              Player History
+            </h2>
 
-          <div className="flex items-center gap-1 p-1 rounded-full bg-black/[0.04] dark:bg-white/[0.06] border border-slate-900/8 dark:border-white/10 w-fit">
-            {TIME_RANGES.map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                onClick={() => setRange(t.id)}
-                className={`px-3 py-1 text-xs font-semibold rounded-full transition-all cursor-pointer ${
-                  range === t.id
-                    ? 'bg-emerald-600 dark:bg-[#10E89A] text-white dark:text-[#04130D]'
-                    : 'text-slate-600 dark:text-[#9CB3C0] hover:text-slate-950 dark:hover:text-white'
-                }`}
-              >
-                {t.label}
-              </button>
-            ))}
+            <div className="flex items-center gap-1 p-1 rounded-full bg-black/[0.04] dark:bg-white/[0.06] border border-slate-900/8 dark:border-white/10 w-fit">
+              {TIME_RANGES.map((t) => {
+                const active = range === t.id;
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => setRange(t.id)}
+                    className={`relative px-3 py-1 text-xs font-semibold rounded-full transition-colors cursor-pointer ${
+                      active
+                        ? 'text-white dark:text-[#04130D]'
+                        : 'text-slate-600 dark:text-[#9CB3C0] hover:text-slate-950 dark:hover:text-white'
+                    }`}
+                  >
+                    {active && (
+                      <motion.span
+                        layoutId="game-detail-range-pill"
+                        transition={APPLE_SPRING}
+                        className="absolute inset-0 rounded-full bg-emerald-600 dark:bg-[#10E89A] -z-10"
+                      />
+                    )}
+                    {t.label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
-        </div>
 
-        {historyLoading ? (
-          <div className="h-[320px] flex items-center justify-center text-sm text-slate-500 dark:text-[#6F8796]">
-            Loading chart...
-          </div>
-        ) : historyPoints.length >= 2 ? (
-          <EChartWrapper option={ccuChartOption} height={320} />
-        ) : (
-          <div className="rounded-2xl border border-dashed border-slate-900/15 dark:border-white/15 p-10 text-center space-y-1.5">
-            <p className="text-sm font-semibold text-slate-900 dark:text-[#F1F7FA]">
-              Not enough history for this range yet
-            </p>
-            <p className="text-xs text-slate-500 dark:text-[#9CB3C0]">
-              Live players right now: {formatExactNumber(game.currentCcu)}
-            </p>
-          </div>
-        )}
-      </section>
+          {historyLoading ? (
+            <div className="h-[320px] flex items-center justify-center text-sm text-slate-500 dark:text-[#6F8796]">
+              Loading chart...
+            </div>
+          ) : historyPoints.length >= 2 ? (
+            <EChartWrapper option={ccuChartOption} height={320} />
+          ) : (
+            <div className="rounded-2xl border border-dashed border-slate-900/15 dark:border-white/15 p-10 text-center space-y-1.5">
+              <p className="text-sm font-semibold text-slate-900 dark:text-[#F1F7FA]">
+                Not enough history for this range yet
+              </p>
+              <p className="text-xs text-slate-500 dark:text-[#9CB3C0]">
+                Live players right now: {formatExactNumber(game.currentCcu)}
+              </p>
+            </div>
+          )}
+        </LiquidGlassCard>
+      </FadeInSection>
 
       {/* About */}
       {game.description?.trim() && (
-        <section className="liquid-glass rounded-[28px] p-6 space-y-3">
-          <h2 className="font-display text-lg font-bold text-slate-900 dark:text-[#F1F7FA]">
-            About
-          </h2>
-          <p className="text-sm text-slate-600 dark:text-[#9CB3C0] leading-relaxed whitespace-pre-line">
-            {game.description}
-          </p>
-          {game.robloxUpdatedAt && (
-            <p className="text-xs text-slate-500 dark:text-[#6F8796] pt-2 border-t border-slate-900/6 dark:border-white/8 tabular-nums">
-              Updated {formatUtcTimestamp(game.robloxUpdatedAt)}
+        <FadeInSection>
+          <LiquidGlassCard className="rounded-[28px] p-6 space-y-3">
+            <h2 className="font-display text-lg font-bold text-slate-900 dark:text-[#F1F7FA]">
+              About
+            </h2>
+            <p className="text-sm text-slate-600 dark:text-[#9CB3C0] leading-relaxed whitespace-pre-line">
+              {game.description}
             </p>
-          )}
-        </section>
+            {game.robloxUpdatedAt && (
+              <p className="text-xs text-slate-500 dark:text-[#6F8796] pt-2 border-t border-slate-900/6 dark:border-white/8 tabular-nums">
+                Updated {formatUtcTimestamp(game.robloxUpdatedAt)}
+              </p>
+            )}
+          </LiquidGlassCard>
+        </FadeInSection>
       )}
     </div>
   );

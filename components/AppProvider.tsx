@@ -8,6 +8,7 @@ import React, {
   useMemo,
   useState,
 } from 'react';
+import { MotionConfig } from 'motion/react';
 import {
   onAuthStateChanged,
   signInWithPopup,
@@ -368,9 +369,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   );
 
   return (
-    <RoMetricErrorBoundary>
-      <AppContext.Provider value={value}>{children}</AppContext.Provider>
-    </RoMetricErrorBoundary>
+    <MotionConfig reducedMotion="user">
+      <RoMetricErrorBoundary>
+        <AppContext.Provider value={value}>{children}</AppContext.Provider>
+      </RoMetricErrorBoundary>
+    </MotionConfig>
   );
 }
 

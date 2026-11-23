@@ -2,6 +2,7 @@
 
 import React, { useMemo, useState } from 'react';
 import Link from 'next/link';
+import { motion } from 'motion/react';
 import {
   ArrowDown,
   ArrowUp,
@@ -16,10 +17,13 @@ import {
   formatPercent,
   formatRelativeTime,
 } from '@/lib/format';
+import { estimateGameRevenue, formatCurrencyCompact } from '@/lib/revenue';
 import { GameArtwork } from './GameArtwork';
+import { APPLE_EASE, APPLE_SPRING } from './MotionPrimitives';
 
 export type SortField =
   | 'currentCcu'
+  | 'estMonthlyRevenue'
   | 'growth24h'
   | 'growth7d'
   | 'totalVisits'
@@ -83,10 +87,24 @@ export function GameTable({
     setPage(1);
   };
 
+  const revenueById = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const g of games) {
+      map.set(g.universeId, estimateGameRevenue(g).monthlyUsd);
+    }
+    return map;
+  }, [games]);
+
   const sorted = useMemo(() => {
     return [...games].sort((a, b) => {
-      const av = a[sortField];
-      const bv = b[sortField];
+      const av =
+        sortField === 'estMonthlyRevenue'
+          ? (revenueById.get(a.universeId) ?? 0)
+          : a[sortField];
+      const bv =
+        sortField === 'estMonthlyRevenue'
+          ? (revenueById.get(b.universeId) ?? 0)
+          : b[sortField];
       const aNull = av === null || av === undefined;
       const bNull = bv === null || bv === undefined;
       if (aNull && bNull) return b.currentCcu - a.currentCcu;
@@ -94,7 +112,7 @@ export function GameTable({
       if (bNull) return -1;
       return sortDir === 'desc' ? bv - av : av - bv;
     });
-  }, [games, sortField, sortDir]);
+  }, [games, sortField, sortDir, revenueById]);
 
   const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
   const safePage = Math.min(page, totalPages);
@@ -144,8 +162,9 @@ export function GameTable({
   const renderSortHeader = (label: string, field: SortField) => {
     const active = sortField === field;
     return (
-      <button
+      <motion.button
         type="button"
+        whileTap={{ scale: 0.94 }}
         onClick={() => handleSort(field)}
         className={`inline-flex items-center justify-end gap-1 text-xs font-medium whitespace-nowrap cursor-pointer transition-colors ${
           active
@@ -163,7 +182,7 @@ export function GameTable({
         ) : (
           <ArrowUpDown className="w-3 h-3 opacity-50" />
         )}
-      </button>
+      </motion.button>
     );
   };
 
@@ -176,11 +195,14 @@ export function GameTable({
               <th className="py-3.5 pl-5 pr-2 text-xs font-medium text-slate-500 dark:text-[#6F8796] w-12">
                 #
               </th>
-              <th className="py-3.5 px-3 text-xs font-medium text-slate-500 dark:text-[#9CB3C0] min-w-[240px]">
+              <th className="py-3.5 px-3 text-xs font-medium text-slate-500 dark:text-[#9CB3C0] min-w-[230px]">
                 Game
               </th>
               <th className="py-3.5 px-3 text-right">
                 {renderSortHeader('Players', 'currentCcu')}
+              </th>
+              <th className="py-3.5 px-3 text-right">
+                {renderSortHeader('Est. Rev / mo', 'estMonthlyRevenue')}
               </th>
               <th className="py-3.5 px-3 text-right">
                 {renderSortHeader('24h', 'growth24h')}
@@ -205,10 +227,18 @@ export function GameTable({
           <tbody className="divide-y divide-slate-900/6 dark:divide-white/8">
             {pageItems.map((game, idx) => {
               const rank = (safePage - 1) * pageSize + idx + 1;
+              const estMonthly = revenueById.get(game.universeId) ?? 0;
               return (
-                <tr
+                <motion.tr
                   key={game.universeId}
-                  className="hover:bg-black/[0.03] dark:hover:bg-white/[0.04] transition-colors"
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{
+                    duration: 0.24,
+                    delay: Math.min(idx * 0.02, 0.24),
+                    ease: APPLE_EASE,
+                  }}
+                  className="hover:bg-black/[0.03] dark:hover:bg-white/[0.04] transition-colors group"
                 >
                   <td className="py-3.5 pl-5 pr-2 text-sm text-slate-500 dark:text-[#6F8796] tabular-nums font-medium">
                     {rank}
@@ -217,7 +247,7 @@ export function GameTable({
                     <div className="flex items-center gap-3 min-w-0">
                       <Link
                         href={`/games/${game.universeId}`}
-                        className="shrink-0"
+                        className="shrink-0 group-hover:scale-105 transition-transform duration-200"
                       >
                         <GameArtwork
                           src={game.iconUrl}
@@ -229,7 +259,7 @@ export function GameTable({
                         <div className="flex items-center gap-2">
                           <Link
                             href={`/games/${game.universeId}`}
-                            className="text-sm font-semibold text-slate-900 dark:text-[#F1F7FA] hover:text-emerald-600 dark:hover:text-[#10E89A] transition-colors truncate max-w-[220px] sm:max-w-[280px]"
+                            className="text-sm font-semibold text-slate-900 dark:text-[#F1F7FA] hover:text-emerald-600 dark:hover:text-[#10E89A] transition-colors truncate max-w-[200px] sm:max-w-[260px]"
                           >
                             {game.name}
                           </Link>
@@ -257,6 +287,9 @@ export function GameTable({
                   <td className="py-3.5 px-3 text-right text-sm font-semibold text-slate-900 dark:text-[#F1F7FA] tabular-nums">
                     {formatCompactNumber(game.currentCcu)}
                   </td>
+                  <td className="py-3.5 px-3 text-right text-sm font-semibold text-emerald-600 dark:text-[#10E89A] tabular-nums whitespace-nowrap">
+                    {formatCurrencyCompact(estMonthly)}
+                  </td>
                   <td className="py-3.5 px-3 text-right">
                     <GrowthValue value={game.growth24h ?? game.growth1h} />
                   </td>
@@ -277,7 +310,7 @@ export function GameTable({
                   <td className="py-3.5 pl-3 pr-5 text-right text-xs text-slate-500 dark:text-[#6F8796] tabular-nums hidden xl:table-cell whitespace-nowrap">
                     {formatRelativeTime(game.lastCollectedAt)}
                   </td>
-                </tr>
+                </motion.tr>
               );
             })}
           </tbody>
@@ -292,25 +325,29 @@ export function GameTable({
         </span>
         {totalPages > 1 && (
           <div className="flex items-center gap-1.5">
-            <button
+            <motion.button
               type="button"
+              whileTap={{ scale: 0.9 }}
+              transition={APPLE_SPRING}
               disabled={safePage <= 1}
               onClick={() => setPage((p) => Math.max(1, p - 1))}
               className="p-1.5 rounded-full border border-slate-900/10 dark:border-white/12 text-slate-600 dark:text-[#9CB3C0] hover:text-slate-950 dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/10 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
             >
               <ChevronLeft className="w-4 h-4" />
-            </button>
+            </motion.button>
             <span className="px-2 tabular-nums">
               {safePage} / {totalPages}
             </span>
-            <button
+            <motion.button
               type="button"
+              whileTap={{ scale: 0.9 }}
+              transition={APPLE_SPRING}
               disabled={safePage >= totalPages}
               onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
               className="p-1.5 rounded-full border border-slate-900/10 dark:border-white/12 text-slate-600 dark:text-[#9CB3C0] hover:text-slate-950 dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/10 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
             >
               <ChevronRight className="w-4 h-4" />
-            </button>
+            </motion.button>
           </div>
         )}
       </div>

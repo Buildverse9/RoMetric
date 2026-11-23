@@ -17,11 +17,11 @@ export async function GET(req: NextRequest) {
     if (idsParam) {
       rawIds = idsParam.split(',');
     } else {
-      const discovered = await discoverLiveRobloxCharts(80, fresh);
+      const discovered = await discoverLiveRobloxCharts(200, fresh);
       rawIds = discovered.map((entry) => entry.universeId);
     }
 
-    const universeIds = sanitizeUniverseIds(rawIds, 150);
+    const universeIds = sanitizeUniverseIds(rawIds, 600);
     if (universeIds.length === 0) {
       return NextResponse.json(
         { error: 'No valid numeric Universe IDs provided.' },
@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
 
     const universeIds = sanitizeUniverseIds(
       body.universeIds.map((v) => String(v)),
-      150
+      600
     );
 
     if (universeIds.length === 0) {

@@ -3,15 +3,22 @@
 import React, { Suspense, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
+import { AnimatePresence, motion } from 'motion/react';
 import { Plus, Search, X } from 'lucide-react';
 import type { EChartsOption } from 'echarts';
 import { useApp } from '@/components/AppProvider';
 import { fetchGameHistory } from '@/lib/analytics-store';
 import { formatCompactNumber, formatExactNumber } from '@/lib/format';
+import { estimateGameRevenue, formatCurrencyCompact } from '@/lib/revenue';
 import type { GameRecordData, TimeRange } from '@/lib/types';
 import { GameArtwork } from '@/components/GameArtwork';
 import { GrowthValue } from '@/components/GameTable';
 import { EChartWrapper } from '@/components/EChartWrapper';
+import {
+  APPLE_SPRING,
+  FadeInSection,
+  LiquidGlassCard,
+} from '@/components/MotionPrimitives';
 
 const SERIES_COLORS_DARK = ['#10E89A', '#38BDF8', '#F59E0B', '#F472B6'];
 const SERIES_COLORS_LIGHT = ['#059669', '#0284C7', '#D97706', '#DB2777'];
@@ -118,12 +125,17 @@ function CompareContent() {
     const textMuted = isDark ? '#7893A3' : '#64748B';
     const textLegend = isDark ? '#9CB3C0' : '#475569';
     const gridLine = isDark ? 'rgba(255,255,255,0.07)' : 'rgba(15,23,42,0.08)';
-    const tooltipBg = isDark ? 'rgba(9, 19, 25, 0.92)' : 'rgba(255, 255, 255, 0.96)';
-    const tooltipBorder = isDark ? 'rgba(255,255,255,0.14)' : 'rgba(15,23,42,0.1)';
+    const tooltipBg = isDark
+      ? 'rgba(9, 19, 25, 0.92)'
+      : 'rgba(255, 255, 255, 0.96)';
+    const tooltipBorder = isDark
+      ? 'rgba(255,255,255,0.14)'
+      : 'rgba(15,23,42,0.1)';
     const tooltipText = isDark ? '#F1F7FA' : '#0B141A';
 
     return {
       backgroundColor: 'transparent',
+      animationDuration: 600,
       tooltip: {
         trigger: 'axis',
         backgroundColor: tooltipBg,
@@ -165,11 +177,16 @@ function CompareContent() {
     const textMuted = isDark ? '#7893A3' : '#64748B';
     const textPrimary = isDark ? '#F1F7FA' : '#0B141A';
     const gridLine = isDark ? 'rgba(255,255,255,0.07)' : 'rgba(15,23,42,0.08)';
-    const tooltipBg = isDark ? 'rgba(9, 19, 25, 0.92)' : 'rgba(255, 255, 255, 0.96)';
-    const tooltipBorder = isDark ? 'rgba(255,255,255,0.14)' : 'rgba(15,23,42,0.1)';
+    const tooltipBg = isDark
+      ? 'rgba(9, 19, 25, 0.92)'
+      : 'rgba(255, 255, 255, 0.96)';
+    const tooltipBorder = isDark
+      ? 'rgba(255,255,255,0.14)'
+      : 'rgba(15,23,42,0.1)';
 
     return {
       backgroundColor: 'transparent',
+      animationDuration: 600,
       tooltip: {
         trigger: 'axis',
         axisPointer: { type: 'shadow' },
@@ -237,284 +254,351 @@ function CompareContent() {
 
       {/* Selected Games Row */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {selectedGames.map((game, idx) => (
-          <div
-            key={game.universeId}
-            className="liquid-glass rounded-3xl p-4 flex items-center justify-between gap-3"
-          >
-            <div className="flex items-center gap-3 min-w-0">
-              <span
-                className="w-2 h-8 rounded-full shrink-0"
-                style={{
-                  backgroundColor: seriesColors[idx % seriesColors.length],
-                }}
-              />
-              <GameArtwork src={game.iconUrl} alt={game.name} size="sm" />
-              <div className="min-w-0">
-                <Link
-                  href={`/games/${game.universeId}`}
-                  className="text-sm font-semibold text-slate-900 dark:text-[#F1F7FA] hover:text-emerald-600 dark:hover:text-[#10E89A] truncate block"
+        <AnimatePresence mode="popLayout">
+          {selectedGames.map((game, idx) => {
+            const rev = estimateGameRevenue(game);
+            return (
+              <LiquidGlassCard
+                key={game.universeId}
+                layout
+                initial={{ opacity: 0, scale: 0.94 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.92 }}
+                transition={APPLE_SPRING}
+                className="rounded-3xl p-4 flex items-center justify-between gap-3"
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <span
+                    className="w-2 h-8 rounded-full shrink-0"
+                    style={{
+                      backgroundColor: seriesColors[idx % seriesColors.length],
+                    }}
+                  />
+                  <GameArtwork src={game.iconUrl} alt={game.name} size="sm" />
+                  <div className="min-w-0">
+                    <Link
+                      href={`/games/${game.universeId}`}
+                      className="text-sm font-semibold text-slate-900 dark:text-[#F1F7FA] hover:text-emerald-600 dark:hover:text-[#10E89A] truncate block"
+                    >
+                      {game.name}
+                    </Link>
+                    <p className="text-xs text-slate-500 dark:text-[#6F8796] tabular-nums truncate">
+                      {formatCompactNumber(game.currentCcu)} CCU · ~
+                      {formatCurrencyCompact(rev.monthlyUsd)}/mo
+                    </p>
+                  </div>
+                </div>
+                <motion.button
+                  type="button"
+                  whileTap={{ scale: 0.85 }}
+                  aria-label={`Remove ${game.name}`}
+                  onClick={() => removeGame(game.universeId)}
+                  className="p-1.5 rounded-full text-slate-400 dark:text-[#6F8796] hover:text-rose-500 hover:bg-rose-500/10 transition-colors cursor-pointer"
                 >
-                  {game.name}
-                </Link>
-                <p className="text-xs text-slate-500 dark:text-[#6F8796] tabular-nums">
-                  {formatCompactNumber(game.currentCcu)} CCU
-                </p>
-              </div>
-            </div>
-            <button
-              type="button"
-              aria-label={`Remove ${game.name}`}
-              onClick={() => removeGame(game.universeId)}
-              className="p-1.5 rounded-full text-slate-400 dark:text-[#6F8796] hover:text-rose-500 hover:bg-rose-500/10 transition-colors cursor-pointer"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        ))}
+                  <X className="w-4 h-4" />
+                </motion.button>
+              </LiquidGlassCard>
+            );
+          })}
+        </AnimatePresence>
 
         {selectedIds.length < 4 && (
           <div className="relative">
-            <button
+            <motion.button
               type="button"
+              whileHover={{ scale: 1.015 }}
+              whileTap={{ scale: 0.98 }}
+              transition={APPLE_SPRING}
               onClick={() => setPickerOpen((v) => !v)}
               className="w-full h-full min-h-[76px] border border-dashed border-slate-900/20 dark:border-white/20 hover:border-emerald-500 dark:hover:border-[#10E89A] rounded-3xl p-4 flex items-center justify-center gap-2 text-sm font-medium text-slate-600 dark:text-[#9CB3C0] hover:text-emerald-600 dark:hover:text-[#10E89A] transition-colors cursor-pointer"
             >
               <Plus className="w-4 h-4" />
               Add game ({selectedIds.length}/4)
-            </button>
+            </motion.button>
 
-            {pickerOpen && (
-              <div className="absolute left-0 right-0 mt-2 liquid-glass-strong rounded-3xl z-30 overflow-hidden">
-                <div className="p-3 border-b border-slate-900/8 dark:border-white/10 flex items-center gap-2">
-                  <Search className="w-4 h-4 text-slate-400 dark:text-[#6F8796]" />
-                  <input
-                    type="text"
-                    autoFocus
-                    value={pickerQuery}
-                    onChange={(e) => setPickerQuery(e.target.value)}
-                    placeholder="Search games..."
-                    className="w-full bg-transparent text-xs text-slate-900 dark:text-[#F1F7FA] placeholder:text-slate-500 dark:placeholder:text-[#6F8796] focus:outline-none"
-                  />
-                </div>
-                <div className="max-h-60 overflow-y-auto divide-y divide-slate-900/6 dark:divide-white/8">
-                  {availableToPick.map((g) => (
-                    <button
-                      key={g.universeId}
-                      type="button"
-                      onClick={() => addGame(g.universeId)}
-                      className="w-full px-3.5 py-2.5 flex items-center justify-between gap-2 hover:bg-black/[0.04] dark:hover:bg-white/[0.06] text-left cursor-pointer"
-                    >
-                      <span className="text-xs font-medium text-slate-900 dark:text-[#F1F7FA] truncate">
-                        {g.name}
-                      </span>
-                      <span className="text-xs font-semibold text-emerald-600 dark:text-[#10E89A] tabular-nums shrink-0">
-                        {formatCompactNumber(g.currentCcu)}
-                      </span>
-                    </button>
-                  ))}
-                  {availableToPick.length === 0 && (
-                    <p className="p-3 text-xs text-slate-500 dark:text-[#6F8796] text-center">
-                      No games found.
-                    </p>
-                  )}
-                </div>
-              </div>
-            )}
+            <AnimatePresence>
+              {pickerOpen && (
+                <motion.div
+                  initial={{ opacity: 0, y: -6, scale: 0.97 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -6, scale: 0.97 }}
+                  transition={APPLE_SPRING}
+                  className="absolute left-0 right-0 mt-2 liquid-glass-strong rounded-3xl z-30 overflow-hidden"
+                >
+                  <div className="p-3 border-b border-slate-900/8 dark:border-white/10 flex items-center gap-2">
+                    <Search className="w-4 h-4 text-slate-400 dark:text-[#6F8796]" />
+                    <input
+                      type="text"
+                      autoFocus
+                      value={pickerQuery}
+                      onChange={(e) => setPickerQuery(e.target.value)}
+                      placeholder="Search games..."
+                      className="w-full bg-transparent text-xs text-slate-900 dark:text-[#F1F7FA] placeholder:text-slate-500 dark:placeholder:text-[#6F8796] focus:outline-none"
+                    />
+                  </div>
+                  <div className="max-h-60 overflow-y-auto divide-y divide-slate-900/6 dark:divide-white/8">
+                    {availableToPick.map((g) => (
+                      <button
+                        key={g.universeId}
+                        type="button"
+                        onClick={() => addGame(g.universeId)}
+                        className="w-full px-3.5 py-2.5 flex items-center justify-between gap-2 hover:bg-black/[0.04] dark:hover:bg-white/[0.06] text-left cursor-pointer"
+                      >
+                        <span className="text-xs font-medium text-slate-900 dark:text-[#F1F7FA] truncate">
+                          {g.name}
+                        </span>
+                        <span className="text-xs font-semibold text-emerald-600 dark:text-[#10E89A] tabular-nums shrink-0">
+                          {formatCompactNumber(g.currentCcu)}
+                        </span>
+                      </button>
+                    ))}
+                    {availableToPick.length === 0 && (
+                      <p className="p-3 text-xs text-slate-500 dark:text-[#6F8796] text-center">
+                        No games found.
+                      </p>
+                    )}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
         )}
       </div>
 
       {selectedGames.length > 0 && (
         <>
-          <section className="liquid-glass rounded-[28px] p-6 space-y-5">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <h2 className="font-display text-lg font-bold text-slate-900 dark:text-[#F1F7FA]">
-                {hasMultiPointHistory ? 'Player History' : 'Live vs Peak'}
-              </h2>
-              <div className="flex items-center gap-1 p-1 rounded-full bg-black/[0.04] dark:bg-white/[0.06] border border-slate-900/8 dark:border-white/10 w-fit">
-                {COMPARE_RANGES.map((r) => (
-                  <button
-                    key={r.id}
-                    type="button"
-                    onClick={() => setRange(r.id)}
-                    className={`px-3 py-1 text-xs font-semibold rounded-full cursor-pointer transition-all ${
-                      range === r.id
-                        ? 'bg-emerald-600 dark:bg-[#10E89A] text-white dark:text-[#04130D]'
-                        : 'text-slate-600 dark:text-[#9CB3C0] hover:text-slate-950 dark:hover:text-white'
-                    }`}
-                  >
-                    {r.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <EChartWrapper
-              option={
-                hasMultiPointHistory
-                  ? historyChartOption
-                  : snapshotComparisonBarOption
-              }
-              height={320}
-            />
-          </section>
-
-          <section className="liquid-glass rounded-[28px] overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="border-b border-slate-900/8 dark:border-white/10 bg-black/[0.02] dark:bg-white/[0.03]">
-                    <th className="py-3.5 px-5 text-xs font-medium text-slate-500 dark:text-[#6F8796] w-44">
-                      Metric
-                    </th>
-                    {selectedGames.map((g, idx) => (
-                      <th
-                        key={g.universeId}
-                        className="py-3.5 px-4 text-sm font-semibold text-slate-900 dark:text-[#F1F7FA]"
+          <FadeInSection>
+            <LiquidGlassCard className="rounded-[28px] p-6 space-y-5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <h2 className="font-display text-lg font-bold text-slate-900 dark:text-[#F1F7FA]">
+                  {hasMultiPointHistory ? 'Player History' : 'Live vs Peak'}
+                </h2>
+                <div className="flex items-center gap-1 p-1 rounded-full bg-black/[0.04] dark:bg-white/[0.06] border border-slate-900/8 dark:border-white/10 w-fit">
+                  {COMPARE_RANGES.map((r) => {
+                    const active = range === r.id;
+                    return (
+                      <button
+                        key={r.id}
+                        type="button"
+                        onClick={() => setRange(r.id)}
+                        className={`relative px-3 py-1 text-xs font-semibold rounded-full cursor-pointer transition-colors ${
+                          active
+                            ? 'text-white dark:text-[#04130D]'
+                            : 'text-slate-600 dark:text-[#9CB3C0] hover:text-slate-950 dark:hover:text-white'
+                        }`}
                       >
-                        <div className="flex items-center gap-2">
-                          <span
-                            className="w-2 h-2 rounded-full shrink-0"
-                            style={{
-                              backgroundColor:
-                                seriesColors[idx % seriesColors.length],
-                            }}
+                        {active && (
+                          <motion.span
+                            layoutId="compare-range-pill"
+                            transition={APPLE_SPRING}
+                            className="absolute inset-0 rounded-full bg-emerald-600 dark:bg-[#10E89A] -z-10"
                           />
-                          <Link
-                            href={`/games/${g.universeId}`}
-                            className="hover:text-emerald-600 dark:hover:text-[#10E89A] truncate max-w-[180px]"
-                          >
-                            {g.name}
-                          </Link>
-                        </div>
+                        )}
+                        {r.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <EChartWrapper
+                option={
+                  hasMultiPointHistory
+                    ? historyChartOption
+                    : snapshotComparisonBarOption
+                }
+                height={320}
+              />
+            </LiquidGlassCard>
+          </FadeInSection>
+
+          <FadeInSection>
+            <LiquidGlassCard className="rounded-[28px] overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-900/8 dark:border-white/10 bg-black/[0.02] dark:bg-white/[0.03]">
+                      <th className="py-3.5 px-5 text-xs font-medium text-slate-500 dark:text-[#6F8796] w-44">
+                        Metric
                       </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-900/6 dark:divide-white/8 text-sm">
-                  <tr>
-                    <td className="py-3.5 px-5 text-xs text-slate-500 dark:text-[#9CB3C0]">
-                      Live CCU
-                    </td>
-                    {selectedGames.map((g) => (
-                      <td
-                        key={g.universeId}
-                        className="py-3.5 px-4 font-bold text-emerald-600 dark:text-[#10E89A] tabular-nums"
-                      >
-                        {formatExactNumber(g.currentCcu)}
-                      </td>
-                    ))}
-                  </tr>
-                  <tr>
-                    <td className="py-3.5 px-5 text-xs text-slate-500 dark:text-[#9CB3C0]">
-                      Peak CCU
-                    </td>
-                    {selectedGames.map((g) => (
-                      <td
-                        key={g.universeId}
-                        className="py-3.5 px-4 font-semibold text-slate-900 dark:text-[#F1F7FA] tabular-nums"
-                      >
-                        {formatExactNumber(g.peakCcuObserved)}
-                      </td>
-                    ))}
-                  </tr>
-                  <tr>
-                    <td className="py-3.5 px-5 text-xs text-slate-500 dark:text-[#9CB3C0]">
-                      24h Change
-                    </td>
-                    {selectedGames.map((g) => (
-                      <td key={g.universeId} className="py-3.5 px-4">
-                        <GrowthValue value={g.growth24h ?? g.growth1h} />
-                      </td>
-                    ))}
-                  </tr>
-                  <tr>
-                    <td className="py-3.5 px-5 text-xs text-slate-500 dark:text-[#9CB3C0]">
-                      7d Change
-                    </td>
-                    {selectedGames.map((g) => (
-                      <td key={g.universeId} className="py-3.5 px-4">
-                        <GrowthValue value={g.growth7d} />
-                      </td>
-                    ))}
-                  </tr>
-                  <tr>
-                    <td className="py-3.5 px-5 text-xs text-slate-500 dark:text-[#9CB3C0]">
-                      Total Visits
-                    </td>
-                    {selectedGames.map((g) => (
-                      <td
-                        key={g.universeId}
-                        className="py-3.5 px-4 text-slate-900 dark:text-[#F1F7FA] tabular-nums"
-                      >
-                        {formatCompactNumber(g.totalVisits)}
-                      </td>
-                    ))}
-                  </tr>
-                  <tr>
-                    <td className="py-3.5 px-5 text-xs text-slate-500 dark:text-[#9CB3C0]">
-                      Favorites
-                    </td>
-                    {selectedGames.map((g) => (
-                      <td
-                        key={g.universeId}
-                        className="py-3.5 px-4 text-slate-900 dark:text-[#F1F7FA] tabular-nums"
-                      >
-                        {formatCompactNumber(g.favorites)}
-                      </td>
-                    ))}
-                  </tr>
-                  <tr>
-                    <td className="py-3.5 px-5 text-xs text-slate-500 dark:text-[#9CB3C0]">
-                      Like Ratio
-                    </td>
-                    {selectedGames.map((g) => (
-                      <td
-                        key={g.universeId}
-                        className="py-3.5 px-4 text-slate-900 dark:text-[#F1F7FA] tabular-nums"
-                      >
-                        {g.likeRatio !== null && g.likeRatio !== undefined
-                          ? `${g.likeRatio.toFixed(1)}%`
-                          : '—'}
-                      </td>
-                    ))}
-                  </tr>
-                  <tr>
-                    <td className="py-3.5 px-5 text-xs text-slate-500 dark:text-[#9CB3C0]">
-                      Developer
-                    </td>
-                    {selectedGames.map((g) => (
-                      <td
-                        key={g.universeId}
-                        className="py-3.5 px-4 text-slate-600 dark:text-[#9CB3C0]"
-                      >
-                        <Link
-                          href={`/developers/${g.creatorId}`}
-                          className="hover:text-emerald-600 dark:hover:text-[#10E89A]"
+                      {selectedGames.map((g, idx) => (
+                        <th
+                          key={g.universeId}
+                          className="py-3.5 px-4 text-sm font-semibold text-slate-900 dark:text-[#F1F7FA]"
                         >
-                          {g.creatorName}
-                        </Link>
+                          <div className="flex items-center gap-2">
+                            <span
+                              className="w-2 h-2 rounded-full shrink-0"
+                              style={{
+                                backgroundColor:
+                                  seriesColors[idx % seriesColors.length],
+                              }}
+                            />
+                            <Link
+                              href={`/games/${g.universeId}`}
+                              className="hover:text-emerald-600 dark:hover:text-[#10E89A] truncate max-w-[180px]"
+                            >
+                              {g.name}
+                            </Link>
+                          </div>
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-900/6 dark:divide-white/8 text-sm">
+                    <tr>
+                      <td className="py-3.5 px-5 text-xs text-slate-500 dark:text-[#9CB3C0]">
+                        Live CCU
                       </td>
-                    ))}
-                  </tr>
-                  <tr>
-                    <td className="py-3.5 px-5 text-xs text-slate-500 dark:text-[#9CB3C0]">
-                      Genre
-                    </td>
-                    {selectedGames.map((g) => (
-                      <td
-                        key={g.universeId}
-                        className="py-3.5 px-4 text-slate-600 dark:text-[#9CB3C0]"
-                      >
-                        {g.genre}
+                      {selectedGames.map((g) => (
+                        <td
+                          key={g.universeId}
+                          className="py-3.5 px-4 font-bold text-emerald-600 dark:text-[#10E89A] tabular-nums"
+                        >
+                          {formatExactNumber(g.currentCcu)}
+                        </td>
+                      ))}
+                    </tr>
+                    <tr>
+                      <td className="py-3.5 px-5 text-xs text-slate-500 dark:text-[#9CB3C0]">
+                        Est. Monthly Revenue
                       </td>
-                    ))}
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </section>
+                      {selectedGames.map((g) => (
+                        <td
+                          key={g.universeId}
+                          className="py-3.5 px-4 font-bold text-emerald-600 dark:text-[#10E89A] tabular-nums"
+                        >
+                          {formatCurrencyCompact(
+                            estimateGameRevenue(g).monthlyUsd
+                          )}
+                        </td>
+                      ))}
+                    </tr>
+                    <tr>
+                      <td className="py-3.5 px-5 text-xs text-slate-500 dark:text-[#9CB3C0]">
+                        Est. Daily Revenue
+                      </td>
+                      {selectedGames.map((g) => (
+                        <td
+                          key={g.universeId}
+                          className="py-3.5 px-4 font-medium text-slate-900 dark:text-[#F1F7FA] tabular-nums"
+                        >
+                          {formatCurrencyCompact(
+                            estimateGameRevenue(g).dailyUsd
+                          )}
+                        </td>
+                      ))}
+                    </tr>
+                    <tr>
+                      <td className="py-3.5 px-5 text-xs text-slate-500 dark:text-[#9CB3C0]">
+                        Peak CCU
+                      </td>
+                      {selectedGames.map((g) => (
+                        <td
+                          key={g.universeId}
+                          className="py-3.5 px-4 font-semibold text-slate-900 dark:text-[#F1F7FA] tabular-nums"
+                        >
+                          {formatExactNumber(g.peakCcuObserved)}
+                        </td>
+                      ))}
+                    </tr>
+                    <tr>
+                      <td className="py-3.5 px-5 text-xs text-slate-500 dark:text-[#9CB3C0]">
+                        24h Change
+                      </td>
+                      {selectedGames.map((g) => (
+                        <td key={g.universeId} className="py-3.5 px-4">
+                          <GrowthValue value={g.growth24h ?? g.growth1h} />
+                        </td>
+                      ))}
+                    </tr>
+                    <tr>
+                      <td className="py-3.5 px-5 text-xs text-slate-500 dark:text-[#9CB3C0]">
+                        7d Change
+                      </td>
+                      {selectedGames.map((g) => (
+                        <td key={g.universeId} className="py-3.5 px-4">
+                          <GrowthValue value={g.growth7d} />
+                        </td>
+                      ))}
+                    </tr>
+                    <tr>
+                      <td className="py-3.5 px-5 text-xs text-slate-500 dark:text-[#9CB3C0]">
+                        Total Visits
+                      </td>
+                      {selectedGames.map((g) => (
+                        <td
+                          key={g.universeId}
+                          className="py-3.5 px-4 text-slate-900 dark:text-[#F1F7FA] tabular-nums"
+                        >
+                          {formatCompactNumber(g.totalVisits)}
+                        </td>
+                      ))}
+                    </tr>
+                    <tr>
+                      <td className="py-3.5 px-5 text-xs text-slate-500 dark:text-[#9CB3C0]">
+                        Favorites
+                      </td>
+                      {selectedGames.map((g) => (
+                        <td
+                          key={g.universeId}
+                          className="py-3.5 px-4 text-slate-900 dark:text-[#F1F7FA] tabular-nums"
+                        >
+                          {formatCompactNumber(g.favorites)}
+                        </td>
+                      ))}
+                    </tr>
+                    <tr>
+                      <td className="py-3.5 px-5 text-xs text-slate-500 dark:text-[#9CB3C0]">
+                        Like Ratio
+                      </td>
+                      {selectedGames.map((g) => (
+                        <td
+                          key={g.universeId}
+                          className="py-3.5 px-4 text-slate-900 dark:text-[#F1F7FA] tabular-nums"
+                        >
+                          {g.likeRatio !== null && g.likeRatio !== undefined
+                            ? `${g.likeRatio.toFixed(1)}%`
+                            : '—'}
+                        </td>
+                      ))}
+                    </tr>
+                    <tr>
+                      <td className="py-3.5 px-5 text-xs text-slate-500 dark:text-[#9CB3C0]">
+                        Developer
+                      </td>
+                      {selectedGames.map((g) => (
+                        <td
+                          key={g.universeId}
+                          className="py-3.5 px-4 text-slate-600 dark:text-[#9CB3C0]"
+                        >
+                          <Link
+                            href={`/developers/${g.creatorId}`}
+                            className="hover:text-emerald-600 dark:hover:text-[#10E89A]"
+                          >
+                            {g.creatorName}
+                          </Link>
+                        </td>
+                      ))}
+                    </tr>
+                    <tr>
+                      <td className="py-3.5 px-5 text-xs text-slate-500 dark:text-[#9CB3C0]">
+                        Genre
+                      </td>
+                      {selectedGames.map((g) => (
+                        <td
+                          key={g.universeId}
+                          className="py-3.5 px-4 text-slate-600 dark:text-[#9CB3C0]"
+                        >
+                          {g.genre}
+                        </td>
+                      ))}
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </LiquidGlassCard>
+          </FadeInSection>
         </>
       )}
     </div>

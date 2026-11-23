@@ -3,6 +3,7 @@ import './globals.css';
 import { AppProvider } from '@/components/AppProvider';
 import { Navbar } from '@/components/Navbar';
 import { Footer } from '@/components/Footer';
+import { PageTransition } from '@/components/MotionPrimitives';
 
 export const metadata: Metadata = {
   title: {
@@ -10,18 +11,18 @@ export const metadata: Metadata = {
     template: '%s | RoMetric',
   },
   description:
-    'Live Roblox game analytics, player rankings, historical charts, and comparisons.',
+    'Live Roblox game analytics, player rankings, breakout games, estimated revenue, and historical charts.',
   openGraph: {
     title: 'RoMetric — Roblox Analytics',
     description:
-      'Track live Roblox player counts, trending games, rankings, and historical trends.',
+      'Track live Roblox player counts, breakout games, estimated revenue, rankings, and historical trends.',
     type: 'website',
   },
   twitter: {
     card: 'summary_large_image',
     title: 'RoMetric — Roblox Analytics',
     description:
-      'Live Roblox game analytics, player rankings, historical charts, and comparisons.',
+      'Live Roblox game analytics, player rankings, breakout games, estimated revenue, and historical charts.',
   },
 };
 
@@ -63,7 +64,9 @@ export default function RootLayout({
       >
         <AppProvider>
           <Navbar />
-          <main className="flex-1 w-full">{children}</main>
+          <main className="flex-1 w-full">
+            <PageTransition>{children}</PageTransition>
+          </main>
           <Footer />
         </AppProvider>
       </body>

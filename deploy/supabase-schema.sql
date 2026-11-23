@@ -175,7 +175,7 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 AS $$
 BEGIN
-  -- 1. Roll up raw snapshots into hourly stats
+  -- 1. Roll up recent raw snapshots into hourly stats (36h overlap guarantees zero gaps)
   INSERT INTO public.game_hourly_stats (
     universe_id, hour_bucket, avg_ccu, min_ccu, max_ccu, latest_visits, latest_favorites, sample_count, updated_at
   )
@@ -190,7 +190,7 @@ BEGIN
     COUNT(*),
     NOW()
   FROM public.game_snapshots
-  WHERE captured_at >= NOW() - INTERVAL '48 hours'
+  WHERE captured_at >= NOW() - INTERVAL '36 hours'
   GROUP BY universe_id, date_trunc('hour', captured_at)
   ON CONFLICT (universe_id, hour_bucket) DO UPDATE SET
     avg_ccu = EXCLUDED.avg_ccu,
@@ -226,9 +226,11 @@ BEGIN
     sample_count = EXCLUDED.sample_count,
     updated_at = NOW();
 
-  -- 3. Prune expired raw snapshots (>48h) and hourly stats (>7d) to protect 500 MB free limit
-  DELETE FROM public.game_snapshots WHERE captured_at < NOW() - INTERVAL '48 hours';
+  -- 3. Prune expired windows to fit 3,000 games @ 30-min cadence inside 500 MB Free Tier
+  --    (Full lossless history is archived nightly to Google Drive via Apps Script at 02:30 UTC)
+  DELETE FROM public.game_snapshots WHERE captured_at < NOW() - INTERVAL '30 hours';
   DELETE FROM public.game_hourly_stats WHERE hour_bucket < NOW() - INTERVAL '7 days';
   DELETE FROM public.collection_jobs WHERE started_at < NOW() - INTERVAL '30 days';
+  DELETE FROM public.game_daily_stats WHERE day_bucket < (CURRENT_DATE - INTERVAL '365 days');
 END;
 $$;

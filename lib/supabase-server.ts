@@ -390,32 +390,31 @@ async function fetchRecentSnapshotsByGame(
   return byGame;
 }
 
+// Slim projection omitting heavy `description` text (loaded on demand on game detail pages)
+// Cuts Supabase egress by ~70% per catalog load at 1,000–3,000 games.
+const GAMES_LIST_SELECT_COLUMNS =
+  'universe_id,root_place_id,name,slug,creator_id,creator_name,creator_type,creator_verified,genre,icon_url,thumbnail_url,current_ccu,total_visits,favorites,up_votes,down_votes,like_ratio,growth_1h,growth_24h,growth_7d,growth_30d,peak_ccu_observed,peak_ccu_at,tracking_tier,active,data_source_id,collection_status,first_observed_at,last_collected_at,roblox_updated_at,updated_at';
+
 export async function fetchSupabaseGamesList(): Promise<GameRecordData[]> {
-  const [res, snapsByGame] = await Promise.all([
-    supabaseRest('games?select=*&order=current_ccu.desc&limit=500'),
-    fetchRecentSnapshotsByGame().catch(
-      () => new Map<string, Array<{ ts: number; ccu: number }>>()
-    ),
+  const base = `games?select=${GAMES_LIST_SELECT_COLUMNS}&active=eq.true&order=current_ccu.desc&limit=1000`;
+  const [page1Res, page2Res, page3Res] = await Promise.all([
+    supabaseRest(`${base}&offset=0`),
+    supabaseRest(`${base}&offset=1000`),
+    supabaseRest(`${base}&offset=2000`),
   ]);
-  if (!res.ok) {
-    throw new Error(`Supabase games query failed (HTTP ${res.status})`);
+  if (!page1Res.ok) {
+    throw new Error(`Supabase games query failed (HTTP ${page1Res.status})`);
   }
-  const rows = (await res.json()) as SupabaseGameRow[];
-  return rows.map((row) => {
-    const game = mapSupabaseRowToGame(row);
-    const pts = snapsByGame.get(game.universeId) ?? [];
-    game.snapshotCount = pts.length;
-    if (pts.length >= 2) {
-      const derived = computeDerivedGrowth(game.currentCcu, pts);
-      if (game.growth1h === null || game.growth1h === undefined) {
-        game.growth1h = derived.growth1h;
-      }
-      if (game.growth24h === null || game.growth24h === undefined) {
-        game.growth24h = derived.growth24h;
-      }
-    }
-    return game;
-  });
+  const page1Rows = (await page1Res.json()) as SupabaseGameRow[];
+  const page2Rows = page2Res.ok
+    ? ((await page2Res.json()) as SupabaseGameRow[])
+    : [];
+  const page3Rows = page3Res.ok
+    ? ((await page3Res.json()) as SupabaseGameRow[])
+    : [];
+
+  const rows = [...page1Rows, ...page2Rows, ...page3Rows];
+  return rows.map((row) => mapSupabaseRowToGame(row));
 }
 
 export async function fetchSupabaseGameById(
@@ -723,7 +722,7 @@ export async function runSupabaseCollectionCycle(options: {
 
   if (shouldDiscover) {
     try {
-      const discovered = await discoverLiveRobloxCharts(80, true);
+      const discovered = await discoverLiveRobloxCharts(500, true);
       for (const entry of discovered) {
         if (!targetMap.has(entry.universeId)) {
           targetMap.set(entry.universeId, entry.tier);
@@ -743,7 +742,7 @@ export async function runSupabaseCollectionCycle(options: {
     }
   }
 
-  const targetIds = Array.from(targetMap.keys()).slice(0, 120);
+  const targetIds = Array.from(targetMap.keys()).slice(0, 500);
   const [fetchRes, snapsByGame] = await Promise.all([
     fetchLiveRobloxGames(targetIds, true),
     fetchRecentSnapshotsByGame().catch(

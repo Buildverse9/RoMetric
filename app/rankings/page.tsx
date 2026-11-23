@@ -2,13 +2,16 @@
 
 import React, { Suspense, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
+import { motion } from 'motion/react';
 import { Clock, Search } from 'lucide-react';
 import { useApp } from '@/components/AppProvider';
 import { GameTable, type SortField } from '@/components/GameTable';
 import { evaluateTrending, formatRelativeTime } from '@/lib/format';
+import { APPLE_SPRING } from '@/components/MotionPrimitives';
 
 type RankingTab =
   | 'live_ccu'
+  | 'revenue'
   | 'growth_24h'
   | 'growth_7d'
   | 'visits'
@@ -21,6 +24,7 @@ const RANKING_TABS: Array<{
   defaultSort: SortField;
 }> = [
   { id: 'live_ccu', label: 'Players', defaultSort: 'currentCcu' },
+  { id: 'revenue', label: 'Est. Revenue', defaultSort: 'estMonthlyRevenue' },
   { id: 'growth_24h', label: '24h', defaultSort: 'growth24h' },
   { id: 'growth_7d', label: '7d', defaultSort: 'growth7d' },
   { id: 'visits', label: 'Visits', defaultSort: 'totalVisits' },
@@ -92,20 +96,30 @@ function RankingsContent() {
       {/* Controls Row */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-1 p-1 liquid-glass-pill rounded-full w-fit">
-          {RANKING_TABS.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setActiveTab(tab.id)}
-              className={`px-3.5 py-1.5 text-xs font-semibold rounded-full transition-all whitespace-nowrap cursor-pointer ${
-                activeTab === tab.id
-                  ? 'bg-emerald-600 dark:bg-[#10E89A] text-white dark:text-[#04130D]'
-                  : 'text-slate-600 dark:text-[#9CB3C0] hover:text-slate-950 dark:hover:text-white'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
+          {RANKING_TABS.map((tab) => {
+            const active = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTab(tab.id)}
+                className={`relative px-3.5 py-1.5 text-xs font-semibold rounded-full transition-colors whitespace-nowrap cursor-pointer ${
+                  active
+                    ? 'text-white dark:text-[#04130D]'
+                    : 'text-slate-600 dark:text-[#9CB3C0] hover:text-slate-950 dark:hover:text-white'
+                }`}
+              >
+                {active && (
+                  <motion.span
+                    layoutId="rankings-tab-pill"
+                    transition={APPLE_SPRING}
+                    className="absolute inset-0 rounded-full bg-emerald-600 dark:bg-[#10E89A] -z-10"
+                  />
+                )}
+                {tab.label}
+              </button>
+            );
+          })}
         </div>
 
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
@@ -143,7 +157,7 @@ function RankingsContent() {
         key={activeTab}
         games={filteredGames}
         defaultSort={activeConfig.defaultSort}
-        pageSize={20}
+        pageSize={25}
         loading={loadingGames}
         emptyMessage="No games match your filters."
       />

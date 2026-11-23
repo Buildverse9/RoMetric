@@ -40,11 +40,11 @@ async function getAdminAuthHeaders(): Promise<Record<string, string>> {
 
 export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
   paused: false,
-  retentionRawHours: 48,
+  retentionRawHours: 30,
   retentionHourlyDays: 7,
   tier1IntervalMin: 5,
-  tier2IntervalMin: 15,
-  tier3IntervalMin: 60,
+  tier2IntervalMin: 30,
+  tier3IntervalMin: 30,
 };
 
 export const OFFICIAL_DATA_SOURCES: DataSourceInfo[] = [
@@ -771,10 +771,10 @@ export async function runCollectionCycle(options: {
 
   if (shouldDiscover) {
     options.onProgress?.(
-      'Discovering live Roblox Top Playing Now, Trending & Up-and-Coming charts...'
+      'Discovering live Roblox Explore charts (Top Playing, Trending, Up-and-Coming & more)...'
     );
     try {
-      const discoverRes = await fetch('/api/roblox/discover?limit=80&fresh=1', {
+      const discoverRes = await fetch('/api/roblox/discover?limit=500&fresh=1', {
         cache: 'no-store',
       });
       if (discoverRes.ok) {
@@ -803,7 +803,7 @@ export async function runCollectionCycle(options: {
     }
   }
 
-  const targetIds = Array.from(targetMap.keys()).slice(0, 120);
+  const targetIds = Array.from(targetMap.keys()).slice(0, 500);
 
   if (targetIds.length === 0) {
     const completedAt = new Date().toISOString();

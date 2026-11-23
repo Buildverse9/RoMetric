@@ -6,10 +6,10 @@ export const dynamic = 'force-dynamic';
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
-    const limitParam = Number(searchParams.get('limit') || '80');
+    const limitParam = Number(searchParams.get('limit') || '500');
     const maxGames = Number.isFinite(limitParam)
-      ? Math.max(10, Math.min(120, Math.floor(limitParam)))
-      : 80;
+      ? Math.max(10, Math.min(1000, Math.floor(limitParam)))
+      : 500;
     const fresh = searchParams.get('fresh') === '1';
 
     const entries = await discoverLiveRobloxCharts(maxGames, fresh);

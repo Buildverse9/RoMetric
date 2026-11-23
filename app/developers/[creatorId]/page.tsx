@@ -8,8 +8,17 @@ import type { EChartsOption } from 'echarts';
 import { useApp } from '@/components/AppProvider';
 import { fetchGameHistory } from '@/lib/analytics-store';
 import { formatCompactNumber, formatExactNumber } from '@/lib/format';
+import {
+  estimatePortfolioMonthlyRevenue,
+  formatCurrencyCompact,
+} from '@/lib/revenue';
 import { GameTable } from '@/components/GameTable';
 import { EChartWrapper } from '@/components/EChartWrapper';
+import {
+  AnimatedNumber,
+  FadeInSection,
+  LiquidGlassCard,
+} from '@/components/MotionPrimitives';
 
 export default function DeveloperDetailPage() {
   const params = useParams<{ creatorId: string }>();
@@ -71,12 +80,17 @@ export default function DeveloperDetailPage() {
     const accent = isDark ? '#10E89A' : '#059669';
     const textMuted = isDark ? '#7893A3' : '#64748B';
     const gridLine = isDark ? 'rgba(255,255,255,0.07)' : 'rgba(15,23,42,0.08)';
-    const tooltipBg = isDark ? 'rgba(9, 19, 25, 0.92)' : 'rgba(255, 255, 255, 0.96)';
-    const tooltipBorder = isDark ? 'rgba(255,255,255,0.14)' : 'rgba(15,23,42,0.1)';
+    const tooltipBg = isDark
+      ? 'rgba(9, 19, 25, 0.92)'
+      : 'rgba(255, 255, 255, 0.96)';
+    const tooltipBorder = isDark
+      ? 'rgba(255,255,255,0.14)'
+      : 'rgba(15,23,42,0.1)';
     const tooltipText = isDark ? '#F1F7FA' : '#0B141A';
 
     return {
       backgroundColor: 'transparent',
+      animationDuration: 600,
       tooltip: {
         trigger: 'axis',
         backgroundColor: tooltipBg,
@@ -129,7 +143,7 @@ export default function DeveloperDetailPage() {
   if (!developer) {
     return (
       <div className="max-w-[1280px] mx-auto px-4 sm:px-6 py-16">
-        <div className="max-w-md mx-auto liquid-glass rounded-3xl p-8 text-center space-y-4">
+        <LiquidGlassCard className="max-w-md mx-auto rounded-3xl p-8 text-center space-y-4">
           <h1 className="font-display text-2xl font-bold text-slate-900 dark:text-[#F1F7FA]">
             Developer Not Found
           </h1>
@@ -140,7 +154,7 @@ export default function DeveloperDetailPage() {
             <ArrowLeft className="w-4 h-4" />
             All Developers
           </Link>
-        </div>
+        </LiquidGlassCard>
       </div>
     );
   }
@@ -149,6 +163,7 @@ export default function DeveloperDetailPage() {
     (sum, g) => sum + g.peakCcuObserved,
     0
   );
+  const portfolioEstMonthly = estimatePortfolioMonthlyRevenue(developer.games);
 
   return (
     <div className="max-w-[1280px] mx-auto px-4 sm:px-6 pt-6 sm:pt-8 pb-6 space-y-6">
@@ -187,26 +202,40 @@ export default function DeveloperDetailPage() {
       </div>
 
       {/* KPI Strip */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="liquid-glass rounded-3xl p-5">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+        <LiquidGlassCard interactive className="rounded-3xl p-5">
           <p className="text-xs text-slate-500 dark:text-[#6F8796]">Live CCU</p>
           <p className="mt-1 font-display text-2xl font-bold text-emerald-600 dark:text-[#10E89A] tabular-nums">
-            {formatExactNumber(developer.combinedCcu)}
+            <AnimatedNumber
+              value={developer.combinedCcu}
+              formatter={(v) => formatExactNumber(Math.round(v))}
+            />
           </p>
-        </div>
-        <div className="liquid-glass rounded-3xl p-5">
+        </LiquidGlassCard>
+        <LiquidGlassCard interactive className="rounded-3xl p-5">
+          <p className="text-xs text-slate-500 dark:text-[#6F8796]">
+            Est. Rev / mo
+          </p>
+          <p className="mt-1 font-display text-2xl font-bold text-emerald-600 dark:text-[#10E89A] tabular-nums">
+            <AnimatedNumber
+              value={portfolioEstMonthly}
+              formatter={(v) => formatCurrencyCompact(v)}
+            />
+          </p>
+        </LiquidGlassCard>
+        <LiquidGlassCard interactive className="rounded-3xl p-5">
           <p className="text-xs text-slate-500 dark:text-[#6F8796]">Visits</p>
           <p className="mt-1 font-display text-2xl font-bold text-slate-900 dark:text-[#F1F7FA] tabular-nums">
             {formatCompactNumber(developer.totalVisits)}
           </p>
-        </div>
-        <div className="liquid-glass rounded-3xl p-5">
+        </LiquidGlassCard>
+        <LiquidGlassCard interactive className="rounded-3xl p-5">
           <p className="text-xs text-slate-500 dark:text-[#6F8796]">Peak CCU</p>
           <p className="mt-1 font-display text-2xl font-bold text-slate-900 dark:text-[#F1F7FA] tabular-nums">
             {formatExactNumber(combinedObservedPeak)}
           </p>
-        </div>
-        <div className="liquid-glass rounded-3xl p-5">
+        </LiquidGlassCard>
+        <LiquidGlassCard interactive className="rounded-3xl p-5">
           <p className="text-xs text-slate-500 dark:text-[#6F8796]">
             Avg Rating
           </p>
@@ -215,26 +244,28 @@ export default function DeveloperDetailPage() {
               ? `${developer.avgLikeRatio}%`
               : '—'}
           </p>
-        </div>
+        </LiquidGlassCard>
       </div>
 
       {/* Combined History */}
       {combinedHistory.length >= 2 && (
-        <section className="liquid-glass-hero rounded-[28px] p-6 space-y-4">
-          <h2 className="font-display text-lg font-bold text-slate-900 dark:text-[#F1F7FA]">
-            Player History
-          </h2>
-          <EChartWrapper option={trendOption} height={260} />
-        </section>
+        <FadeInSection>
+          <LiquidGlassCard variant="hero" className="rounded-[28px] p-6 space-y-4">
+            <h2 className="font-display text-lg font-bold text-slate-900 dark:text-[#F1F7FA]">
+              Player History
+            </h2>
+            <EChartWrapper option={trendOption} height={260} />
+          </LiquidGlassCard>
+        </FadeInSection>
       )}
 
       {/* Portfolio Games Table */}
-      <section className="space-y-4">
+      <FadeInSection className="space-y-4">
         <h2 className="font-display text-xl font-bold text-slate-900 dark:text-[#F1F7FA]">
           Games ({developer.gameCount})
         </h2>
         <GameTable games={developer.games} pageSize={10} />
-      </section>
+      </FadeInSection>
     </div>
   );
 }

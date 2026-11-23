@@ -71,7 +71,7 @@ async function fetchRobloxJson<T>(
         method: 'GET',
         headers: {
           Accept: 'application/json',
-          'User-Agent': 'RoMetricAnalytics/1.0 (+https://rometric.app/methodology)',
+          'User-Agent': 'RoMetricAnalytics/1.0 (+https://rometrics.vercel.app)',
         },
         cache: 'no-store',
         signal: controller.signal,
@@ -197,7 +197,12 @@ interface RobloxOmniSearchResponse {
   }>;
 }
 
-export function sanitizeUniverseIds(ids: string[], maxCount = 150): string[] {
+interface RobloxExploreSortContentResponse {
+  games?: RobloxExploreSortGame[];
+  nextPageToken?: string | null;
+}
+
+export function sanitizeUniverseIds(ids: string[], maxCount = 1000): string[] {
   const unique = new Set<string>();
   for (const raw of ids) {
     const trimmed = String(raw).trim();
@@ -210,15 +215,23 @@ export function sanitizeUniverseIds(ids: string[], maxCount = 150): string[] {
 }
 
 /**
- * Discovers live top Roblox experiences directly from Roblox's official
- * Explore Charts API (top-playing-now, top-trending, up-and-coming) merged
- * with curated classics so viral hits like Steal An Egg appear automatically.
+ * Discovers live Roblox experiences directly from Roblox's official Explore API:
+ * 1) Fetches all Explore sorts (`get-sorts`) and harvests every chart returned.
+ * 2) Paginates key sorts (`get-sort-content` with `pageToken`) to uncover 500+
+ *    active experiences across Top Playing Now, Trending, Up-and-Coming, Top Earning,
+ *    Top Rated, Most Popular, and genre charts.
+ * 3) Merges curated classics so evergreen hits are always tracked.
  */
 export async function discoverLiveRobloxCharts(
-  maxGames = 80,
+  maxGames = 500,
   bypassCache = false
 ): Promise<DiscoveredUniverseEntry[]> {
-  if (!bypassCache && discoveryCache && discoveryCache.expiresAt > Date.now()) {
+  if (
+    !bypassCache &&
+    discoveryCache &&
+    discoveryCache.expiresAt > Date.now() &&
+    discoveryCache.value.length >= maxGames
+  ) {
     return discoveryCache.value.slice(0, maxGames);
   }
 
@@ -235,29 +248,62 @@ export async function discoverLiveRobloxCharts(
     { previewCcu: number; chartSource: string }
   >();
 
-  const sortBudgets: Array<{ sortId: string; take: number }> = [
-    { sortId: 'top-playing-now', take: 50 },
-    { sortId: 'top-trending', take: 25 },
-    { sortId: 'up-and-coming', take: 15 },
-  ];
-
-  if (sortsRes?.sorts) {
-    for (const cfg of sortBudgets) {
-      const found = sortsRes.sorts.find((s) => s.sortId === cfg.sortId);
-      if (!found?.games) continue;
-      for (const item of found.games.slice(0, cfg.take)) {
-        if (!item?.universeId) continue;
-        const id = String(item.universeId);
-        if (!/^[0-9]{1,20}$/.test(id)) continue;
-        const ccu = Math.max(0, Number(item.playerCount ?? 0));
-        const existing = byUniverse.get(id);
-        if (!existing || ccu > existing.previewCcu) {
-          byUniverse.set(id, {
-            previewCcu: ccu,
-            chartSource: cfg.sortId,
-          });
-        }
+  const recordItems = (items: RobloxExploreSortGame[] | undefined, source: string) => {
+    if (!items) return;
+    for (const item of items) {
+      if (!item?.universeId) continue;
+      const id = String(item.universeId);
+      if (!/^[0-9]{1,20}$/.test(id)) continue;
+      const ccu = Math.max(0, Number(item.playerCount ?? 0));
+      const existing = byUniverse.get(id);
+      if (!existing || ccu > existing.previewCcu) {
+        byUniverse.set(id, {
+          previewCcu: ccu,
+          chartSource: source,
+        });
       }
+    }
+  };
+
+  const discoveredSortIds: string[] = [];
+  if (sortsRes?.sorts) {
+    for (const sort of sortsRes.sorts) {
+      const sortId = sort.sortId || 'explore';
+      if (sort.sortId) discoveredSortIds.push(sort.sortId);
+      recordItems(sort.games, sortId);
+    }
+  }
+
+  // Deep-paginate top charts via get-sort-content to scale beyond 85 games to 500+
+  const prioritySorts = [
+    'top-playing-now',
+    'top-trending',
+    'up-and-coming',
+    'top-earning',
+    'most-popular',
+    'top-rated',
+    'top-revisited',
+    'fun-with-friends',
+    ...discoveredSortIds,
+  ];
+  const uniqueSorts = Array.from(new Set(prioritySorts)).slice(0, 12);
+
+  for (const sortId of uniqueSorts) {
+    if (byUniverse.size >= maxGames + 120) break;
+    let pageToken: string | null = null;
+    for (let page = 0; page < 3; page++) {
+      const tokenParam = pageToken
+        ? `&pageToken=${encodeURIComponent(pageToken)}`
+        : '';
+      const content = await fetchRobloxJson<RobloxExploreSortContentResponse>(
+        `https://apis.roblox.com/explore-api/v1/get-sort-content?sessionId=${sessionId}&sortId=${encodeURIComponent(sortId)}${tokenParam}`,
+        stats,
+        2
+      );
+      if (!content?.games || content.games.length === 0) break;
+      recordItems(content.games, sortId);
+      pageToken = content.nextPageToken || null;
+      if (!pageToken || byUniverse.size >= maxGames + 120) break;
     }
   }
 
@@ -273,10 +319,10 @@ export async function discoverLiveRobloxCharts(
 
   const ranked = Array.from(byUniverse.entries())
     .sort((a, b) => b[1].previewCcu - a[1].previewCcu)
-    .slice(0, Math.max(maxGames, 100))
+    .slice(0, Math.max(maxGames, 600))
     .map(([universeId, meta], idx): DiscoveredUniverseEntry => ({
       universeId,
-      tier: idx < 25 ? 'tier_1' : idx < 60 ? 'tier_2' : 'tier_3',
+      tier: idx < 50 ? 'tier_1' : idx < 200 ? 'tier_2' : 'tier_3',
       chartSource: meta.chartSource,
       previewCcu: meta.previewCcu,
     }));
@@ -295,7 +341,7 @@ export async function fetchLiveRobloxGames(
   rawIds: string[],
   bypassCache = false
 ): Promise<RobloxFetchResponse> {
-  const universeIds = sanitizeUniverseIds(rawIds, 150);
+  const universeIds = sanitizeUniverseIds(rawIds, 600);
   const capturedAt = new Date().toISOString();
 
   if (universeIds.length === 0) {

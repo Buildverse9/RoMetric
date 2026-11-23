@@ -73,6 +73,7 @@ export default function AdminDashboardPage() {
   const [addTier, setAddTier] = useState<TrackingTier>('tier_1');
   const [addingGame, setAddingGame] = useState(false);
   const [pruning, setPruning] = useState(false);
+  const [listFilter, setListFilter] = useState('');
 
   const loadAdminTelemetry = useCallback(async () => {
     if (!isAdmin) return;
@@ -307,6 +308,13 @@ export default function AdminDashboardPage() {
       100,
       Number(((estimatedMb / freeQuotaMb) * 100).toFixed(1))
     );
+    const nowMs = Date.now();
+    const freshWithin30m = games.filter((g) => {
+      const ts = new Date(g.lastCollectedAt).getTime();
+      return Number.isFinite(ts) && nowMs - ts <= 35 * 60 * 1000;
+    }).length;
+    const lastArchiveJob =
+      jobs.find((j) => j.triggeredBy === 'google_apps_script_archive') ?? null;
 
     return {
       totalJobs,
@@ -315,11 +323,37 @@ export default function AdminDashboardPage() {
       totalApiCalls,
       total429,
       lastSuccess,
+      lastArchiveJob,
       estimatedMb,
       freeQuotaMb,
       usagePct,
+      freshWithin30m,
     };
-  }, [jobs, games.length, snapshotCount]);
+  }, [jobs, games, snapshotCount]);
+
+  const filteredManagedGames = useMemo(() => {
+    const q = listFilter.trim().toLowerCase();
+    const matched = q
+      ? games.filter(
+          (g) =>
+            g.name.toLowerCase().includes(q) ||
+            g.universeId.includes(q) ||
+            g.creatorName.toLowerCase().includes(q)
+        )
+      : games;
+    return matched.slice(0, 150);
+  }, [games, listFilter]);
+
+  const formatJobSource = (triggeredBy: string): string => {
+    if (triggeredBy === 'cloudflare_cron_30m_pulse') return 'Cloudflare 30m Pulse';
+    if (triggeredBy === 'cloudflare_cron_15m_sweep') return 'Cloudflare 15m Sweep';
+    if (triggeredBy === 'cloudflare_cron_tier1') return 'Cloudflare Tier 1';
+    if (triggeredBy === 'google_apps_script_discover') return 'Apps Script Discovery';
+    if (triggeredBy === 'google_apps_script_votes') return 'Apps Script Votes';
+    if (triggeredBy === 'google_apps_script_archive') return 'Google Drive Archive';
+    if (triggeredBy.includes('cloudflare')) return 'Cloudflare Cron';
+    return triggeredBy;
+  };
 
   if (!authReady) {
     return (
@@ -395,7 +429,7 @@ export default function AdminDashboardPage() {
             />
             {collecting
               ? progressText || 'Syncing charts...'
-              : 'Sync Live Charts (80+)'}
+              : 'Sync Live Charts (500+)'}
           </button>
 
           <button
@@ -474,14 +508,14 @@ export default function AdminDashboardPage() {
         </div>
       )}
 
-      {!collecting && games.length > 0 && games.length < 25 && (
+      {!collecting && games.length > 0 && games.length < 150 && (
         <div className="liquid-glass-hero rounded-3xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="text-sm text-slate-900 dark:text-[#F1F7FA]">
             <span className="font-semibold">
               {games.length} games currently tracked.
             </span>{' '}
             <span className="text-slate-600 dark:text-[#9CB3C0]">
-              Sync live charts to expand to 80+ games.
+              Sync live Roblox Explore charts (or run your Google Apps Script sidecar) to expand up to 3,000 games tracked every 30 minutes.
             </span>
           </div>
           <button
@@ -490,7 +524,7 @@ export default function AdminDashboardPage() {
             onClick={() => void handleRunCollection('all', true)}
             className="px-4 py-2 text-xs font-semibold bg-emerald-600 dark:bg-[#10E89A] text-white dark:text-[#04130D] rounded-full hover:opacity-90 whitespace-nowrap cursor-pointer shrink-0"
           >
-            Sync 80+ Games
+            Sync 500+ Games
           </button>
         </div>
       )}
@@ -499,13 +533,15 @@ export default function AdminDashboardPage() {
       <section className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="liquid-glass rounded-3xl p-5 space-y-1">
           <p className="text-xs text-slate-500 dark:text-[#6F8796]">
-            Tracked Games
+            Tracked Games (3,000 cap)
           </p>
           <p className="font-display text-2xl font-bold text-slate-900 dark:text-[#F1F7FA] tabular-nums">
             {formatExactNumber(games.length)}
           </p>
-          <p className="text-xs text-slate-500 dark:text-[#9CB3C0]">
-            {dataMode === 'persisted' ? 'Database connected' : 'Ready to seed'}
+          <p className="text-xs text-slate-500 dark:text-[#9CB3C0] tabular-nums">
+            {dataMode === 'persisted'
+              ? `${metrics.freshWithin30m}/${games.length} updated ≤ 30m`
+              : 'Ready to seed'}
           </p>
         </div>
 
@@ -576,7 +612,10 @@ export default function AdminDashboardPage() {
           <div className="flex items-center justify-between text-xs text-slate-500 dark:text-[#6F8796]">
             <span>
               {config.retentionRawHours}h raw → {config.retentionHourlyDays}d
-              hourly → daily
+              hourly → Drive archive
+              {metrics.lastArchiveJob
+                ? ` (${formatRelativeTime(metrics.lastArchiveJob.completedAt)})`
+                : ''}
             </span>
             <button
               type="button"
@@ -618,10 +657,10 @@ export default function AdminDashboardPage() {
                 Tier 1 (5m)
               </option>
               <option value="tier_2" className="bg-white dark:bg-[#0D1A22]">
-                Tier 2 (15m)
+                Tier 2 (30m)
               </option>
               <option value="tier_3" className="bg-white dark:bg-[#0D1A22]">
-                Tier 3 (60m)
+                Tier 3 (30m)
               </option>
             </select>
             <button
@@ -639,9 +678,18 @@ export default function AdminDashboardPage() {
       {/* Managed Tracking List */}
       <section className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="font-display text-xl font-bold text-slate-900 dark:text-[#F1F7FA]">
-            Managed Tracking List ({games.length})
-          </h2>
+          <div className="flex items-center gap-3 flex-wrap">
+            <h2 className="font-display text-xl font-bold text-slate-900 dark:text-[#F1F7FA]">
+              Managed Tracking List ({formatExactNumber(games.length)})
+            </h2>
+            <input
+              type="text"
+              value={listFilter}
+              onChange={(e) => setListFilter(e.target.value)}
+              placeholder="Filter list..."
+              className="px-3.5 py-1.5 text-xs liquid-glass-pill rounded-full text-slate-900 dark:text-[#F1F7FA] placeholder:text-slate-500 dark:placeholder:text-[#6F8796] focus:outline-none focus:ring-2 focus:ring-emerald-500/40 w-44"
+            />
+          </div>
           <div className="flex items-center gap-2">
             {(['tier_1', 'tier_2', 'tier_3'] as const).map((tier) => (
               <button
@@ -671,7 +719,7 @@ export default function AdminDashboardPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-900/6 dark:divide-white/8 text-sm">
-                {games.map((g) => (
+                {filteredManagedGames.map((g) => (
                   <tr
                     key={g.universeId}
                     className="hover:bg-black/[0.03] dark:hover:bg-white/[0.04] transition-colors"
@@ -721,13 +769,13 @@ export default function AdminDashboardPage() {
                           value="tier_2"
                           className="bg-white dark:bg-[#0D1A22]"
                         >
-                          Tier 2 (15m)
+                          Tier 2 (30m)
                         </option>
                         <option
                           value="tier_3"
                           className="bg-white dark:bg-[#0D1A22]"
                         >
-                          Tier 3 (60m)
+                          Tier 3 (30m)
                         </option>
                       </select>
                     </td>
@@ -775,13 +823,13 @@ export default function AdminDashboardPage() {
               <thead>
                 <tr className="border-b border-slate-900/8 dark:border-white/10 bg-black/[0.02] dark:bg-white/[0.03] text-xs font-medium text-slate-500 dark:text-[#9CB3C0]">
                   <th className="py-3.5 px-5">Completed (UTC)</th>
-                  <th className="py-3.5 px-3">Tier</th>
+                  <th className="py-3.5 px-3">Source</th>
                   <th className="py-3.5 px-3">Status</th>
                   <th className="py-3.5 px-3 text-right">Games</th>
                   <th className="py-3.5 px-3 text-right">Calls</th>
                   <th className="py-3.5 px-3 text-right">429s</th>
                   <th className="py-3.5 px-3 text-right">Duration</th>
-                  <th className="py-3.5 px-5">Errors</th>
+                  <th className="py-3.5 px-5">Notes / Errors</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-900/6 dark:divide-white/8 text-xs">
@@ -793,8 +841,8 @@ export default function AdminDashboardPage() {
                     <td className="py-3 px-5 text-slate-600 dark:text-[#9CB3C0] tabular-nums whitespace-nowrap">
                       {formatUtcTimestamp(job.completedAt)}
                     </td>
-                    <td className="py-3 px-3 text-slate-900 dark:text-[#F1F7FA] uppercase">
-                      {job.tier.replace('_', ' ')}
+                    <td className="py-3 px-3 text-slate-900 dark:text-[#F1F7FA] whitespace-nowrap">
+                      {formatJobSource(job.triggeredBy)}
                     </td>
                     <td className="py-3 px-3">
                       <span
