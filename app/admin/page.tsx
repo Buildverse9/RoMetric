@@ -74,6 +74,7 @@ export default function AdminDashboardPage() {
   const [addingGame, setAddingGame] = useState(false);
   const [pruning, setPruning] = useState(false);
   const [listFilter, setListFilter] = useState('');
+  const [telemetryNowMs, setTelemetryNowMs] = useState<number>(0);
 
   const loadAdminTelemetry = useCallback(async () => {
     if (!isAdmin) return;
@@ -87,6 +88,7 @@ export default function AdminDashboardPage() {
       setConfig(cfg);
       setJobs(jobList);
       setSnapshotCount(snapCount);
+      setTelemetryNowMs(Date.now());
     } catch (err) {
       console.error('Admin telemetry error:', err);
       setStatusMessage({
@@ -112,6 +114,7 @@ export default function AdminDashboardPage() {
           setConfig(cfg);
           setJobs(jobList);
           setSnapshotCount(snapCount);
+          setTelemetryNowMs(Date.now());
         }
       } catch (err) {
         console.error('Admin telemetry error:', err);
@@ -308,11 +311,15 @@ export default function AdminDashboardPage() {
       100,
       Number(((estimatedMb / freeQuotaMb) * 100).toFixed(1))
     );
-    const nowMs = Date.now();
-    const freshWithin30m = games.filter((g) => {
-      const ts = new Date(g.lastCollectedAt).getTime();
-      return Number.isFinite(ts) && nowMs - ts <= 35 * 60 * 1000;
-    }).length;
+    const fallbackMs = lastUpdatedAt ? new Date(lastUpdatedAt).getTime() : 0;
+    const referenceMs = telemetryNowMs || (Number.isFinite(fallbackMs) ? fallbackMs : 0);
+    const freshWithin30m =
+      referenceMs > 0
+        ? games.filter((g) => {
+            const ts = new Date(g.lastCollectedAt).getTime();
+            return Number.isFinite(ts) && referenceMs - ts <= 35 * 60 * 1000;
+          }).length
+        : 0;
     const lastArchiveJob =
       jobs.find((j) => j.triggeredBy === 'google_apps_script_archive') ?? null;
 
@@ -329,7 +336,7 @@ export default function AdminDashboardPage() {
       usagePct,
       freshWithin30m,
     };
-  }, [jobs, games, snapshotCount]);
+  }, [jobs, games, snapshotCount, telemetryNowMs, lastUpdatedAt]);
 
   const filteredManagedGames = useMemo(() => {
     const q = listFilter.trim().toLowerCase();

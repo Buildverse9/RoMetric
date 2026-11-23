@@ -43,9 +43,12 @@ export function AnimatedNumber({
   const safeTarget = Number.isFinite(value) ? value : 0;
   const motionVal = useMotionValue(safeTarget);
   const formatterRef = useRef(formatter);
-  formatterRef.current = formatter;
   const [display, setDisplay] = useState(() => formatter(safeTarget));
   const prevTargetRef = useRef<number>(safeTarget);
+
+  useEffect(() => {
+    formatterRef.current = formatter;
+  }, [formatter]);
 
   useEffect(() => {
     const start = prevTargetRef.current;

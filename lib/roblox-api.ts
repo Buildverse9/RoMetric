@@ -292,14 +292,15 @@ export async function discoverLiveRobloxCharts(
     if (byUniverse.size >= maxGames + 120) break;
     let pageToken: string | null = null;
     for (let page = 0; page < 3; page++) {
-      const tokenParam = pageToken
+      const tokenParam: string = pageToken
         ? `&pageToken=${encodeURIComponent(pageToken)}`
         : '';
-      const content = await fetchRobloxJson<RobloxExploreSortContentResponse>(
-        `https://apis.roblox.com/explore-api/v1/get-sort-content?sessionId=${sessionId}&sortId=${encodeURIComponent(sortId)}${tokenParam}`,
-        stats,
-        2
-      );
+      const content: RobloxExploreSortContentResponse | null =
+        await fetchRobloxJson<RobloxExploreSortContentResponse>(
+          `https://apis.roblox.com/explore-api/v1/get-sort-content?sessionId=${sessionId}&sortId=${encodeURIComponent(sortId)}${tokenParam}`,
+          stats,
+          2
+        );
       if (!content?.games || content.games.length === 0) break;
       recordItems(content.games, sortId);
       pageToken = content.nextPageToken || null;

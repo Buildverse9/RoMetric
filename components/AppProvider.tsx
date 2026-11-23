@@ -113,15 +113,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // Hydrate theme preference from localStorage
   useEffect(() => {
+    let rafId: number | null = null;
     try {
       const stored = window.localStorage.getItem('rometric-theme');
       const initial: ThemeMode =
         stored === 'light' || stored === 'dark' ? stored : 'dark';
-      setThemeState(initial);
       document.documentElement.classList.toggle('dark', initial === 'dark');
+      if (initial !== 'dark') {
+        rafId = window.requestAnimationFrame(() => {
+          setThemeState(initial);
+        });
+      }
     } catch {
       document.documentElement.classList.add('dark');
     }
+    return () => {
+      if (rafId !== null) window.cancelAnimationFrame(rafId);
+    };
   }, []);
 
   const setTheme = useCallback((next: ThemeMode) => {

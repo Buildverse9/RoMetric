@@ -31,7 +31,7 @@ import {
   estimatePortfolioMonthlyRevenue,
   formatCurrencyCompact,
 } from '@/lib/revenue';
-import type { TimeRange } from '@/lib/types';
+import type { GameRecordData, TimeRange } from '@/lib/types';
 import { GameArtwork } from './GameArtwork';
 import { GrowthValue } from './GameTable';
 import { EChartWrapper } from './EChartWrapper';
@@ -153,17 +153,17 @@ export function HomeDashboard() {
   }, [top5IdsKey, heroRange]);
 
   const trendingList = useMemo(() => {
-    const scored = activeGames
-      .map((game) => ({ game, ev: evaluateTrending(game) }))
-      .filter((item) => item.ev.eligible && item.ev.score !== null)
-      .sort((a, b) => (b.ev.score ?? 0) - (a.ev.score ?? 0))
-      .map((item) => ({
-        game: item.game,
-        change: item.ev.percentGain,
-      }));
+    const scored: Array<{ game: GameRecordData; score: number; change: number | null }> = [];
+    for (const game of activeGames) {
+      const ev = evaluateTrending(game);
+      if (ev.eligible && ev.score !== null) {
+        scored.push({ game, score: ev.score, change: ev.percentGain });
+      }
+    }
+    scored.sort((a, b) => b.score - a.score);
 
     if (scored.length >= 3) {
-      return scored.slice(0, 5);
+      return scored.slice(0, 5).map(({ game, change }) => ({ game, change }));
     }
 
     return activeGames.slice(0, 5).map((game) => ({
