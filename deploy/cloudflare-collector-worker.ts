@@ -17,10 +17,10 @@
 //       - PLUS 550 stalest active games older than 25 minutes
 //       - 650 games/run = 13 Roblox calls + ~4 Supabase calls = ~17 subrequests/run
 //       - 6 runs/30m * 550 = 3,300 unique games refreshed every 30 minutes!
-//  2) Every 15 min (`*/15 * * * *`, 4 runs/hr):
+//  2) Every 15 min offset (`7,22,37,52 * * * *`, 4 runs/hr):
 //       - Safety-net sweep of up to 750 stalest active games across ALL tiers
-//       - ~19 subrequests/run — guarantees zero games fall past 30 minutes even
-//         after transient Roblox HTTP 429 retries.
+//       - Staggered by 7 minutes so it never collides with the 5-minute pulse
+//       - ~19 subrequests/run — guarantees zero games fall past 30 minutes.
 //  3) Daily 03:00 UTC (`0 3 * * *`):
 //       - Runs `run_rometric_retention_rollup` to roll up raw -> hourly -> daily
 //         and prune raw > 30h, hourly > 7d, jobs > 30d, daily > 365d (< 500 MB).
@@ -93,7 +93,8 @@ async function fetchRobloxWith429Retry(
   });
   if (res.status === 429) {
     counters.http429Count += 1;
-    await sleep(900);
+    // 2-second backoff gives Roblox rate limit window time to clear
+    await sleep(2000);
     counters.apiRequests += 1;
     res = await fetch(url, {
       headers: { Accept: 'application/json', 'User-Agent': 'RoMetricWorker/3.0' },
@@ -199,6 +200,10 @@ async function collectGameRows(
   }
 
   for (let w = 0; w < chunks.length; w += 3) {
+    if (w > 0) {
+      // 250ms spacing between waves smooths burst traffic to stay well within Roblox rate limits
+      await sleep(250);
+    }
     const wave = chunks.slice(w, w + 3);
     const responses = await Promise.all(
       wave.map((chunk) =>

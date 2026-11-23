@@ -4,11 +4,11 @@ compatibility_date = "2026-01-01"
 
 # Cloudflare Workers Free allows up to 3 Cron Triggers per Worker:
 # 1) Every 5 minutes  -> Top 100 Tier 1 + 550 stalest games (>25m old) = 3,300 games / 30 min (~17 subrequests)
-# 2) Every 15 minutes -> Safety sweep of 750 stalest active games across all tiers (~19 subrequests)
+# 2) Offset 15 minutes (:07, :22, :37, :52) -> Safety sweep of 750 games without colliding with the 5m pulse
 # 3) Daily 03:00 UTC  -> Roll up raw -> hourly -> daily & prune expired rows (30h raw / 7d hourly / 365d daily)
 [triggers]
 crons = [
   "*/5 * * * *",
-  "*/15 * * * *",
+  "7,22,37,52 * * * *",
   "0 3 * * *"
 ]
