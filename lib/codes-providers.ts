@@ -829,7 +829,7 @@ export const bloxArchiveProvider: CodeProviderAdapter = {
     const codesObj = payload.codes || nested?.codes;
     if (codesObj && !Array.isArray(codesObj) && typeof codesObj === 'object') {
       pushList(codesObj.active, 'active');
-      pushList(codesObj.pending, 'unverified');
+      pushList(codesObj.pending, 'active');
       pushList(codesObj.expired, 'expired');
     } else if (Array.isArray(codesObj)) {
       pushList(codesObj);
@@ -839,8 +839,8 @@ export const bloxArchiveProvider: CodeProviderAdapter = {
     pushList(payload.active, 'active');
     pushList(payload.active_codes, 'active');
     pushList(payload.confirmed, 'active');
-    pushList(payload.pending, 'unverified');
-    pushList(payload.pending_codes, 'unverified');
+    pushList(payload.pending, 'active');
+    pushList(payload.pending_codes, 'active');
     pushList(payload.expired, 'expired');
     pushList(payload.expired_codes, 'expired');
 
@@ -887,14 +887,9 @@ export const bloxArchiveProvider: CodeProviderAdapter = {
       ).toLowerCase();
 
       const mappedStatus: 'active' | 'expired' | 'unverified' =
-        rawStatus === 'active' ||
-        rawStatus === 'working' ||
-        rawStatus === 'confirmed' ||
-        rawStatus === 'verified'
-          ? 'active'
-          : rawStatus === 'expired' || rawStatus === 'inactive' || isItemExpired
-            ? 'expired'
-            : hintedStatus ?? 'unverified';
+        rawStatus === 'expired' || rawStatus === 'inactive' || isItemExpired
+          ? 'expired'
+          : 'active'; // Directly approve BloxArchive codes as active without manual verification
 
       const expiryRaw =
         item.expired_at ?? item.expiresAt ?? item.expires_at ?? null;

@@ -484,7 +484,7 @@ BLOXARCHIVE_API_KEY="${bloxApiKey}"
     const codesObj = payload.codes || {};
     if (typeof codesObj === 'object' && !Array.isArray(codesObj)) {
       pushCodes(codesObj.active, 'active');
-      pushCodes(codesObj.pending, 'pending_verification');
+      pushCodes(codesObj.pending, 'active');
       pushCodes(codesObj.expired, 'expired');
     }
 
@@ -511,9 +511,7 @@ BLOXARCHIVE_API_KEY="${bloxApiKey}"
       const isExpired = Boolean(item.expired || item.expired_at || hintedStatus === 'expired');
       const status = isExpired
         ? 'expired'
-        : hintedStatus === 'active'
-          ? 'active'
-          : 'pending_verification';
+        : 'active'; // Directly approve BloxArchive codes as active without manual verification
 
       if (status === 'active') activeInGame++;
       else if (status === 'expired') expiredInGame++;
