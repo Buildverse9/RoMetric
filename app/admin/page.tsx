@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import Image from 'next/image';
 import Link from 'next/link';
 import {
   AlertTriangle,
@@ -43,6 +44,7 @@ import type {
   TrackingTier,
 } from '@/lib/types';
 import { GameArtwork } from '@/components/GameArtwork';
+import { LiquidGlassCard } from '@/components/MotionPrimitives';
 
 export default function AdminDashboardPage() {
   const {
@@ -374,11 +376,19 @@ export default function AdminDashboardPage() {
     return (
       <div className="max-w-[1280px] mx-auto px-4 sm:px-6 py-16">
         <div className="max-w-md mx-auto liquid-glass rounded-3xl p-8 space-y-5 text-center">
-          <div className="w-12 h-12 rounded-2xl bg-emerald-500/12 dark:bg-[#10E89A]/14 flex items-center justify-center text-emerald-600 dark:text-[#10E89A] mx-auto">
-            <Lock className="w-5 h-5" />
+          <div className="inline-flex items-center justify-center rounded-2xl overflow-hidden bg-[#091318] px-4 py-2.5 border border-emerald-500/25 shadow-sm mx-auto">
+            <Image
+              src="/assets/aistudio/logowithName_50295ff0.png"
+              alt="RoMetric — Operations & Analytics"
+              width={210}
+              height={62}
+              referrerPolicy="no-referrer"
+              className="h-11 w-auto object-contain"
+            />
           </div>
           <div className="space-y-1.5">
-            <h1 className="font-display text-2xl font-bold text-slate-900 dark:text-[#F1F7FA]">
+            <h1 className="font-display text-2xl font-bold text-slate-900 dark:text-[#F1F7FA] inline-flex items-center justify-center gap-2">
+              <Lock className="w-4 h-4 text-emerald-600 dark:text-[#10E89A]" />
               Admin Console
             </h1>
             <p className="text-sm text-slate-600 dark:text-[#9CB3C0] leading-relaxed">
@@ -538,8 +548,11 @@ export default function AdminDashboardPage() {
 
       {/* Operations KPI Grid */}
       <section className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="liquid-glass rounded-3xl p-5 space-y-1">
-          <p className="text-xs text-slate-500 dark:text-[#6F8796]">
+        <LiquidGlassCard
+          exportTitle="RoMetric — Tracked Games"
+          className="rounded-3xl p-5 space-y-1"
+        >
+          <p className="text-xs text-slate-500 dark:text-[#6F8796] pr-7">
             Tracked Games (3,000 cap)
           </p>
           <p className="font-display text-2xl font-bold text-slate-900 dark:text-[#F1F7FA] tabular-nums">
@@ -550,10 +563,13 @@ export default function AdminDashboardPage() {
               ? `${metrics.freshWithin30m}/${games.length} updated ≤ 30m`
               : 'Ready to seed'}
           </p>
-        </div>
+        </LiquidGlassCard>
 
-        <div className="liquid-glass rounded-3xl p-5 space-y-1">
-          <p className="text-xs text-slate-500 dark:text-[#6F8796]">
+        <LiquidGlassCard
+          exportTitle="RoMetric — Stored Snapshots"
+          className="rounded-3xl p-5 space-y-1"
+        >
+          <p className="text-xs text-slate-500 dark:text-[#6F8796] pr-7">
             Stored Raw Snapshots
           </p>
           <p className="font-display text-2xl font-bold text-emerald-600 dark:text-[#10E89A] tabular-nums">
@@ -562,10 +578,13 @@ export default function AdminDashboardPage() {
           <p className="text-xs text-slate-500 dark:text-[#9CB3C0] tabular-nums">
             {config.retentionRawHours}h raw retention
           </p>
-        </div>
+        </LiquidGlassCard>
 
-        <div className="liquid-glass rounded-3xl p-5 space-y-1">
-          <p className="text-xs text-slate-500 dark:text-[#6F8796]">
+        <LiquidGlassCard
+          exportTitle="RoMetric — Collector Success Rate"
+          className="rounded-3xl p-5 space-y-1"
+        >
+          <p className="text-xs text-slate-500 dark:text-[#6F8796] pr-7">
             Success Rate
           </p>
           <p className="font-display text-2xl font-bold text-slate-900 dark:text-[#F1F7FA] tabular-nums">
@@ -574,10 +593,15 @@ export default function AdminDashboardPage() {
           <p className="text-xs text-slate-500 dark:text-[#9CB3C0] tabular-nums">
             {metrics.failedJobs} failed · {metrics.total429} 429s
           </p>
-        </div>
+        </LiquidGlassCard>
 
-        <div className="liquid-glass rounded-3xl p-5 space-y-1">
-          <p className="text-xs text-slate-500 dark:text-[#6F8796]">Status</p>
+        <LiquidGlassCard
+          exportTitle="RoMetric — System Status"
+          className="rounded-3xl p-5 space-y-1"
+        >
+          <p className="text-xs text-slate-500 dark:text-[#6F8796] pr-7">
+            Status
+          </p>
           <p className="font-display text-xl font-bold text-slate-900 dark:text-[#F1F7FA]">
             {config.paused
               ? 'Paused'
@@ -591,13 +615,16 @@ export default function AdminDashboardPage() {
               ? formatRelativeTime(metrics.lastSuccess.completedAt)
               : formatRelativeTime(lastUpdatedAt)}
           </p>
-        </div>
+        </LiquidGlassCard>
       </section>
 
       {/* Storage + Add Game */}
       <section className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        <div className="lg:col-span-5 liquid-glass rounded-3xl p-6 space-y-4">
-          <div className="flex items-center justify-between">
+        <LiquidGlassCard
+          exportTitle="RoMetric — Storage Usage"
+          className="lg:col-span-5 rounded-3xl p-6 space-y-4"
+        >
+          <div className="flex items-center justify-between pr-9">
             <div className="flex items-center gap-2">
               <HardDrive className="w-4 h-4 text-emerald-600 dark:text-[#10E89A]" />
               <h2 className="font-display text-base font-bold text-slate-900 dark:text-[#F1F7FA]">
@@ -633,10 +660,13 @@ export default function AdminDashboardPage() {
               {pruning ? 'Pruning...' : 'Prune expired'}
             </button>
           </div>
-        </div>
+        </LiquidGlassCard>
 
-        <div className="lg:col-span-7 liquid-glass rounded-3xl p-6 space-y-4">
-          <div className="flex items-center gap-2">
+        <LiquidGlassCard
+          exportTitle="RoMetric — Add Game"
+          className="lg:col-span-7 rounded-3xl p-6 space-y-4"
+        >
+          <div className="flex items-center gap-2 pr-9">
             <Database className="w-4 h-4 text-emerald-600 dark:text-[#10E89A]" />
             <h2 className="font-display text-base font-bold text-slate-900 dark:text-[#F1F7FA]">
               Add Game to Tracking
@@ -679,7 +709,7 @@ export default function AdminDashboardPage() {
               {addingGame ? 'Adding...' : 'Add'}
             </button>
           </form>
-        </div>
+        </LiquidGlassCard>
       </section>
 
       {/* Managed Tracking List */}
@@ -712,7 +742,10 @@ export default function AdminDashboardPage() {
           </div>
         </div>
 
-        <div className="liquid-glass rounded-3xl overflow-hidden">
+        <LiquidGlassCard
+          exportTitle="RoMetric — Managed Tracking List"
+          className="rounded-3xl overflow-hidden"
+        >
           <div className="overflow-x-auto max-h-[420px]">
             <table className="w-full text-left border-collapse">
               <thead className="sticky top-0 bg-white/85 dark:bg-[#0E1A22]/90 backdrop-blur-md border-b border-slate-900/8 dark:border-white/10 z-10">
@@ -722,7 +755,7 @@ export default function AdminDashboardPage() {
                   <th className="py-3.5 px-3 text-right">Snapshots</th>
                   <th className="py-3.5 px-3">Tier</th>
                   <th className="py-3.5 px-3">Updated</th>
-                  <th className="py-3.5 px-5 text-right">Actions</th>
+                  <th className="py-3.5 pl-3 pr-12 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-900/6 dark:divide-white/8 text-sm">
@@ -805,7 +838,7 @@ export default function AdminDashboardPage() {
               </tbody>
             </table>
           </div>
-        </div>
+        </LiquidGlassCard>
       </section>
 
       {/* Collection Jobs & Error Logs */}
@@ -824,7 +857,10 @@ export default function AdminDashboardPage() {
           </button>
         </div>
 
-        <div className="liquid-glass rounded-3xl overflow-hidden">
+        <LiquidGlassCard
+          exportTitle="RoMetric — Recent Collection Jobs"
+          className="rounded-3xl overflow-hidden"
+        >
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
@@ -836,7 +872,7 @@ export default function AdminDashboardPage() {
                   <th className="py-3.5 px-3 text-right">Calls</th>
                   <th className="py-3.5 px-3 text-right">429s</th>
                   <th className="py-3.5 px-3 text-right">Duration</th>
-                  <th className="py-3.5 px-5">Notes / Errors</th>
+                  <th className="py-3.5 pl-3 pr-12">Notes / Errors</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-900/6 dark:divide-white/8 text-xs">
@@ -894,7 +930,7 @@ export default function AdminDashboardPage() {
               </tbody>
             </table>
           </div>
-        </div>
+        </LiquidGlassCard>
       </section>
     </div>
   );

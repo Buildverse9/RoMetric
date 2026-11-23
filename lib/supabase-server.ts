@@ -599,6 +599,239 @@ export async function fetchSupabaseGameHistory(
   };
 }
 
+async function fetchPaginatedRows<T>(
+  baseQuery: string,
+  maxPages = 8,
+  pageSize = 1000
+): Promise<T[]> {
+  const all: T[] = [];
+  // Fetch first 2 pages immediately, then continue only if full pages returned
+  const firstBatch = await Promise.all([
+    supabaseRest(`${baseQuery}&limit=${pageSize}&offset=0`),
+    maxPages > 1
+      ? supabaseRest(`${baseQuery}&limit=${pageSize}&offset=${pageSize}`)
+      : Promise.resolve(null),
+  ]);
+
+  let reachedEnd = false;
+  for (const res of firstBatch) {
+    if (!res || !res.ok) {
+      reachedEnd = true;
+      break;
+    }
+    const rows = (await res.json()) as T[];
+    all.push(...rows);
+    if (rows.length < pageSize) {
+      reachedEnd = true;
+      break;
+    }
+  }
+
+  if (!reachedEnd && maxPages > 2) {
+    for (let page = 2; page < maxPages; page++) {
+      const res = await supabaseRest(
+        `${baseQuery}&limit=${pageSize}&offset=${page * pageSize}`
+      );
+      if (!res.ok) break;
+      const rows = (await res.json()) as T[];
+      all.push(...rows);
+      if (rows.length < pageSize) break;
+    }
+  }
+
+  return all;
+}
+
+export interface PlatformHistoryPoint {
+  ts: number;
+  ccu: number;
+  gamesCount: number;
+}
+
+export async function fetchSupabasePlatformHistory(
+  range: TimeRange
+): Promise<{
+  points: PlatformHistoryPoint[];
+  trackedGames: number;
+  liveTotalCcu: number;
+  sourceTable: 'game_snapshots' | 'game_hourly_stats' | 'game_daily_stats';
+}> {
+  const nowMs = Date.now();
+  const activeGameRows = await fetchPaginatedRows<{
+    universe_id: number;
+    current_ccu: number;
+  }>('games?select=universe_id,current_ccu&active=eq.true&order=current_ccu.desc', 4, 1000);
+
+  const trackedGames = activeGameRows.length;
+  const liveTotalCcu = activeGameRows.reduce(
+    (sum, r) => sum + Math.max(0, Number(r.current_ccu ?? 0)),
+    0
+  );
+
+  const filterSparseBuckets = (
+    entries: Array<{ ts: number; ccu: number; gamesCount: number }>
+  ): PlatformHistoryPoint[] => {
+    if (entries.length <= 2) return entries;
+    const counts = entries.map((e) => e.gamesCount).sort((a, b) => a - b);
+    const medianCount = counts[Math.floor(counts.length / 2)] || 1;
+    const minValid = Math.max(1, Math.floor(medianCount * 0.45));
+    return entries.filter((e) => e.gamesCount >= minValid);
+  };
+
+  const appendLivePoint = (pts: PlatformHistoryPoint[]): PlatformHistoryPoint[] => {
+    if (liveTotalCcu <= 0) return pts;
+    if (pts.length === 0) {
+      return [{ ts: nowMs, ccu: liveTotalCcu, gamesCount: trackedGames }];
+    }
+    const last = pts[pts.length - 1];
+    // Replace if within same hour/day partial bucket or append fresh live reading
+    if (nowMs - last.ts < 45 * 60_000) {
+      return [
+        ...pts.slice(0, -1),
+        { ts: nowMs, ccu: liveTotalCcu, gamesCount: trackedGames },
+      ];
+    }
+    return [...pts, { ts: nowMs, ccu: liveTotalCcu, gamesCount: trackedGames }];
+  };
+
+  // 1) Daily stats for 30d / 90d / all
+  if (range === '30d' || range === '90d' || range === 'all') {
+    const days = range === '30d' ? 30 : range === '90d' ? 90 : 365;
+    const cutoffDay = new Date(nowMs - days * 86_400_000)
+      .toISOString()
+      .slice(0, 10);
+    const dailyRows = await fetchPaginatedRows<{
+      day_bucket: string;
+      avg_ccu: number;
+    }>(
+      `game_daily_stats?select=day_bucket,avg_ccu&day_bucket=gte.${encodeURIComponent(cutoffDay)}&order=day_bucket.asc`,
+      12,
+      1000
+    );
+
+    const byDay = new Map<string, { ccu: number; gamesCount: number }>();
+    for (const row of dailyRows) {
+      const key = row.day_bucket;
+      if (!key) continue;
+      const cur = byDay.get(key) ?? { ccu: 0, gamesCount: 0 };
+      cur.ccu += Math.max(0, Math.round(Number(row.avg_ccu ?? 0)));
+      cur.gamesCount += 1;
+      byDay.set(key, cur);
+    }
+
+    const dailyPoints = filterSparseBuckets(
+      Array.from(byDay.entries())
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([day, val]) => ({
+          ts: new Date(`${day}T12:00:00Z`).getTime(),
+          ccu: val.ccu,
+          gamesCount: val.gamesCount,
+        }))
+    );
+
+    if (dailyPoints.length >= 2) {
+      return {
+        points: appendLivePoint(dailyPoints),
+        trackedGames,
+        liveTotalCcu,
+        sourceTable: 'game_daily_stats',
+      };
+    }
+  }
+
+  // 2) Hourly stats for 24h / 7d (and fallback when daily stats are still accumulating)
+  const hoursBack = range === '1h' ? 2 : range === '24h' ? 26 : 24 * 7;
+  const cutoffIso = new Date(nowMs - hoursBack * 3_600_000).toISOString();
+  const hourlyRows = await fetchPaginatedRows<{
+    hour_bucket: string;
+    avg_ccu: number;
+  }>(
+    `game_hourly_stats?select=hour_bucket,avg_ccu&hour_bucket=gte.${encodeURIComponent(cutoffIso)}&order=hour_bucket.asc`,
+    12,
+    1000
+  );
+
+  const byHour = new Map<string, { ccu: number; gamesCount: number }>();
+  for (const row of hourlyRows) {
+    const key = row.hour_bucket;
+    if (!key) continue;
+    const cur = byHour.get(key) ?? { ccu: 0, gamesCount: 0 };
+    cur.ccu += Math.max(0, Math.round(Number(row.avg_ccu ?? 0)));
+    cur.gamesCount += 1;
+    byHour.set(key, cur);
+  }
+
+  const hourlyPoints = filterSparseBuckets(
+    Array.from(byHour.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([bucket, val]) => ({
+        ts: new Date(bucket).getTime(),
+        ccu: val.ccu,
+        gamesCount: val.gamesCount,
+      }))
+  );
+
+  if (hourlyPoints.length >= 2) {
+    return {
+      points: appendLivePoint(hourlyPoints),
+      trackedGames,
+      liveTotalCcu,
+      sourceTable: 'game_hourly_stats',
+    };
+  }
+
+  // 3) Fallback to raw snapshots aggregated in 30-min buckets with carry-forward across all games
+  const snapCutoff = new Date(nowMs - 24 * 3_600_000).toISOString();
+  const snapRows = await fetchPaginatedRows<{
+    universe_id: number;
+    ccu: number;
+    captured_at: string;
+  }>(
+    `game_snapshots?select=universe_id,ccu,captured_at&captured_at=gte.${encodeURIComponent(snapCutoff)}&order=captured_at.asc`,
+    8,
+    1000
+  );
+
+  const bucketMs = 30 * 60_000;
+  const buckets = new Map<number, Map<number, number>>();
+  for (const s of snapRows) {
+    const ts = new Date(s.captured_at).getTime();
+    if (!Number.isFinite(ts)) continue;
+    const b = Math.floor(ts / bucketMs) * bucketMs;
+    let gameMap = buckets.get(b);
+    if (!gameMap) {
+      gameMap = new Map<number, number>();
+      buckets.set(b, gameMap);
+    }
+    gameMap.set(Number(s.universe_id), Math.max(0, Number(s.ccu ?? 0)));
+  }
+
+  const sortedBucketKeys = Array.from(buckets.keys()).sort((a, b) => a - b);
+  const lastKnownByGame = new Map<number, number>();
+  const snapPoints: PlatformHistoryPoint[] = [];
+
+  for (const b of sortedBucketKeys) {
+    const updates = buckets.get(b)!;
+    for (const [uid, ccu] of updates.entries()) {
+      lastKnownByGame.set(uid, ccu);
+    }
+    let total = 0;
+    for (const ccu of lastKnownByGame.values()) total += ccu;
+    snapPoints.push({
+      ts: b,
+      ccu: total,
+      gamesCount: lastKnownByGame.size,
+    });
+  }
+
+  return {
+    points: appendLivePoint(filterSparseBuckets(snapPoints)),
+    trackedGames,
+    liveTotalCcu,
+    sourceTable: 'game_snapshots',
+  };
+}
+
 export async function saveGameToSupabase(
   payload: LiveRobloxGamePayload,
   tier: TrackingTier,

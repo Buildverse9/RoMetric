@@ -203,8 +203,14 @@ export default function DeveloperDetailPage() {
 
       {/* KPI Strip */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
-        <LiquidGlassCard interactive className="rounded-3xl p-5">
-          <p className="text-xs text-slate-500 dark:text-[#6F8796]">Live CCU</p>
+        <LiquidGlassCard
+          interactive
+          exportTitle={`${developer.creatorName} — Live CCU`}
+          className="rounded-3xl p-5"
+        >
+          <p className="text-xs text-slate-500 dark:text-[#6F8796] pr-7">
+            Live CCU
+          </p>
           <p className="mt-1 font-display text-2xl font-bold text-emerald-600 dark:text-[#10E89A] tabular-nums">
             <AnimatedNumber
               value={developer.combinedCcu}
@@ -212,8 +218,12 @@ export default function DeveloperDetailPage() {
             />
           </p>
         </LiquidGlassCard>
-        <LiquidGlassCard interactive className="rounded-3xl p-5">
-          <p className="text-xs text-slate-500 dark:text-[#6F8796]">
+        <LiquidGlassCard
+          interactive
+          exportTitle={`${developer.creatorName} — Est. Revenue`}
+          className="rounded-3xl p-5"
+        >
+          <p className="text-xs text-slate-500 dark:text-[#6F8796] pr-7">
             Est. Rev / mo
           </p>
           <p className="mt-1 font-display text-2xl font-bold text-emerald-600 dark:text-[#10E89A] tabular-nums">
@@ -223,20 +233,36 @@ export default function DeveloperDetailPage() {
             />
           </p>
         </LiquidGlassCard>
-        <LiquidGlassCard interactive className="rounded-3xl p-5">
-          <p className="text-xs text-slate-500 dark:text-[#6F8796]">Visits</p>
+        <LiquidGlassCard
+          interactive
+          exportTitle={`${developer.creatorName} — Visits`}
+          className="rounded-3xl p-5"
+        >
+          <p className="text-xs text-slate-500 dark:text-[#6F8796] pr-7">
+            Visits
+          </p>
           <p className="mt-1 font-display text-2xl font-bold text-slate-900 dark:text-[#F1F7FA] tabular-nums">
             {formatCompactNumber(developer.totalVisits)}
           </p>
         </LiquidGlassCard>
-        <LiquidGlassCard interactive className="rounded-3xl p-5">
-          <p className="text-xs text-slate-500 dark:text-[#6F8796]">Peak CCU</p>
+        <LiquidGlassCard
+          interactive
+          exportTitle={`${developer.creatorName} — Peak CCU`}
+          className="rounded-3xl p-5"
+        >
+          <p className="text-xs text-slate-500 dark:text-[#6F8796] pr-7">
+            Peak CCU
+          </p>
           <p className="mt-1 font-display text-2xl font-bold text-slate-900 dark:text-[#F1F7FA] tabular-nums">
             {formatExactNumber(combinedObservedPeak)}
           </p>
         </LiquidGlassCard>
-        <LiquidGlassCard interactive className="rounded-3xl p-5">
-          <p className="text-xs text-slate-500 dark:text-[#6F8796]">
+        <LiquidGlassCard
+          interactive
+          exportTitle={`${developer.creatorName} — Avg Rating`}
+          className="rounded-3xl p-5"
+        >
+          <p className="text-xs text-slate-500 dark:text-[#6F8796] pr-7">
             Avg Rating
           </p>
           <p className="mt-1 font-display text-2xl font-bold text-slate-900 dark:text-[#F1F7FA] tabular-nums">
@@ -250,8 +276,12 @@ export default function DeveloperDetailPage() {
       {/* Combined History */}
       {combinedHistory.length >= 2 && (
         <FadeInSection>
-          <LiquidGlassCard variant="hero" className="rounded-[28px] p-6 space-y-4">
-            <h2 className="font-display text-lg font-bold text-slate-900 dark:text-[#F1F7FA]">
+          <LiquidGlassCard
+            variant="hero"
+            exportTitle={`${developer.creatorName} — Player History`}
+            className="rounded-[28px] p-6 space-y-4"
+          >
+            <h2 className="font-display text-lg font-bold text-slate-900 dark:text-[#F1F7FA] pr-9">
               Player History
             </h2>
             <EChartWrapper option={trendOption} height={260} />

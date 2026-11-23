@@ -47,7 +47,10 @@ export default function TrendingPage() {
           Loading trending games...
         </div>
       ) : eligible.length > 0 ? (
-        <LiquidGlassCard className="rounded-3xl overflow-hidden">
+        <LiquidGlassCard
+          exportTitle="Trending Roblox Games"
+          className="rounded-3xl overflow-hidden"
+        >
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
@@ -58,8 +61,10 @@ export default function TrendingPage() {
                   <th className="py-3.5 px-3 text-right hidden md:table-cell">
                     Est. Rev / mo
                   </th>
-                  <th className="py-3.5 px-3 text-right">Change</th>
-                  <th className="py-3.5 pl-3 pr-5 text-right hidden sm:table-cell">
+                  <th className="py-3.5 px-3 text-right pr-12 sm:pr-3">
+                    Change
+                  </th>
+                  <th className="py-3.5 pl-3 pr-12 text-right hidden sm:table-cell">
                     Gain
                   </th>
                 </tr>

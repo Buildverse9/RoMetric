@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useMemo, useState } from 'react';
+import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { AnimatePresence, motion } from 'motion/react';
@@ -116,15 +117,22 @@ export function Navbar() {
             className="flex items-center gap-2.5 whitespace-nowrap shrink-0 group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 rounded-full"
           >
             <motion.span
-              whileHover={{ scale: 1.08, rotate: -4 }}
-              whileTap={{ scale: 0.92 }}
+              whileHover={{ scale: 1.07, rotate: -3 }}
+              whileTap={{ scale: 0.93 }}
               transition={APPLE_SPRING}
-              className="w-8 h-8 rounded-full bg-emerald-600 dark:bg-[#10E89A] flex items-center justify-center text-white dark:text-[#04130D] shadow-sm"
+              className="relative w-9 h-9 rounded-xl overflow-hidden bg-[#091318] ring-1 ring-emerald-500/30 shadow-sm shrink-0 flex items-center justify-center"
             >
-              <BarChart2 className="w-4 h-4 stroke-[2.5]" />
+              <Image
+                src="/assets/aistudio/logoofrometric_7c92ca67.png"
+                alt="RoMetric Logo"
+                fill
+                sizes="36px"
+                referrerPolicy="no-referrer"
+                className="object-cover"
+              />
             </motion.span>
-            <span className="font-display text-lg font-bold tracking-tight text-slate-900 dark:text-[#F1F7FA] group-hover:text-emerald-600 dark:group-hover:text-[#10E89A] transition-colors">
-              RoMetric
+            <span className="font-display text-lg font-extrabold tracking-tight text-slate-900 dark:text-[#F1F7FA] group-hover:text-emerald-600 dark:group-hover:text-[#10E89A] transition-colors">
+              Ro<span className="text-emerald-600 dark:text-[#10E89A]">Metric</span>
             </span>
           </Link>
 

@@ -12,17 +12,24 @@ export const metadata: Metadata = {
   },
   description:
     'Live Roblox game analytics, player rankings, breakout games, estimated revenue, and historical charts.',
+  icons: {
+    icon: '/assets/aistudio/logoofrometric_7c92ca67.png',
+    shortcut: '/assets/aistudio/logoofrometric_7c92ca67.png',
+    apple: '/assets/aistudio/logoofrometric_7c92ca67.png',
+  },
   openGraph: {
     title: 'RoMetric — Roblox Analytics',
     description:
       'Track live Roblox player counts, breakout games, estimated revenue, rankings, and historical trends.',
     type: 'website',
+    images: ['/assets/aistudio/logowithName_50295ff0.png'],
   },
   twitter: {
     card: 'summary_large_image',
     title: 'RoMetric — Roblox Analytics',
     description:
       'Live Roblox game analytics, player rankings, breakout games, estimated revenue, and historical charts.',
+    images: ['/assets/aistudio/logowithName_50295ff0.png'],
   },
 };
 
@@ -31,9 +38,15 @@ const THEME_INIT_SCRIPT = `
   try {
     var stored = localStorage.getItem('rometric-theme');
     var theme = stored === 'light' || stored === 'dark' ? stored : 'dark';
-    document.documentElement.classList.toggle('dark', theme === 'dark');
+    var root = document.documentElement;
+    root.classList.toggle('dark', theme === 'dark');
+    root.classList.toggle('light', theme === 'light');
+    root.dataset.theme = theme;
+    root.style.colorScheme = theme;
   } catch (e) {
     document.documentElement.classList.add('dark');
+    document.documentElement.dataset.theme = 'dark';
+    document.documentElement.style.colorScheme = 'dark';
   }
 })();
 `;
@@ -44,7 +57,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className="dark" suppressHydrationWarning>
+    <html lang="en" suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
         <link rel="preconnect" href="https://fonts.googleapis.com" />

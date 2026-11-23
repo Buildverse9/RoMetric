@@ -1,21 +1,26 @@
 'use client';
 
 import React from 'react';
+import Image from 'next/image';
 import Link from 'next/link';
-import { BarChart2 } from 'lucide-react';
 
 export function Footer() {
   return (
     <footer className="mt-16 px-4 sm:px-6 pb-8">
       <div className="max-w-[1280px] mx-auto liquid-glass rounded-3xl px-6 py-7 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-        <div className="space-y-2">
-          <Link href="/" className="inline-flex items-center gap-2.5">
-            <span className="w-6 h-6 rounded-full bg-emerald-600 dark:bg-[#10E89A] flex items-center justify-center text-white dark:text-[#04130D]">
-              <BarChart2 className="w-3.5 h-3.5 stroke-[2.5]" />
-            </span>
-            <span className="font-display text-base font-bold text-slate-900 dark:text-[#F1F7FA]">
-              RoMetric
-            </span>
+        <div className="space-y-2.5">
+          <Link
+            href="/"
+            className="inline-flex items-center rounded-2xl overflow-hidden bg-[#091318] px-3 py-1.5 border border-emerald-500/20 shadow-sm hover:border-emerald-500/45 transition-colors"
+          >
+            <Image
+              src="/assets/aistudio/logowithName_50295ff0.png"
+              alt="RoMetric — Operations & Analytics"
+              width={184}
+              height={54}
+              referrerPolicy="no-referrer"
+              className="h-10 w-auto object-contain"
+            />
           </Link>
           <p className="text-xs text-slate-500 dark:text-[#6F8796] max-w-md">
             Independent Roblox analytics. Not affiliated with Roblox Corporation.

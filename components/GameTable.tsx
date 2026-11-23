@@ -19,7 +19,7 @@ import {
 } from '@/lib/format';
 import { estimateGameRevenue, formatCurrencyCompact } from '@/lib/revenue';
 import { GameArtwork } from './GameArtwork';
-import { APPLE_EASE, APPLE_SPRING } from './MotionPrimitives';
+import { APPLE_EASE, APPLE_SPRING, LiquidGlassCard } from './MotionPrimitives';
 
 export type SortField =
   | 'currentCcu'
@@ -187,7 +187,10 @@ export function GameTable({
   };
 
   return (
-    <div className="liquid-glass rounded-3xl overflow-hidden">
+    <LiquidGlassCard
+      exportTitle="Roblox Game Rankings"
+      className="rounded-3xl overflow-hidden"
+    >
       <div className="overflow-x-auto">
         <table className="w-full text-left border-collapse">
           <thead>
@@ -204,7 +207,7 @@ export function GameTable({
               <th className="py-3.5 px-3 text-right">
                 {renderSortHeader('Est. Rev / mo', 'estMonthlyRevenue')}
               </th>
-              <th className="py-3.5 px-3 text-right">
+              <th className="py-3.5 px-3 text-right pr-12 sm:pr-3">
                 {renderSortHeader('24h', 'growth24h')}
               </th>
               <th className="py-3.5 px-3 text-right hidden lg:table-cell">
@@ -219,7 +222,7 @@ export function GameTable({
               <th className="py-3.5 px-3 text-right hidden xl:table-cell">
                 {renderSortHeader('Peak', 'peakCcuObserved')}
               </th>
-              <th className="py-3.5 pl-3 pr-5 text-right text-xs font-medium text-slate-500 dark:text-[#6F8796] hidden xl:table-cell">
+              <th className="py-3.5 pl-3 pr-12 text-right text-xs font-medium text-slate-500 dark:text-[#6F8796] hidden xl:table-cell">
                 Updated
               </th>
             </tr>
@@ -351,6 +354,6 @@ export function GameTable({
           </div>
         )}
       </div>
-    </div>
+    </LiquidGlassCard>
   );
 }

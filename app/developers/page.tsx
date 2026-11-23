@@ -89,7 +89,10 @@ export default function DevelopersDirectoryPage() {
           Loading developers...
         </div>
       ) : (
-        <LiquidGlassCard className="rounded-3xl overflow-hidden">
+        <LiquidGlassCard
+          exportTitle="Top Roblox Developers"
+          className="rounded-3xl overflow-hidden"
+        >
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
@@ -97,7 +100,9 @@ export default function DevelopersDirectoryPage() {
                   <th className="py-3.5 pl-5 pr-2 w-12">#</th>
                   <th className="py-3.5 px-3">Developer</th>
                   <th className="py-3.5 px-3 text-right">Players</th>
-                  <th className="py-3.5 px-3 text-right">Est. Rev / mo</th>
+                  <th className="py-3.5 px-3 text-right pr-12 md:pr-3">
+                    Est. Rev / mo
+                  </th>
                   <th className="py-3.5 px-3 text-right hidden sm:table-cell">
                     Visits
                   </th>
@@ -107,7 +112,7 @@ export default function DevelopersDirectoryPage() {
                   <th className="py-3.5 px-3 text-right hidden lg:table-cell">
                     Rating
                   </th>
-                  <th className="py-3.5 pl-3 pr-5 hidden md:table-cell">
+                  <th className="py-3.5 pl-3 pr-12 hidden md:table-cell">
                     Top Game
                   </th>
                 </tr>

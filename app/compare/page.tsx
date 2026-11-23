@@ -260,12 +260,13 @@ function CompareContent() {
             return (
               <LiquidGlassCard
                 key={game.universeId}
+                exportTitle={game.name}
                 layout
                 initial={{ opacity: 0, scale: 0.94 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.92 }}
                 transition={APPLE_SPRING}
-                className="rounded-3xl p-4 flex items-center justify-between gap-3"
+                className="rounded-3xl p-4 pr-11 flex items-center justify-between gap-2"
               >
                 <div className="flex items-center gap-3 min-w-0">
                   <span
@@ -368,8 +369,11 @@ function CompareContent() {
       {selectedGames.length > 0 && (
         <>
           <FadeInSection>
-            <LiquidGlassCard className="rounded-[28px] p-6 space-y-5">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <LiquidGlassCard
+              exportTitle="Roblox Game Comparison"
+              className="rounded-[28px] p-6 space-y-5"
+            >
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pr-9">
                 <h2 className="font-display text-lg font-bold text-slate-900 dark:text-[#F1F7FA]">
                   {hasMultiPointHistory ? 'Player History' : 'Live vs Peak'}
                 </h2>
@@ -413,7 +417,10 @@ function CompareContent() {
           </FadeInSection>
 
           <FadeInSection>
-            <LiquidGlassCard className="rounded-[28px] overflow-hidden">
+            <LiquidGlassCard
+              exportTitle="Roblox Metrics Comparison"
+              className="rounded-[28px] overflow-hidden"
+            >
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse">
                   <thead>

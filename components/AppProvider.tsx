@@ -22,6 +22,7 @@ import {
   fetchLiveFallbackGames,
 } from '@/lib/analytics-store';
 import { DEFAULT_ADMIN_EMAIL } from '@/lib/seed-universes';
+import { CardShareProvider } from './CardShareProvider';
 import type { DeveloperSummary, GameRecordData } from '@/lib/types';
 
 export type DataMode = 'persisted' | 'live_preview';
@@ -42,7 +43,7 @@ interface AppContextValue {
   gamesError: string | null;
   dataMode: DataMode;
   lastUpdatedAt: string | null;
-  refreshCatalog: (forceLive?: boolean) => Promise<void>;
+  refreshCatalog: (forceLive?: boolean, silent?: boolean) => Promise<void>;
   searchOpen: boolean;
   setSearchOpen: (open: boolean) => void;
 }
@@ -111,53 +112,71 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
 
-  // Hydrate theme preference from localStorage
-  useEffect(() => {
-    let rafId: number | null = null;
-    try {
-      const stored = window.localStorage.getItem('rometric-theme');
-      const initial: ThemeMode =
-        stored === 'light' || stored === 'dark' ? stored : 'dark';
-      document.documentElement.classList.toggle('dark', initial === 'dark');
-      if (initial !== 'dark') {
-        rafId = window.requestAnimationFrame(() => {
-          setThemeState(initial);
-        });
-      }
-    } catch {
-      document.documentElement.classList.add('dark');
-    }
-    return () => {
-      if (rafId !== null) window.cancelAnimationFrame(rafId);
-    };
+  const [themeHydrated, setThemeHydrated] = useState(false);
+
+  const applyThemeToDom = useCallback((mode: ThemeMode) => {
+    if (typeof document === 'undefined') return;
+    const root = document.documentElement;
+    root.classList.toggle('dark', mode === 'dark');
+    root.classList.toggle('light', mode === 'light');
+    root.dataset.theme = mode;
+    root.style.colorScheme = mode;
   }, []);
 
-  const setTheme = useCallback((next: ThemeMode) => {
-    setThemeState(next);
+  // Hydrate theme preference from localStorage / pre-paint script once on mount
+  useEffect(() => {
+    let initial: ThemeMode = 'dark';
     try {
-      window.localStorage.setItem('rometric-theme', next);
+      const stored = window.localStorage.getItem('rometric-theme');
+      if (stored === 'light' || stored === 'dark') {
+        initial = stored;
+      } else if (document.documentElement.dataset.theme === 'light') {
+        initial = 'light';
+      }
+    } catch {
+      if (document.documentElement.dataset.theme === 'light') {
+        initial = 'light';
+      }
+    }
+    applyThemeToDom(initial);
+    const rafId = window.requestAnimationFrame(() => {
+      setThemeState(initial);
+      setThemeHydrated(true);
+    });
+    return () => {
+      window.cancelAnimationFrame(rafId);
+    };
+  }, [applyThemeToDom]);
+
+  // Keep DOM classes & storage strictly synced whenever theme changes
+  useEffect(() => {
+    if (!themeHydrated) return;
+    applyThemeToDom(theme);
+    try {
+      window.localStorage.setItem('rometric-theme', theme);
     } catch {
       // Ignore storage failures
     }
-    if (typeof document !== 'undefined') {
-      document.documentElement.classList.toggle('dark', next === 'dark');
-    }
-  }, []);
+  }, [theme, themeHydrated, applyThemeToDom]);
 
-  const toggleTheme = useCallback(() => {
-    setThemeState((prev) => {
-      const next: ThemeMode = prev === 'dark' ? 'light' : 'dark';
+  const setTheme = useCallback(
+    (next: ThemeMode) => {
+      setThemeHydrated(true);
+      setThemeState(next);
+      applyThemeToDom(next);
       try {
         window.localStorage.setItem('rometric-theme', next);
       } catch {
         // Ignore storage failures
       }
-      if (typeof document !== 'undefined') {
-        document.documentElement.classList.toggle('dark', next === 'dark');
-      }
-      return next;
-    });
-  }, []);
+    },
+    [applyThemeToDom]
+  );
+
+  const toggleTheme = useCallback(() => {
+    const next: ThemeMode = theme === 'dark' ? 'light' : 'dark';
+    setTheme(next);
+  }, [theme, setTheme]);
 
   // Startup connection check
   useEffect(() => {
@@ -196,39 +215,46 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return () => unsub();
   }, []);
 
-  const refreshCatalog = useCallback(async (forceLive = false) => {
-    setLoadingGames(true);
-    setGamesError(null);
-    try {
-      if (!forceLive) {
-        const stored = await fetchAllStoredGames();
-        if (stored.length > 0) {
-          setGames(stored);
-          setDataMode('persisted');
-          const latest = stored.reduce<string | null>((acc, g) => {
-            if (!acc) return g.lastCollectedAt;
-            return g.lastCollectedAt > acc ? g.lastCollectedAt : acc;
-          }, null);
-          setLastUpdatedAt(latest);
-          setLoadingGames(false);
-          return;
-        }
+  const refreshCatalog = useCallback(
+    async (forceLive = false, silent = false) => {
+      if (!silent) {
+        setLoadingGames(true);
+        setGamesError(null);
       }
+      try {
+        if (!forceLive) {
+          const stored = await fetchAllStoredGames();
+          if (stored.length > 0) {
+            setGames(stored);
+            setDataMode('persisted');
+            const latest = stored.reduce<string | null>((acc, g) => {
+              if (!acc) return g.lastCollectedAt;
+              return g.lastCollectedAt > acc ? g.lastCollectedAt : acc;
+            }, null);
+            setLastUpdatedAt(latest);
+            if (!silent) setLoadingGames(false);
+            return;
+          }
+        }
 
-      const live = await fetchLiveFallbackGames();
-      setGames(live.games);
-      setDataMode('live_preview');
-      setLastUpdatedAt(live.capturedAt);
-    } catch (err) {
-      setGamesError(
-        err instanceof Error
-          ? err.message
-          : 'Unable to load Roblox analytics data. Please try again.'
-      );
-    } finally {
-      setLoadingGames(false);
-    }
-  }, []);
+        const live = await fetchLiveFallbackGames();
+        setGames(live.games);
+        setDataMode('live_preview');
+        setLastUpdatedAt(live.capturedAt);
+      } catch (err) {
+        if (!silent) {
+          setGamesError(
+            err instanceof Error
+              ? err.message
+              : 'Unable to load Roblox analytics data. Please try again.'
+          );
+        }
+      } finally {
+        if (!silent) setLoadingGames(false);
+      }
+    },
+    []
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -379,7 +405,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   return (
     <MotionConfig reducedMotion="user">
       <RoMetricErrorBoundary>
-        <AppContext.Provider value={value}>{children}</AppContext.Provider>
+        <AppContext.Provider value={value}>
+          <CardShareProvider>{children}</CardShareProvider>
+        </AppContext.Provider>
       </RoMetricErrorBoundary>
     </MotionConfig>
   );

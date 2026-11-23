@@ -38,11 +38,16 @@ import { GameArtwork } from '@/components/GameArtwork';
 import { GrowthValue } from '@/components/GameTable';
 import { EChartWrapper } from '@/components/EChartWrapper';
 import {
+  GamePublicInsights,
+  type HistoryPoint,
+} from '@/components/GamePublicInsights';
+import {
   APPLE_EASE,
   APPLE_SPRING,
   AnimatedNumber,
   FadeInSection,
   LiquidGlassCard,
+  RollingCcuNumber,
 } from '@/components/MotionPrimitives';
 
 const TIME_RANGES: Array<{ id: TimeRange; label: string }> = [
@@ -57,7 +62,7 @@ const TIME_RANGES: Array<{ id: TimeRange; label: string }> = [
 export default function GameDetailPage() {
   const params = useParams<{ universeId: string }>();
   const universeId = String(params?.universeId ?? '').replace(/[^0-9]/g, '');
-  const { theme } = useApp();
+  const { theme, games } = useApp();
   const isDark = theme === 'dark';
 
   const [game, setGame] = useState<GameRecordData | null>(null);
@@ -68,18 +73,8 @@ export default function GameDetailPage() {
   const [range, setRange] = useState<TimeRange>('24h');
   const [historyLoading, setHistoryLoading] = useState(false);
   const [peakRecord, setPeakRecord] = useState<GamePeakRecord | null>(null);
-  const [historyPoints, setHistoryPoints] = useState<
-    Array<{
-      timestamp: string;
-      timestampMs: number;
-      ccu: number;
-      minCcu?: number;
-      maxCcu?: number;
-      visits: number;
-      favorites: number;
-      sourceTable: 'game_snapshots' | 'game_hourly_stats' | 'game_daily_stats';
-    }>
-  >([]);
+  const [historyPoints, setHistoryPoints] = useState<HistoryPoint[]>([]);
+  const [history30d, setHistory30d] = useState<HistoryPoint[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -136,6 +131,42 @@ export default function GameDetailPage() {
     };
   }, [universeId]);
 
+  // Subtle 60-second live CCU poll so RollingCcuNumber animates real-time player increases
+  useEffect(() => {
+    if (!universeId) return;
+    let cancelled = false;
+    const timer = window.setInterval(async () => {
+      if (document.visibilityState !== 'visible') return;
+      try {
+        const res = await fetch(
+          `/api/roblox/fetch?ids=${encodeURIComponent(universeId)}`,
+          { cache: 'no-store' }
+        );
+        if (!res.ok) return;
+        const data = (await res.json()) as RobloxFetchResponse;
+        const latest = data.games?.[0];
+        if (!latest || cancelled) return;
+        setGame((prev) =>
+          prev
+            ? {
+                ...prev,
+                currentCcu: latest.playing,
+                totalVisits: latest.visits || prev.totalVisits,
+                favorites: latest.favoritedCount || prev.favorites,
+                lastCollectedAt: data.capturedAt,
+              }
+            : prev
+        );
+      } catch {
+        // Ignore transient poll errors
+      }
+    }, 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [universeId]);
+
   useEffect(() => {
     let cancelled = false;
     async function loadHistory() {
@@ -161,6 +192,28 @@ export default function GameDetailPage() {
       cancelled = true;
     };
   }, [universeId, isTracked, range]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load30dHistory() {
+      if (!universeId || !isTracked) {
+        setHistory30d([]);
+        return;
+      }
+      try {
+        const res = await fetchGameHistory(universeId, '30d');
+        if (!cancelled) {
+          setHistory30d(res.points);
+        }
+      } catch {
+        // Non-fatal fallback
+      }
+    }
+    void load30dHistory();
+    return () => {
+      cancelled = true;
+    };
+  }, [universeId, isTracked]);
 
   const ccuChartOption = useMemo<EChartsOption>(() => {
     const accent = isDark ? '#10E89A' : '#059669';
@@ -447,35 +500,51 @@ export default function GameDetailPage() {
 
           {/* Primary Metrics */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
-            <LiquidGlassCard interactive className="rounded-3xl p-4">
-              <p className="text-xs text-slate-500 dark:text-[#6F8796]">
-                Live CCU
-              </p>
+            <LiquidGlassCard
+              interactive
+              exportTitle={`${game.name} — Live CCU`}
+              className="rounded-3xl p-4"
+            >
+              <div className="flex items-center gap-1.5 pr-7">
+                <span className="live-beacon" aria-hidden="true" />
+                <p className="text-xs text-slate-500 dark:text-[#6F8796]">
+                  Live CCU
+                </p>
+              </div>
               <p className="mt-1 font-display text-2xl font-bold text-emerald-600 dark:text-[#10E89A] tabular-nums">
-                <AnimatedNumber
-                  value={game.currentCcu}
-                  formatter={(v) => formatExactNumber(Math.round(v))}
-                />
+                <RollingCcuNumber value={game.currentCcu} showDelta />
               </p>
             </LiquidGlassCard>
-            <LiquidGlassCard interactive className="rounded-3xl p-4">
-              <p className="text-xs text-slate-500 dark:text-[#6F8796]">
+            <LiquidGlassCard
+              interactive
+              exportTitle={`${game.name} — Visits`}
+              className="rounded-3xl p-4"
+            >
+              <p className="text-xs text-slate-500 dark:text-[#6F8796] pr-7">
                 Visits
               </p>
               <p className="mt-1 font-display text-2xl font-bold text-slate-900 dark:text-[#F1F7FA] tabular-nums">
                 {formatCompactNumber(game.totalVisits)}
               </p>
             </LiquidGlassCard>
-            <LiquidGlassCard interactive className="rounded-3xl p-4">
-              <p className="text-xs text-slate-500 dark:text-[#6F8796]">
+            <LiquidGlassCard
+              interactive
+              exportTitle={`${game.name} — Favorites`}
+              className="rounded-3xl p-4"
+            >
+              <p className="text-xs text-slate-500 dark:text-[#6F8796] pr-7">
                 Favorites
               </p>
               <p className="mt-1 font-display text-2xl font-bold text-slate-900 dark:text-[#F1F7FA] tabular-nums">
                 {formatCompactNumber(game.favorites)}
               </p>
             </LiquidGlassCard>
-            <LiquidGlassCard interactive className="rounded-3xl p-4">
-              <p className="text-xs text-slate-500 dark:text-[#6F8796]">
+            <LiquidGlassCard
+              interactive
+              exportTitle={`${game.name} — Rating`}
+              className="rounded-3xl p-4"
+            >
+              <p className="text-xs text-slate-500 dark:text-[#6F8796] pr-7">
                 Rating
               </p>
               <p className="mt-1 font-display text-2xl font-bold text-slate-900 dark:text-[#F1F7FA] tabular-nums">
@@ -488,7 +557,10 @@ export default function GameDetailPage() {
 
           {/* Votes & Peak */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-            <LiquidGlassCard className="rounded-3xl p-4 flex items-center justify-between">
+            <LiquidGlassCard
+              exportTitle={`${game.name} — Votes`}
+              className="rounded-3xl p-4 flex items-center justify-between pr-11"
+            >
               <div className="space-y-1">
                 <p className="text-xs text-slate-500 dark:text-[#6F8796]">
                   Votes
@@ -506,7 +578,10 @@ export default function GameDetailPage() {
               </div>
             </LiquidGlassCard>
 
-            <LiquidGlassCard className="rounded-3xl p-4 flex items-center justify-between">
+            <LiquidGlassCard
+              exportTitle={`${game.name} — Peak CCU`}
+              className="rounded-3xl p-4 flex items-center justify-between gap-2 pr-11"
+            >
               <div className="space-y-1">
                 <p className="text-xs text-slate-500 dark:text-[#6F8796]">
                   Peak CCU
@@ -525,8 +600,11 @@ export default function GameDetailPage() {
 
       {/* Estimated Revenue Card */}
       <FadeInSection>
-        <LiquidGlassCard className="rounded-[28px] p-5 sm:p-6 space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-2">
+        <LiquidGlassCard
+          exportTitle={`${game.name} — Estimated Revenue`}
+          className="rounded-[28px] p-5 sm:p-6 space-y-4"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-2 pr-9">
             <div className="flex items-center gap-2">
               <DollarSign className="w-5 h-5 text-emerald-600 dark:text-[#10E89A]" />
               <h2 className="font-display text-lg font-bold text-slate-900 dark:text-[#F1F7FA]">
@@ -588,7 +666,8 @@ export default function GameDetailPage() {
           <LiquidGlassCard
             key={item.label}
             interactive
-            className="rounded-3xl px-5 py-4 flex items-center justify-between"
+            exportTitle={`${game.name} — ${item.label} Growth`}
+            className="rounded-3xl px-5 py-4 pr-11 flex items-center justify-between"
           >
             <span className="text-xs font-medium text-slate-500 dark:text-[#9CB3C0]">
               {item.label}
@@ -602,9 +681,10 @@ export default function GameDetailPage() {
       <FadeInSection>
         <LiquidGlassCard
           variant="hero"
+          exportTitle={`${game.name} — Player History`}
           className="rounded-[28px] p-6 space-y-5"
         >
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pr-9">
             <h2 className="font-display text-lg font-bold text-slate-900 dark:text-[#F1F7FA]">
               Player History
             </h2>
@@ -656,11 +736,22 @@ export default function GameDetailPage() {
         </LiquidGlassCard>
       </FadeInSection>
 
+      {/* Complete Public Roblox Analytics, Benchmarks, Store, Badges, Media & Socials */}
+      <GamePublicInsights
+        game={game}
+        allGames={games}
+        history30d={history30d.length > 0 ? history30d : historyPoints}
+        isDark={isDark}
+      />
+
       {/* About */}
       {game.description?.trim() && (
         <FadeInSection>
-          <LiquidGlassCard className="rounded-[28px] p-6 space-y-3">
-            <h2 className="font-display text-lg font-bold text-slate-900 dark:text-[#F1F7FA]">
+          <LiquidGlassCard
+            exportTitle={`${game.name} — About`}
+            className="rounded-[28px] p-6 space-y-3"
+          >
+            <h2 className="font-display text-lg font-bold text-slate-900 dark:text-[#F1F7FA] pr-9">
               About
             </h2>
             <p className="text-sm text-slate-600 dark:text-[#9CB3C0] leading-relaxed whitespace-pre-line">
