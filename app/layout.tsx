@@ -5,6 +5,7 @@ import { Navbar } from '@/components/Navbar';
 import { Footer } from '@/components/Footer';
 import { PageTransition } from '@/components/MotionPrimitives';
 import { GoogleAnalytics } from '@/components/GoogleAnalytics';
+import { SpeedInsights } from '@vercel/speed-insights/next';
 
 const SITE_URL = 'https://rometrics.vercel.app';
 const GOOGLE_VERIFICATION = (
@@ -180,6 +181,7 @@ export default function RootLayout({
           </main>
           <Footer />
         </AppProvider>
+        <SpeedInsights />
       </body>
     </html>
   );
