@@ -1,31 +1,29 @@
-/**
- * RoMetric — Scheduled Cloudflare Worker Collector v3.0 (Free Tier Compatible)
- *
- * Engineered to refresh 1,000–3,300+ active Roblox games EVERY 30 MINUTES
- * (plus Top 100 Tier 1 every 5 minutes) while staying safely inside Cloudflare
- * Workers Free limits (<= 50 subrequests per invocation, <= 10ms active CPU):
- *
- *  KEY EFFICIENCY BREAKTHROUGH:
- *  - Decouples live CCU ticks from votes/discovery. Each Roblox `v1/games` batch
- *    fetches 50 games in just 1 subrequest (doubling throughput vs. calling votes
- *    every tick), while preserving existing up_votes/down_votes/like_ratio from DB.
- *  - Votes, 4-vector Creator/Similar/Omni-Search discovery (>= 25 CCU), and 5 TB
- *    Google Drive nightly backups run in the companion Google Apps Script sidecar.
- *
- *  CRON SCHEDULE (3 Free Triggers):
- *  1) `*/5 * * * *` (12 runs/hr, 6 runs/30m):
- *       - Top 100 Tier 1 games (every 5 minutes)
- *       - PLUS 550 stalest active games older than 25 minutes
- *       - 650 games/run = 13 Roblox calls + ~4 Supabase calls = ~17 subrequests/run
- *       - 6 runs/30m * 550 = 3,300 unique games refreshed every 30 minutes!
- *  2) `*/15 * * * *` (4 runs/hr):
- *       - Safety-net sweep of up to 750 stalest active games across ALL tiers
- *       - ~19 subrequests/run — guarantees zero games fall past 30 minutes even
- *         after transient Roblox HTTP 429 retries.
- *  3) `0 3 * * *` (Daily 03:00 UTC):
- *       - Runs `run_rometric_retention_rollup` to roll up raw -> hourly -> daily
- *         and prune raw > 30h, hourly > 7d, jobs > 30d, daily > 365d (< 500 MB).
- */
+// RoMetric — Scheduled Cloudflare Worker Collector v3.0 (Free Tier Compatible)
+//
+// Engineered to refresh 1,000–3,300+ active Roblox games EVERY 30 MINUTES
+// (plus Top 100 Tier 1 every 5 minutes) while staying safely inside Cloudflare
+// Workers Free limits (<= 50 subrequests per invocation, <= 10ms active CPU):
+//
+//  KEY EFFICIENCY BREAKTHROUGH:
+//  - Decouples live CCU ticks from votes/discovery. Each Roblox `v1/games` batch
+//    fetches 50 games in just 1 subrequest (doubling throughput vs. calling votes
+//    every tick), while preserving existing up_votes/down_votes/like_ratio from DB.
+//  - Votes, 4-vector Creator/Similar/Omni-Search discovery (>= 25 CCU), and 5 TB
+//    Google Drive nightly backups run in the companion Google Apps Script sidecar.
+//
+//  CRON SCHEDULE (3 Free Triggers):
+//  1) Every 5 min (`*/5 * * * *`, 12 runs/hr, 6 runs/30m):
+//       - Top 100 Tier 1 games (every 5 minutes)
+//       - PLUS 550 stalest active games older than 25 minutes
+//       - 650 games/run = 13 Roblox calls + ~4 Supabase calls = ~17 subrequests/run
+//       - 6 runs/30m * 550 = 3,300 unique games refreshed every 30 minutes!
+//  2) Every 15 min (`*/15 * * * *`, 4 runs/hr):
+//       - Safety-net sweep of up to 750 stalest active games across ALL tiers
+//       - ~19 subrequests/run — guarantees zero games fall past 30 minutes even
+//         after transient Roblox HTTP 429 retries.
+//  3) Daily 03:00 UTC (`0 3 * * *`):
+//       - Runs `run_rometric_retention_rollup` to roll up raw -> hourly -> daily
+//         and prune raw > 30h, hourly > 7d, jobs > 30d, daily > 365d (< 500 MB).
 
 export interface CollectorEnv {
   SUPABASE_URL: string;
