@@ -11,7 +11,7 @@ import {
   limit,
   writeBatch,
 } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from './firebase';
+import { auth, db, handleFirestoreError, OperationType } from './firebase';
 import { SEED_UNIVERSES } from './seed-universes';
 import {
   getDayBucket,
@@ -32,6 +32,11 @@ import type {
   TimeRange,
   TrackingTier,
 } from './types';
+
+async function getAdminAuthHeaders(): Promise<Record<string, string>> {
+  const token = await auth.currentUser?.getIdToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
 
 export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
   paused: false,
@@ -145,6 +150,21 @@ function computeWindowGrowth(
 }
 
 export async function fetchAllStoredGames(): Promise<GameRecordData[]> {
+  try {
+    const res = await fetch('/api/supabase/games', { cache: 'no-store' });
+    if (res.ok) {
+      const data = (await res.json()) as {
+        configured?: boolean;
+        games?: GameRecordData[];
+      };
+      if (data.configured) {
+        return (data.games ?? []).sort((a, b) => b.currentCcu - a.currentCcu);
+      }
+    }
+  } catch {
+    // Fall through to Firestore if Supabase proxy is unreachable
+  }
+
   const path = 'games';
   try {
     const snap = await getDocs(collection(db, path));
@@ -161,6 +181,24 @@ export async function fetchAllStoredGames(): Promise<GameRecordData[]> {
 export async function fetchStoredGameById(
   universeId: string
 ): Promise<GameRecordData | null> {
+  try {
+    const res = await fetch(
+      `/api/supabase/games/${encodeURIComponent(universeId)}`,
+      { cache: 'no-store' }
+    );
+    if (res.ok) {
+      const data = (await res.json()) as {
+        configured?: boolean;
+        game?: GameRecordData | null;
+      };
+      if (data.configured) {
+        return data.game ?? null;
+      }
+    }
+  } catch {
+    // Fall through to Firestore
+  }
+
   const path = `games/${universeId}`;
   try {
     const snap = await getDoc(doc(db, 'games', universeId));
@@ -187,6 +225,37 @@ export async function fetchGameHistory(
   }>;
   peakRecord: GamePeakRecord | null;
 }> {
+  try {
+    const res = await fetch(
+      `/api/supabase/history?universeId=${encodeURIComponent(universeId)}&range=${encodeURIComponent(range)}`,
+      { cache: 'no-store' }
+    );
+    if (res.ok) {
+      const data = (await res.json()) as {
+        configured?: boolean;
+        points?: Array<{
+          timestamp: string;
+          timestampMs: number;
+          ccu: number;
+          minCcu?: number;
+          maxCcu?: number;
+          visits: number;
+          favorites: number;
+          sourceTable: 'game_snapshots' | 'game_hourly_stats' | 'game_daily_stats';
+        }>;
+        peakRecord?: GamePeakRecord | null;
+      };
+      if (data.configured) {
+        return {
+          points: data.points ?? [],
+          peakRecord: data.peakRecord ?? null,
+        };
+      }
+    }
+  } catch {
+    // Fall through to Firestore
+  }
+
   const nowMs = Date.now();
   const rangeMsMap: Record<TimeRange, number> = {
     '1h': 60 * 60 * 1000,
@@ -397,6 +466,25 @@ export async function saveSystemConfig(
 }
 
 export async function fetchCollectionJobs(maxCount = 25): Promise<CollectionJob[]> {
+  try {
+    const headers = await getAdminAuthHeaders();
+    const res = await fetch('/api/supabase/admin', {
+      cache: 'no-store',
+      headers,
+    });
+    if (res.ok) {
+      const data = (await res.json()) as {
+        configured?: boolean;
+        jobs?: CollectionJob[];
+      };
+      if (data.configured) {
+        return (data.jobs ?? []).slice(0, maxCount);
+      }
+    }
+  } catch {
+    // Fall through to Firestore
+  }
+
   const path = 'collection_jobs';
   try {
     const q = query(
@@ -416,6 +504,25 @@ export async function fetchCollectionJobs(maxCount = 25): Promise<CollectionJob[
 }
 
 export async function countStoredSnapshotsSample(): Promise<number> {
+  try {
+    const headers = await getAdminAuthHeaders();
+    const res = await fetch('/api/supabase/admin', {
+      cache: 'no-store',
+      headers,
+    });
+    if (res.ok) {
+      const data = (await res.json()) as {
+        configured?: boolean;
+        snapshotCount?: number;
+      };
+      if (data.configured) {
+        return data.snapshotCount ?? 0;
+      }
+    }
+  } catch {
+    // Fall through to Firestore
+  }
+
   const path = 'game_snapshots';
   try {
     const snap = await getDocs(query(collection(db, path), limit(2500)));
@@ -452,6 +559,29 @@ export async function addGameToTracking(
   tier: TrackingTier,
   capturedAt: string
 ): Promise<GameRecordData> {
+  const authHeaders = await getAdminAuthHeaders();
+  const supaRes = await fetch('/api/supabase/admin', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders },
+    body: JSON.stringify({ action: 'add_game', payload, tier, capturedAt }),
+  });
+  if (supaRes.ok) {
+    const data = (await supaRes.json()) as {
+      configured?: boolean;
+      game?: GameRecordData;
+      error?: string;
+    };
+    if (data.configured) {
+      if (!data.game) {
+        throw new Error(data.error || 'Failed to save game to Supabase.');
+      }
+      return data.game;
+    }
+  } else if (supaRes.status === 401 || supaRes.status === 403 || supaRes.status >= 500) {
+    const errBody = (await supaRes.json().catch(() => ({}))) as { error?: string };
+    throw new Error(errBody.error || `Supabase admin error (HTTP ${supaRes.status})`);
+  }
+
   const existing = await fetchStoredGameById(payload.universeId);
   const record = livePayloadToGameRecord(payload, capturedAt, tier, existing);
   if (!existing) {
@@ -517,6 +647,26 @@ export async function updateGameTrackingSettings(
     active: updates.active ?? game.active,
     updatedAt: new Date().toISOString(),
   };
+
+  const authHeaders = await getAdminAuthHeaders();
+  const supaRes = await fetch('/api/supabase/admin', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders },
+    body: JSON.stringify({
+      action: 'update_game',
+      universeId: game.universeId,
+      trackingTier: updated.trackingTier,
+      active: updated.active,
+    }),
+  });
+  if (supaRes.ok) {
+    const data = (await supaRes.json()) as { configured?: boolean };
+    if (data.configured) return updated;
+  } else if (supaRes.status === 401 || supaRes.status === 403 || supaRes.status >= 500) {
+    const errBody = (await supaRes.json().catch(() => ({}))) as { error?: string };
+    throw new Error(errBody.error || `Supabase update error (HTTP ${supaRes.status})`);
+  }
+
   const path = `games/${game.universeId}`;
   try {
     await setDoc(doc(db, 'games', game.universeId), updated);
@@ -527,6 +677,20 @@ export async function updateGameTrackingSettings(
 }
 
 export async function removeGameFromTracking(universeId: string): Promise<void> {
+  const authHeaders = await getAdminAuthHeaders();
+  const supaRes = await fetch('/api/supabase/admin', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders },
+    body: JSON.stringify({ action: 'delete_game', universeId }),
+  });
+  if (supaRes.ok) {
+    const data = (await supaRes.json()) as { configured?: boolean };
+    if (data.configured) return;
+  } else if (supaRes.status === 401 || supaRes.status === 403 || supaRes.status >= 500) {
+    const errBody = (await supaRes.json().catch(() => ({}))) as { error?: string };
+    throw new Error(errBody.error || `Supabase delete error (HTTP ${supaRes.status})`);
+  }
+
   const path = `games/${universeId}`;
   try {
     await deleteDoc(doc(db, 'games', universeId));
@@ -544,6 +708,38 @@ export async function runCollectionCycle(options: {
   job: CollectionJob;
   updatedGames: GameRecordData[];
 }> {
+  options.onProgress?.('Syncing live Roblox charts to database...');
+  const authHeaders = await getAdminAuthHeaders();
+  const supaRes = await fetch('/api/supabase/admin', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders },
+    body: JSON.stringify({
+      action: 'collect',
+      tier: options.tier,
+      includeLiveDiscovery: Boolean(options.includeLiveDiscovery),
+    }),
+  });
+  if (supaRes.ok) {
+    const data = (await supaRes.json()) as {
+      configured?: boolean;
+      job?: CollectionJob;
+      updatedGames?: GameRecordData[];
+      error?: string;
+    };
+    if (data.configured) {
+      if (!data.job) {
+        throw new Error(data.error || 'Supabase collection failed.');
+      }
+      return {
+        job: data.job,
+        updatedGames: data.updatedGames ?? [],
+      };
+    }
+  } else if (supaRes.status === 401 || supaRes.status === 403 || supaRes.status >= 500) {
+    const errBody = (await supaRes.json().catch(() => ({}))) as { error?: string };
+    throw new Error(errBody.error || `Supabase collection error (HTTP ${supaRes.status})`);
+  }
+
   const startedMs = Date.now();
   const startedAt = new Date(startedMs).toISOString();
 
@@ -989,6 +1185,23 @@ export async function runCollectionCycle(options: {
 export async function pruneExpiredRawSnapshots(
   retentionRawHours: number
 ): Promise<number> {
+  const authHeaders = await getAdminAuthHeaders();
+  const supaRes = await fetch('/api/supabase/admin', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders },
+    body: JSON.stringify({ action: 'prune', retentionRawHours }),
+  });
+  if (supaRes.ok) {
+    const data = (await supaRes.json()) as {
+      configured?: boolean;
+      removed?: number;
+    };
+    if (data.configured) return data.removed ?? 0;
+  } else if (supaRes.status === 401 || supaRes.status === 403 || supaRes.status >= 500) {
+    const errBody = (await supaRes.json().catch(() => ({}))) as { error?: string };
+    throw new Error(errBody.error || `Supabase prune error (HTTP ${supaRes.status})`);
+  }
+
   const cutoffMs = Date.now() - retentionRawHours * 60 * 60 * 1000;
   const path = 'game_snapshots';
   try {

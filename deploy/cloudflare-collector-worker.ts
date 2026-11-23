@@ -51,14 +51,26 @@ async function supabaseFetch(
   path: string,
   init: RequestInit = {}
 ): Promise<Response> {
-  return fetch(`${env.SUPABASE_URL}/rest/v1/${path}`, {
+  const baseUrl = env.SUPABASE_URL.replace(/\/+$/, '');
+  const key = env.SUPABASE_SERVICE_ROLE_KEY.trim();
+  const isJwt = key.startsWith('eyJ');
+
+  const headers: Record<string, string> = {
+    apikey: key,
+    'Content-Type': 'application/json',
+    ...(isJwt ? { Authorization: `Bearer ${key}` } : {}),
+  };
+
+  if (init.headers) {
+    const extra = init.headers as Record<string, string>;
+    for (const [k, v] of Object.entries(extra)) {
+      headers[k] = v;
+    }
+  }
+
+  return fetch(`${baseUrl}/rest/v1/${path}`, {
     ...init,
-    headers: {
-      apikey: env.SUPABASE_SERVICE_ROLE_KEY,
-      Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
-      'Content-Type': 'application/json',
-      ...(init.headers || {}),
-    },
+    headers,
   });
 }
 
@@ -78,7 +90,8 @@ async function runTierBatch(
     `games?select=universe_id,peak_ccu_observed&active=eq.true&tracking_tier=eq.${tier}&order=last_collected_at.asc&limit=${MAX_GAMES_PER_RUN}`
   );
   if (!selectRes.ok) {
-    throw new Error(`Supabase select failed: HTTP ${selectRes.status}`);
+    const body = await selectRes.text();
+    throw new Error(`Supabase select failed (HTTP ${selectRes.status}): ${body.slice(0, 200)}`);
   }
   const rows = (await selectRes.json()) as DbGameRow[];
   if (rows.length === 0) return;
@@ -145,7 +158,7 @@ async function runTierBatch(
 
       gamesToPatch.push({
         universe_id: g.id,
-        root_place_id: g.rootPlaceId,
+        root_place_id: g.rootPlaceId || g.id,
         name: g.name,
         current_ccu: Math.max(0, g.playing || 0),
         total_visits: Math.max(0, g.visits || 0),
@@ -163,20 +176,32 @@ async function runTierBatch(
   }
 
   if (snapshotsToInsert.length > 0) {
-    await supabaseFetch(env, 'game_snapshots?on_conflict=universe_id,captured_minute', {
-      method: 'POST',
-      headers: { Prefer: 'resolution=ignore-duplicates' },
-      body: JSON.stringify(snapshotsToInsert),
-    });
+    const snapRes = await supabaseFetch(
+      env,
+      'game_snapshots?on_conflict=universe_id,captured_minute',
+      {
+        method: 'POST',
+        headers: { Prefer: 'resolution=ignore-duplicates' },
+        body: JSON.stringify(snapshotsToInsert),
+      }
+    );
+    if (!snapRes.ok) {
+      const body = await snapRes.text();
+      errors.push(`snapshots write HTTP ${snapRes.status}: ${body.slice(0, 180)}`);
+    }
 
-    await supabaseFetch(env, 'games?on_conflict=universe_id', {
+    const gamesPatchRes = await supabaseFetch(env, 'games?on_conflict=universe_id', {
       method: 'POST',
       headers: { Prefer: 'resolution=merge-duplicates' },
       body: JSON.stringify(gamesToPatch),
     });
+    if (!gamesPatchRes.ok) {
+      const body = await gamesPatchRes.text();
+      errors.push(`games write HTTP ${gamesPatchRes.status}: ${body.slice(0, 180)}`);
+    }
   }
 
-  await supabaseFetch(env, 'collection_jobs', {
+  const jobRes = await supabaseFetch(env, 'collection_jobs', {
     method: 'POST',
     body: JSON.stringify({
       tier,
@@ -198,9 +223,23 @@ async function runTierBatch(
       error_summary: errors.length ? errors.join(' | ').slice(0, 900) : null,
     }),
   });
+  if (!jobRes.ok) {
+    const body = await jobRes.text();
+    throw new Error(`collection_jobs write HTTP ${jobRes.status}: ${body.slice(0, 200)}`);
+  }
 }
 
 const workerHandler = {
+  async fetch(): Promise<Response> {
+    return new Response(
+      JSON.stringify({ service: 'rometric-collector', status: 'ok' }),
+      {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
+  },
+
   async scheduled(
     event: WorkerScheduledEvent,
     env: CollectorEnv,

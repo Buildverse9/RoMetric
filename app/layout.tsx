@@ -1,23 +1,8 @@
 import type { Metadata } from 'next';
-import { Inter, Space_Grotesk } from 'next/font/google';
 import './globals.css';
 import { AppProvider } from '@/components/AppProvider';
 import { Navbar } from '@/components/Navbar';
 import { Footer } from '@/components/Footer';
-
-const inter = Inter({
-  subsets: ['latin'],
-  weight: ['400', '500', '600', '700'],
-  variable: '--font-inter',
-  display: 'swap',
-});
-
-const spaceGrotesk = Space_Grotesk({
-  subsets: ['latin'],
-  weight: ['500', '600', '700'],
-  variable: '--font-space-grotesk',
-  display: 'swap',
-});
 
 export const metadata: Metadata = {
   title: {
@@ -46,7 +31,15 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={`${inter.variable} ${spaceGrotesk.variable} dark`}>
+    <html lang="en" className="dark">
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link
+          rel="stylesheet"
+          href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap"
+        />
+      </head>
       <body
         suppressHydrationWarning
         className="min-h-screen bg-[#101820] text-[#E8EEF2] flex flex-col selection:bg-[#48D597]/25 selection:text-[#E8EEF2]"
