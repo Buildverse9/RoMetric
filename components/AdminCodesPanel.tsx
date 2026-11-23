@@ -58,7 +58,7 @@ export function AdminCodesPanel() {
   // Collection trigger state
   const [providerFilter, setProviderFilter] = useState<string>('all');
   const [targetUniverseId, setTargetUniverseId] = useState<string>('');
-  const [batchSize, setBatchSize] = useState<number>(12);
+  const [batchSize, setBatchSize] = useState<number>(8);
   const [runningCollection, setRunningCollection] = useState(false);
 
   // Source toggle & moderation state
@@ -171,16 +171,34 @@ export function AdminCodesPanel() {
           maxGames: batchSize,
         }),
       });
-      const data = (await res.json()) as CollectionSummaryResult & {
-        error?: string;
-      };
-      if (!res.ok) {
-        throw new Error(data.error || 'Code collection failed.');
+      const rawText = await res.text();
+      let data: (CollectionSummaryResult & { error?: string }) | null = null;
+      try {
+        data = JSON.parse(rawText) as CollectionSummaryResult & {
+          error?: string;
+        };
+      } catch {
+        throw new Error(
+          res.ok
+            ? 'Received unexpected non-JSON response from server.'
+            : `Server returned HTTP ${res.status} (request may have timed out — try a smaller batch of 5 games).`
+        );
       }
+      if (!res.ok || !data) {
+        throw new Error(data?.error || `Code collection failed (HTTP ${res.status}).`);
+      }
+
+      const checked = data.gamesChecked ?? 0;
+      const withData = data.gamesWithProviderData ?? 0;
+      const discovered = data.codesDiscovered ?? 0;
+      const updated = data.codesUpdated ?? 0;
+      const expired = data.codesExpired ?? 0;
+      const apiCalls = data.apiRequests ?? 0;
+      const durSec = ((data.durationMs ?? 0) / 1000).toFixed(1);
 
       setBanner({
         type: data.ok ? 'success' : 'error',
-        text: `Checked ${data.gamesChecked} game${data.gamesChecked === 1 ? '' : 's'} (${data.gamesWithProviderData} with provider data) · ${data.codesDiscovered} new · ${data.codesUpdated} updated · ${data.codesExpired} expired · ${data.apiRequests} API calls · ${(data.durationMs / 1000).toFixed(1)}s${data.errors?.length ? ` · Notes: ${data.errors.slice(0, 2).join('; ')}` : ''}`,
+        text: `Checked ${checked} game${checked === 1 ? '' : 's'} (${withData} with provider data) · ${discovered} new · ${updated} updated · ${expired} expired · ${apiCalls} API calls · ${durSec}s${data.errors?.length ? ` · Notes: ${data.errors.slice(0, 2).join('; ')}` : ''}`,
       });
       await loadOverview();
     } catch (err) {
@@ -208,9 +226,17 @@ export function AdminCodesPanel() {
           enabled: !source.enabled,
         }),
       });
-      const data = (await res.json()) as { ok?: boolean; error?: string };
-      if (!res.ok || !data.ok) {
-        throw new Error(data.error || 'Unable to update source state.');
+      const rawText = await res.text();
+      let data: { ok?: boolean; error?: string } | null = null;
+      try {
+        data = JSON.parse(rawText) as { ok?: boolean; error?: string };
+      } catch {
+        throw new Error(`Server returned HTTP ${res.status}.`);
+      }
+      if (!res.ok || !data?.ok) {
+        throw new Error(
+          data?.error || `Unable to update source state (HTTP ${res.status}).`
+        );
       }
       setBanner({
         type: 'success',
@@ -511,8 +537,8 @@ export function AdminCodesPanel() {
                   className="w-full px-3 py-2 text-xs rounded-2xl bg-black/[0.04] dark:bg-white/[0.06] border border-slate-900/10 dark:border-white/10 text-slate-900 dark:text-[#F1F7FA] focus:outline-none focus:border-emerald-500/50"
                 >
                   <option value={5}>5 games (Fast)</option>
-                  <option value={12}>12 games (Default)</option>
-                  <option value={20}>20 games (Deep)</option>
+                  <option value={8}>8 games (Default)</option>
+                  <option value={15}>15 games (Deep)</option>
                   <option value={25}>25 games (Max)</option>
                 </select>
               </div>

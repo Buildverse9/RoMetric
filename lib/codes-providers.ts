@@ -602,7 +602,7 @@ export const fandomMediaWikiProvider: CodeProviderAdapter = {
       const res = await fetchJsonWithBackoff<{
         parse?: { title?: string; wikitext?: string };
         error?: { code?: string };
-      }>(endpoint, { timeoutMs: 8_000, maxRetries: 1 });
+      }>(endpoint, { timeoutMs: 4_500, maxRetries: 1 });
 
       apiRequests += res.apiRequests;
       http429Count += res.http429Count;
@@ -733,8 +733,8 @@ export const bloxArchiveProvider: CodeProviderAdapter = {
         headers: {
           'X-API-Key': apiKey,
         },
-        timeoutMs: 9_000,
-        maxRetries: 2,
+        timeoutMs: 4_500,
+        maxRetries: 1,
       });
       apiRequests += res.apiRequests;
       http429Count += res.http429Count;

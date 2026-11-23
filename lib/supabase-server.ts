@@ -186,7 +186,12 @@ export async function supabaseRest(
   return fetch(`${baseUrl}/rest/v1/${normalizedPath}`, {
     method: options.method ?? 'GET',
     headers,
-    body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+    body:
+      options.body === undefined
+        ? undefined
+        : typeof options.body === 'string'
+          ? options.body
+          : JSON.stringify(options.body),
     cache: 'no-store',
   });
 }

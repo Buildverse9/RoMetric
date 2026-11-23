@@ -8,6 +8,7 @@ import {
 import { verifyAdminBearerToken } from '@/lib/supabase-server';
 
 export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
 
 export async function GET(req: NextRequest) {
   const admin = await verifyAdminBearerToken(req.headers.get('authorization'));
@@ -56,7 +57,7 @@ export async function POST(req: NextRequest) {
       const maxGames =
         typeof body.maxGames === 'number'
           ? Math.min(Math.max(body.maxGames, 1), 30)
-          : 12;
+          : 8;
 
       const result = await runCodesCollectionCycle({
         providerId,
@@ -76,8 +77,8 @@ export async function POST(req: NextRequest) {
           { status: 400 }
         );
       }
-      const ok = await toggleCodeSource(sourceId, enabled);
-      return NextResponse.json({ ok }, { status: ok ? 200 : 500 });
+      const result = await toggleCodeSource(sourceId, enabled);
+      return NextResponse.json(result, { status: result.ok ? 200 : 500 });
     }
 
     if (action === 'moderate_code') {

@@ -716,7 +716,7 @@ async function recomputeGameCodeCounts(
   await supabaseRest(`games?universe_id=eq.${universeId}`, {
     method: 'PATCH',
     requireAdminKey: true,
-    body: JSON.stringify(patch),
+    body: patch,
   });
 }
 
@@ -726,7 +726,7 @@ async function recomputeGameCodeCounts(
  * - Preserves source-reported status and records last_verified_at UTC
  * - Never overwrites admin_locked rows
  * - Marks games with no supporting provider as 'no_provider_data'
- * - Logs every run to code_collection_logs and status transitions to code_verification_logs
+ * - Runs games in fast concurrent chunks so Vercel manual runs finish quickly
  */
 export async function runCodesCollectionCycle(options: {
   providerId?: string | null;
@@ -735,21 +735,24 @@ export async function runCodesCollectionCycle(options: {
   triggeredBy: string;
 }): Promise<{
   ok: boolean;
+  gamesChecked: number;
+  gamesWithProviderData: number;
+  codesDiscovered: number;
+  codesUpdated: number;
+  codesExpired: number;
+  apiRequests: number;
+  http429Count: number;
+  durationMs: number;
+  errors: string[];
   runs: CodeCollectionLog[];
-  summary: {
-    gamesChecked: number;
-    codesDiscovered: number;
-    codesUpdated: number;
-    codesExpired: number;
-    apiRequests: number;
-  };
 }> {
   if (!isSupabaseWriteConfigured()) {
     throw new Error('Supabase service role key is not configured.');
   }
 
+  const cycleStartedMs = Date.now();
   const { list: dbSources, map: sourceMap } = await fetchAllSourcesMap();
-  const maxGames = Math.min(Math.max(Number(options.maxGames ?? 12), 1), 40);
+  const maxGames = Math.min(Math.max(Number(options.maxGames ?? 8), 1), 30);
 
   // Select target adapters
   const targetAdapters = CODE_PROVIDERS.filter((adapter) => {
@@ -798,15 +801,31 @@ export async function runCodesCollectionCycle(options: {
   }
 
   const runs: CodeCollectionLog[] = [];
-  const totals = {
-    gamesChecked: 0,
-    codesDiscovered: 0,
-    codesUpdated: 0,
-    codesExpired: 0,
-    apiRequests: 0,
-  };
+  const allErrors: string[] = [];
+  const gamesWithDataSet = new Set<string>();
+  let totalCodesDiscovered = 0;
+  let totalCodesUpdated = 0;
+  let totalCodesExpired = 0;
+  let totalApiRequests = 0;
+  let totalHttp429 = 0;
 
   const todayUtcDate = new Date().toISOString().slice(0, 10);
+
+  if (targetAdapters.length === 0) {
+    return {
+      ok: false,
+      gamesChecked: 0,
+      gamesWithProviderData: 0,
+      codesDiscovered: 0,
+      codesUpdated: 0,
+      codesExpired: 0,
+      apiRequests: 0,
+      http429Count: 0,
+      durationMs: Date.now() - cycleStartedMs,
+      errors: ['No enabled and configured providers matched your selection.'],
+      runs: [],
+    };
+  }
 
   for (const adapter of targetAdapters) {
     const startedMs = Date.now();
@@ -827,7 +846,7 @@ export async function runCodesCollectionCycle(options: {
         method: 'POST',
         requireAdminKey: true,
         headers: { Prefer: 'return=representation' },
-        body: JSON.stringify({
+        body: {
           source_id: adapter.id,
           triggered_by: options.triggeredBy,
           started_at: startedAt,
@@ -842,158 +861,172 @@ export async function runCodesCollectionCycle(options: {
           http_429_count: 0,
           status: 'skipped',
           error_summary: 'Provider API key not configured on server.',
-        }),
+        },
       });
       if (skippedLogRes.ok) {
         const inserted = (await skippedLogRes.json()) as DbCollectionLogRow[];
         if (inserted[0]) runs.push(mapCollectionLogRow(inserted[0]));
       }
+      allErrors.push(`${adapter.name}: API key not configured.`);
       continue;
     }
 
-    for (const game of targetGames) {
-      gamesChecked += 1;
-      try {
-        const res = await adapter.fetchForGame(game);
-        apiRequests += res.apiRequests;
-        http429Count += res.http429Count;
-        if (res.error) errors.push(`${game.name}: ${res.error}`);
+    // Process games in fast concurrent chunks of 4 so Vercel never times out
+    const CHUNK_SIZE = 4;
+    for (let i = 0; i < targetGames.length; i += CHUNK_SIZE) {
+      const chunk = targetGames.slice(i, i + CHUNK_SIZE);
+      await Promise.all(
+        chunk.map(async (game) => {
+          gamesChecked += 1;
+          try {
+            const res = await adapter.fetchForGame(game);
+            apiRequests += res.apiRequests;
+            http429Count += res.http429Count;
+            if (res.error) errors.push(`${game.name}: ${res.error}`);
 
-        if (res.hasProviderData) {
-          gamesWithProviderData += 1;
-        }
+            if (res.hasProviderData) {
+              gamesWithProviderData += 1;
+              gamesWithDataSet.add(game.universeId);
+            }
 
-        // Load existing codes for this game for idempotent diffing
-        const existingRes = await supabaseRest(
-          `game_codes?select=*&universe_id=eq.${game.universeId}`,
-          { requireAdminKey: true }
-        );
-        const existingRows: DbGameCodeRow[] = existingRes.ok
-          ? ((await existingRes.json()) as DbGameCodeRow[])
-          : [];
-        const existingByNorm = new Map(
-          existingRows.map((r) => [r.normalized_code, r])
-        );
+            if (res.codes.length > 0) {
+              const existingRes = await supabaseRest(
+                `game_codes?select=*&universe_id=eq.${game.universeId}`,
+                { requireAdminKey: true }
+              );
+              const existingRows: DbGameCodeRow[] = existingRes.ok
+                ? ((await existingRes.json()) as DbGameCodeRow[])
+                : [];
+              const existingByNorm = new Map(
+                existingRows.map((r) => [r.normalized_code, r])
+              );
 
-        const nowIso = new Date().toISOString();
-        const verificationRows: Array<Record<string, unknown>> = [];
+              const nowIso = new Date().toISOString();
+              const verificationRows: Array<Record<string, unknown>> = [];
 
-        for (const item of res.codes) {
-          const norm = normalizePromoCode(item.code);
-          const prev = existingByNorm.get(norm);
+              for (const item of res.codes) {
+                const norm = normalizePromoCode(item.code);
+                const prev = existingByNorm.get(norm);
 
-          // Check explicit expiry timestamp if provider supplied one
-          const isExpiredByDate =
-            item.expiresAt !== null && Date.parse(item.expiresAt) < Date.now();
-          const targetStatus: CodeStatus = isExpiredByDate
-            ? 'expired'
-            : item.status;
+                const isExpiredByDate =
+                  item.expiresAt !== null &&
+                  Date.parse(item.expiresAt) < Date.now();
+                const targetStatus: CodeStatus = isExpiredByDate
+                  ? 'expired'
+                  : item.status;
 
-          if (!prev) {
-            const insertRes = await supabaseRest(
-              'game_codes?on_conflict=universe_id,normalized_code',
-              {
-                method: 'POST',
-                requireAdminKey: true,
-                headers: {
-                  Prefer: 'resolution=merge-duplicates,return=representation',
-                },
-                body: JSON.stringify({
-                  universe_id: Number(game.universeId),
-                  code: item.code.slice(0, 48),
-                  normalized_code: norm.slice(0, 48),
-                  reward_description: item.rewardDescription,
-                  status: targetStatus,
-                  source_id: adapter.id,
-                  source_url: item.sourceUrl,
-                  source_reported_status: item.sourceReportedStatus,
-                  admin_locked: false,
-                  discovered_at: nowIso,
-                  last_verified_at: nowIso,
-                  expires_at: item.expiresAt,
-                  updated_at: nowIso,
-                }),
+                if (!prev) {
+                  const insertRes = await supabaseRest(
+                    'game_codes?on_conflict=universe_id,normalized_code',
+                    {
+                      method: 'POST',
+                      requireAdminKey: true,
+                      headers: {
+                        Prefer: 'resolution=merge-duplicates,return=representation',
+                      },
+                      body: {
+                        universe_id: Number(game.universeId),
+                        code: item.code.slice(0, 48),
+                        normalized_code: norm.slice(0, 48),
+                        reward_description: item.rewardDescription,
+                        status: targetStatus,
+                        source_id: adapter.id,
+                        source_url: item.sourceUrl,
+                        source_reported_status: item.sourceReportedStatus,
+                        admin_locked: false,
+                        discovered_at: nowIso,
+                        last_verified_at: nowIso,
+                        expires_at: item.expiresAt,
+                        updated_at: nowIso,
+                      },
+                    }
+                  );
+                  if (insertRes.ok) {
+                    codesDiscovered += 1;
+                    if (targetStatus === 'expired') codesExpired += 1;
+                    const inserted = (await insertRes.json()) as DbGameCodeRow[];
+                    verificationRows.push({
+                      code_id: inserted[0]?.id ?? null,
+                      universe_id: Number(game.universeId),
+                      code_text: item.code.slice(0, 48),
+                      previous_status: null,
+                      new_status: targetStatus,
+                      actor: `provider:${adapter.id}`,
+                      reason: `Discovered via ${adapter.name} (${item.sourceReportedStatus})`,
+                      verified_at: nowIso,
+                    });
+                  }
+                } else {
+                  const effectiveStatus = prev.admin_locked
+                    ? prev.status
+                    : targetStatus;
+                  const statusChanged = prev.status !== effectiveStatus;
+
+                  const patchBody: Record<string, unknown> = {
+                    last_verified_at: nowIso,
+                    updated_at: nowIso,
+                    source_reported_status: item.sourceReportedStatus,
+                  };
+                  if (!prev.reward_description && item.rewardDescription) {
+                    patchBody.reward_description = item.rewardDescription;
+                  }
+                  if (!prev.expires_at && item.expiresAt) {
+                    patchBody.expires_at = item.expiresAt;
+                  }
+                  if (!prev.admin_locked) {
+                    patchBody.status = effectiveStatus;
+                  }
+
+                  const patchRes = await supabaseRest(
+                    `game_codes?id=eq.${prev.id}`,
+                    {
+                      method: 'PATCH',
+                      requireAdminKey: true,
+                      body: patchBody,
+                    }
+                  );
+                  if (patchRes.ok) {
+                    codesUpdated += 1;
+                    if (statusChanged && effectiveStatus === 'expired') {
+                      codesExpired += 1;
+                    }
+                    if (statusChanged) {
+                      verificationRows.push({
+                        code_id: prev.id,
+                        universe_id: Number(game.universeId),
+                        code_text: prev.code,
+                        previous_status: prev.status,
+                        new_status: effectiveStatus,
+                        actor: `provider:${adapter.id}`,
+                        reason: `Updated from provider status (${item.sourceReportedStatus})`,
+                        verified_at: nowIso,
+                      });
+                    }
+                  }
+                }
               }
-            );
-            if (insertRes.ok) {
-              codesDiscovered += 1;
-              if (targetStatus === 'expired') codesExpired += 1;
-              const inserted = (await insertRes.json()) as DbGameCodeRow[];
-              verificationRows.push({
-                code_id: inserted[0]?.id ?? null,
-                universe_id: Number(game.universeId),
-                code_text: item.code.slice(0, 48),
-                previous_status: null,
-                new_status: targetStatus,
-                actor: `provider:${adapter.id}`,
-                reason: `Discovered via ${adapter.name} (${item.sourceReportedStatus})`,
-                verified_at: nowIso,
-              });
-            }
-          } else {
-            // Respect explicit admin moderation lock
-            const effectiveStatus = prev.admin_locked ? prev.status : targetStatus;
-            const statusChanged = prev.status !== effectiveStatus;
 
-            const patchBody: Record<string, unknown> = {
-              last_verified_at: nowIso,
-              updated_at: nowIso,
-              source_reported_status: item.sourceReportedStatus,
-            };
-            if (!prev.reward_description && item.rewardDescription) {
-              patchBody.reward_description = item.rewardDescription;
-            }
-            if (!prev.expires_at && item.expiresAt) {
-              patchBody.expires_at = item.expiresAt;
-            }
-            if (!prev.admin_locked) {
-              patchBody.status = effectiveStatus;
-            }
-
-            const patchRes = await supabaseRest(`game_codes?id=eq.${prev.id}`, {
-              method: 'PATCH',
-              requireAdminKey: true,
-              body: JSON.stringify(patchBody),
-            });
-            if (patchRes.ok) {
-              codesUpdated += 1;
-              if (statusChanged && effectiveStatus === 'expired') {
-                codesExpired += 1;
-              }
-              if (statusChanged) {
-                verificationRows.push({
-                  code_id: prev.id,
-                  universe_id: Number(game.universeId),
-                  code_text: prev.code,
-                  previous_status: prev.status,
-                  new_status: effectiveStatus,
-                  actor: `provider:${adapter.id}`,
-                  reason: `Updated from provider status (${item.sourceReportedStatus})`,
-                  verified_at: nowIso,
+              if (verificationRows.length > 0) {
+                await supabaseRest('code_verification_logs', {
+                  method: 'POST',
+                  requireAdminKey: true,
+                  body: verificationRows,
                 });
               }
             }
+
+            await recomputeGameCodeCounts(
+              game.universeId,
+              res.hasProviderData,
+              res.resolvedWikiSubdomain
+            );
+          } catch (err) {
+            errors.push(
+              `${game.name}: ${err instanceof Error ? err.message : 'Unexpected provider error'}`
+            );
           }
-        }
-
-        if (verificationRows.length > 0) {
-          await supabaseRest('code_verification_logs', {
-            method: 'POST',
-            requireAdminKey: true,
-            body: JSON.stringify(verificationRows),
-          });
-        }
-
-        await recomputeGameCodeCounts(
-          game.universeId,
-          res.hasProviderData,
-          res.resolvedWikiSubdomain
-        );
-      } catch (err) {
-        errors.push(
-          `${game.name}: ${err instanceof Error ? err.message : 'Unexpected provider error'}`
-        );
-      }
+        })
+      );
     }
 
     const durationMs = Date.now() - startedMs;
@@ -1008,7 +1041,7 @@ export async function runCodesCollectionCycle(options: {
       method: 'POST',
       requireAdminKey: true,
       headers: { Prefer: 'return=representation' },
-      body: JSON.stringify({
+      body: {
         source_id: adapter.id,
         triggered_by: options.triggeredBy,
         started_at: startedAt,
@@ -1022,8 +1055,9 @@ export async function runCodesCollectionCycle(options: {
         api_requests: apiRequests,
         http_429_count: http429Count,
         status: runStatus,
-        error_summary: errors.length > 0 ? errors.slice(0, 5).join(' | ').slice(0, 600) : null,
-      }),
+        error_summary:
+          errors.length > 0 ? errors.slice(0, 5).join(' | ').slice(0, 600) : null,
+      },
     });
 
     if (logRes.ok) {
@@ -1031,7 +1065,6 @@ export async function runCodesCollectionCycle(options: {
       if (inserted[0]) runs.push(mapCollectionLogRow(inserted[0]));
     }
 
-    // Update provider health & daily API request counter
     const prevReqToday =
       dbSrc && dbSrc.updatedAt?.slice(0, 10) === todayUtcDate
         ? dbSrc.requestsToday
@@ -1039,7 +1072,7 @@ export async function runCodesCollectionCycle(options: {
     await supabaseRest(`code_sources?id=eq.${encodeURIComponent(adapter.id)}`, {
       method: 'PATCH',
       requireAdminKey: true,
-      body: JSON.stringify({
+      body: {
         last_run_at: new Date().toISOString(),
         last_status:
           runStatus === 'success'
@@ -1053,17 +1086,32 @@ export async function runCodesCollectionCycle(options: {
         requests_today: prevReqToday + apiRequests,
         requests_reset_date: todayUtcDate,
         updated_at: new Date().toISOString(),
-      }),
+      },
     });
 
-    totals.gamesChecked += gamesChecked;
-    totals.codesDiscovered += codesDiscovered;
-    totals.codesUpdated += codesUpdated;
-    totals.codesExpired += codesExpired;
-    totals.apiRequests += apiRequests;
+    totalCodesDiscovered += codesDiscovered;
+    totalCodesUpdated += codesUpdated;
+    totalCodesExpired += codesExpired;
+    totalApiRequests += apiRequests;
+    totalHttp429 += http429Count;
+    if (errors.length > 0) {
+      allErrors.push(...errors.slice(0, 3));
+    }
   }
 
-  return { ok: true, runs, summary: totals };
+  return {
+    ok: true,
+    gamesChecked: targetGames.length,
+    gamesWithProviderData: gamesWithDataSet.size,
+    codesDiscovered: totalCodesDiscovered,
+    codesUpdated: totalCodesUpdated,
+    codesExpired: totalCodesExpired,
+    apiRequests: totalApiRequests,
+    http429Count: totalHttp429,
+    durationMs: Date.now() - cycleStartedMs,
+    errors: allErrors,
+    runs,
+  };
 }
 
 /**
@@ -1203,7 +1251,7 @@ export async function submitCommunityCode(
     method: 'POST',
     requireAdminKey: true,
     headers: { Prefer: 'return=representation' },
-    body: JSON.stringify({
+    body: {
       universe_id: Number(game.universeId),
       code: rawCode.slice(0, 48),
       normalized_code: norm.slice(0, 48),
@@ -1218,7 +1266,7 @@ export async function submitCommunityCode(
       last_verified_at: null,
       expires_at: null,
       updated_at: nowIso,
-    }),
+    },
   });
 
   if (!insertRes.ok) {
@@ -1233,7 +1281,7 @@ export async function submitCommunityCode(
   await supabaseRest('code_verification_logs', {
     method: 'POST',
     requireAdminKey: true,
-    body: JSON.stringify({
+    body: {
       code_id: inserted[0]?.id ?? null,
       universe_id: Number(game.universeId),
       code_text: rawCode.slice(0, 48),
@@ -1244,7 +1292,7 @@ export async function submitCommunityCode(
         ? `Submitted with source URL: ${cleanSourceUrl}`
         : 'Submitted via public community form',
       verified_at: nowIso,
-    }),
+    },
   });
 
   await recomputeGameCodeCounts(game.universeId, true);
@@ -1397,21 +1445,30 @@ export async function fetchCodesAdminOverview(): Promise<CodesAdminOverview> {
 export async function toggleCodeSource(
   sourceId: string,
   enabled: boolean
-): Promise<boolean> {
-  if (!isSupabaseWriteConfigured()) return false;
+): Promise<{ ok: boolean; error?: string }> {
+  if (!isSupabaseWriteConfigured()) {
+    return { ok: false, error: 'Supabase service role key is not configured.' };
+  }
   const res = await supabaseRest(
     `code_sources?id=eq.${encodeURIComponent(sourceId)}`,
     {
       method: 'PATCH',
       requireAdminKey: true,
-      body: JSON.stringify({
+      body: {
         enabled,
         last_status: enabled ? 'idle' : 'disabled',
         updated_at: new Date().toISOString(),
-      }),
+      },
     }
   );
-  return res.ok;
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    return {
+      ok: false,
+      error: errText ? `Database error (${res.status}): ${errText.slice(0, 180)}` : `Database error (${res.status})`,
+    };
+  }
+  return { ok: true };
 }
 
 export async function moderateGameCode(options: {
@@ -1426,7 +1483,7 @@ export async function moderateGameCode(options: {
   rewardDescription?: string | null;
   reason?: string;
   actor: string;
-}): Promise<{ ok: boolean; error?: string }> {
+}): Promise<{ ok: boolean; message?: string; error?: string }> {
   if (!isSupabaseWriteConfigured()) {
     return { ok: false, error: 'Supabase write access not configured.' };
   }
@@ -1450,7 +1507,7 @@ export async function moderateGameCode(options: {
     await supabaseRest('code_verification_logs', {
       method: 'POST',
       requireAdminKey: true,
-      body: JSON.stringify({
+      body: {
         code_id: null,
         universe_id: existing.universe_id,
         code_text: existing.code,
@@ -1459,7 +1516,7 @@ export async function moderateGameCode(options: {
         actor: options.actor,
         reason: options.reason || 'Removed by Admin (duplicate or invalid)',
         verified_at: nowIso,
-      }),
+      },
     });
     const delRes = await supabaseRest(`game_codes?id=eq.${options.codeId}`, {
       method: 'DELETE',
@@ -1467,7 +1524,7 @@ export async function moderateGameCode(options: {
     });
     if (!delRes.ok) return { ok: false, error: 'Failed to delete code.' };
     await recomputeGameCodeCounts(uid);
-    return { ok: true };
+    return { ok: true, message: 'Code deleted.' };
   }
 
   if (options.action === 'update_reward') {
@@ -1475,12 +1532,16 @@ export async function moderateGameCode(options: {
     const patchRes = await supabaseRest(`game_codes?id=eq.${options.codeId}`, {
       method: 'PATCH',
       requireAdminKey: true,
-      body: JSON.stringify({
+      body: {
         reward_description: cleanReward,
         updated_at: nowIso,
-      }),
+      },
     });
-    return { ok: patchRes.ok };
+    return {
+      ok: patchRes.ok,
+      message: patchRes.ok ? 'Reward description updated.' : undefined,
+      error: patchRes.ok ? undefined : 'Failed to update reward description.',
+    };
   }
 
   const statusMap: Record<
@@ -1497,12 +1558,12 @@ export async function moderateGameCode(options: {
   const patchRes = await supabaseRest(`game_codes?id=eq.${options.codeId}`, {
     method: 'PATCH',
     requireAdminKey: true,
-    body: JSON.stringify({
+    body: {
       status: nextStatus,
       admin_locked: true,
       last_verified_at: nowIso,
       updated_at: nowIso,
-    }),
+    },
   });
   if (!patchRes.ok) {
     return { ok: false, error: 'Failed to update code status.' };
@@ -1511,7 +1572,7 @@ export async function moderateGameCode(options: {
   await supabaseRest('code_verification_logs', {
     method: 'POST',
     requireAdminKey: true,
-    body: JSON.stringify({
+    body: {
       code_id: existing.id,
       universe_id: existing.universe_id,
       code_text: existing.code,
@@ -1520,9 +1581,9 @@ export async function moderateGameCode(options: {
       actor: options.actor,
       reason: options.reason || `Admin updated status to ${nextStatus}`,
       verified_at: nowIso,
-    }),
+    },
   });
 
   await recomputeGameCodeCounts(uid);
-  return { ok: true };
+  return { ok: true, message: `Marked as ${nextStatus.replace('_', ' ')}.` };
 }
