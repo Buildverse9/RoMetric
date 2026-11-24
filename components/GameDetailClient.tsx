@@ -6,11 +6,14 @@ import { useParams } from 'next/navigation';
 import { motion } from 'motion/react';
 import {
   ArrowLeft,
+  ArrowRight,
   Clock,
   DollarSign,
   ExternalLink,
   GitCompare,
+  History,
   ShieldCheck,
+  Sparkles,
   ThumbsDown,
   ThumbsUp,
   Ticket,
@@ -29,6 +32,7 @@ import {
   formatUtcTimestamp,
 } from '@/lib/format';
 import { estimateGameRevenue, formatCurrencyCompact } from '@/lib/revenue';
+import { buildGameRevenueInsightSlug } from '@/lib/market-intelligence';
 import type {
   GamePeakRecord,
   GameRecordData,
@@ -513,6 +517,32 @@ export function GameDetailClient({
                 transition={APPLE_SPRING}
               >
                 <Link
+                  href={`/games/${game.universeId}/updates`}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold liquid-glass-pill text-slate-700 dark:text-[#F1F7FA] hover:border-emerald-500/50 rounded-full transition-all whitespace-nowrap"
+                >
+                  <History className="w-3.5 h-3.5 text-emerald-600 dark:text-[#10E89A]" />
+                  Updates
+                </Link>
+              </motion.div>
+              <motion.div
+                whileHover={{ scale: 1.03 }}
+                whileTap={{ scale: 0.95 }}
+                transition={APPLE_SPRING}
+              >
+                <Link
+                  href={`/similar/${game.universeId}`}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold liquid-glass-pill text-slate-700 dark:text-[#F1F7FA] hover:border-emerald-500/50 rounded-full transition-all whitespace-nowrap"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-emerald-600 dark:text-[#10E89A]" />
+                  Similar
+                </Link>
+              </motion.div>
+              <motion.div
+                whileHover={{ scale: 1.03 }}
+                whileTap={{ scale: 0.95 }}
+                transition={APPLE_SPRING}
+              >
+                <Link
                   href={`/compare?ids=${game.universeId}`}
                   className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold bg-emerald-600 dark:bg-[#10E89A] text-white dark:text-[#04130D] rounded-full hover:opacity-90 transition-opacity whitespace-nowrap"
                 >
@@ -648,10 +678,19 @@ export function GameDetailClient({
                 Estimated Revenue
               </h2>
             </div>
-            <span className="text-xs text-slate-500 dark:text-[#6F8796] tabular-nums">
-              Range: {formatCurrencyCompact(estRev.monthlyLowUsd)} –{' '}
-              {formatCurrencyCompact(estRev.monthlyHighUsd)} / mo
-            </span>
+            <div className="flex flex-wrap items-center gap-3 text-xs">
+              <span className="text-slate-500 dark:text-[#6F8796] tabular-nums">
+                Range: {formatCurrencyCompact(estRev.monthlyLowUsd)} –{' '}
+                {formatCurrencyCompact(estRev.monthlyHighUsd)} / mo
+              </span>
+              <Link
+                href={`/insights/${buildGameRevenueInsightSlug(game)}`}
+                className="inline-flex items-center gap-1 font-semibold text-emerald-600 dark:text-[#10E89A] hover:underline underline-offset-2"
+              >
+                Full revenue report
+                <ArrowRight className="w-3.5 h-3.5" />
+              </Link>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-1">

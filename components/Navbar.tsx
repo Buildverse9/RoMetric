@@ -1,18 +1,28 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { AnimatePresence, motion } from 'motion/react';
 import {
+  Activity,
   ArrowUpRight,
   BarChart2,
+  BookOpen,
+  Calendar,
+  ChevronDown,
   Compass,
   Flame,
+  GitCompare,
+  Hash,
+  History,
   Home,
+  Layers,
+  Lightbulb,
   Moon,
   Search,
+  Sparkles,
   Sun,
   Ticket,
   Users,
@@ -28,16 +38,73 @@ const NAV_LINKS = [
   { href: '/rankings', label: 'Rankings' },
   { href: '/trending', label: 'Trending' },
   { href: '/codes', label: 'Codes' },
-  { href: '/compare', label: 'Compare' },
-  { href: '/developers', label: 'Developers' },
+  { href: '/updates', label: 'Updates' },
 ];
 
-const MOBILE_DOCK_ITEMS = [
+const EXPLORE_ITEMS = [
+  {
+    href: '/genres',
+    label: 'Genres & Niches',
+    desc: '14 categories ranked by CCU',
+    icon: Layers,
+  },
+  {
+    href: '/trends',
+    label: 'Keyword Trends',
+    desc: 'Theme demand & niche saturation',
+    icon: Hash,
+  },
+  {
+    href: '/similar',
+    label: 'Similar Games',
+    desc: 'Find games like any Roblox hit',
+    icon: Sparkles,
+  },
+  {
+    href: '/developers',
+    label: 'Developers & Studios',
+    desc: 'Top groups & creator portfolios',
+    icon: Users,
+  },
+  {
+    href: '/weekly',
+    label: 'Weekly Recaps',
+    desc: 'Market digests & genre leaders',
+    icon: Calendar,
+  },
+  {
+    href: '/insights',
+    label: 'Market Insights',
+    desc: 'Revenue Q&A & platform research',
+    icon: Lightbulb,
+  },
+  {
+    href: '/compare',
+    label: 'Compare Games',
+    desc: 'Side-by-side CCU & revenue charts',
+    icon: GitCompare,
+  },
+  {
+    href: '/status',
+    label: 'Roblox Status',
+    desc: 'Live API & platform probe',
+    icon: Activity,
+  },
+  {
+    href: '/guide',
+    label: 'Methodology Guide',
+    desc: 'How metrics & estimates work',
+    icon: BookOpen,
+  },
+];
+
+const EXPLORE_PREFIXES = EXPLORE_ITEMS.map((item) => item.href);
+
+const MOBILE_DOCK_LINKS = [
   { href: '/', label: 'Home', icon: Home },
   { href: '/rankings', label: 'Rankings', icon: BarChart2 },
   { href: '/codes', label: 'Codes', icon: Ticket },
-  { href: '/trending', label: 'Trending', icon: Flame },
-  { href: '/developers', label: 'Explore', icon: Compass },
+  { href: '/updates', label: 'Updates', icon: History },
 ];
 
 export function Navbar() {
@@ -54,6 +121,41 @@ export function Navbar() {
   const [queryText, setQueryText] = useState('');
   const [lookupLoading, setLookupLoading] = useState(false);
   const [lookupError, setLookupError] = useState<string | null>(null);
+  const [exploreOpen, setExploreOpen] = useState(false);
+  const [mobileExploreOpen, setMobileExploreOpen] = useState(false);
+  const exploreRef = useRef<HTMLDivElement>(null);
+
+  const isExploreRoute = useMemo(
+    () =>
+      Boolean(
+        pathname &&
+          EXPLORE_PREFIXES.some(
+            (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)
+          )
+      ),
+    [pathname]
+  );
+
+  useEffect(() => {
+    if (!exploreOpen) return;
+    const handlePointerDown = (e: MouseEvent) => {
+      if (
+        exploreRef.current &&
+        !exploreRef.current.contains(e.target as Node)
+      ) {
+        setExploreOpen(false);
+      }
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setExploreOpen(false);
+    };
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [exploreOpen]);
 
   const matchedGames = useMemo(() => {
     const q = queryText.trim().toLowerCase();
@@ -137,7 +239,7 @@ export function Navbar() {
             </span>
           </Link>
 
-          {/* Zone 2: Clean Single-Line Nav Links with Sliding Liquid Pill */}
+          {/* Zone 2: Clean Single-Line Nav Links + Explore Menu */}
           <nav
             aria-label="Primary"
             className="hidden md:flex items-center gap-1"
@@ -150,6 +252,7 @@ export function Navbar() {
                 <Link
                   key={item.href}
                   href={item.href}
+                  onClick={() => setExploreOpen(false)}
                   className={`relative px-4 py-1.5 text-sm font-medium rounded-full whitespace-nowrap shrink-0 transition-colors duration-150 ${
                     active
                       ? 'text-emerald-700 dark:text-[#10E89A]'
@@ -167,6 +270,86 @@ export function Navbar() {
                 </Link>
               );
             })}
+
+            {/* Explore Dropdown */}
+            <div ref={exploreRef} className="relative">
+              <button
+                type="button"
+                aria-expanded={exploreOpen}
+                aria-haspopup="true"
+                onClick={() => setExploreOpen((prev) => !prev)}
+                className={`relative inline-flex items-center gap-1 px-4 py-1.5 text-sm font-medium rounded-full whitespace-nowrap shrink-0 transition-colors duration-150 cursor-pointer ${
+                  isExploreRoute || exploreOpen
+                    ? 'text-emerald-700 dark:text-[#10E89A]'
+                    : 'text-slate-600 dark:text-[#9CB3C0] hover:text-slate-950 dark:hover:text-white'
+                }`}
+              >
+                {isExploreRoute && (
+                  <motion.span
+                    layoutId="desktop-nav-pill"
+                    transition={APPLE_SPRING}
+                    className="absolute inset-0 rounded-full bg-emerald-500/15 dark:bg-[#10E89A]/18 shadow-[inset_0_1px_0_rgba(255,255,255,0.35)] dark:shadow-[inset_0_1px_0_rgba(16,232,154,0.35)] -z-10"
+                  />
+                )}
+                <span>Explore</span>
+                <ChevronDown
+                  className={`w-3.5 h-3.5 transition-transform duration-200 ${
+                    exploreOpen ? 'rotate-180' : ''
+                  }`}
+                />
+              </button>
+
+              <AnimatePresence>
+                {exploreOpen && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 8, scale: 0.97 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 6, scale: 0.97 }}
+                    transition={APPLE_SPRING}
+                    className="absolute right-0 mt-3 w-[540px] liquid-glass-strong rounded-3xl p-3 shadow-2xl border border-slate-900/10 dark:border-white/12 z-50"
+                  >
+                    <div className="grid grid-cols-2 gap-1.5">
+                      {EXPLORE_ITEMS.map((item) => {
+                        const Icon = item.icon;
+                        const active =
+                          pathname === item.href ||
+                          pathname?.startsWith(`${item.href}/`);
+                        return (
+                          <Link
+                            key={item.href}
+                            href={item.href}
+                            onClick={() => setExploreOpen(false)}
+                            className={`flex items-start gap-3 p-3 rounded-2xl transition-colors group ${
+                              active
+                                ? 'bg-emerald-500/12 dark:bg-[#10E89A]/14'
+                                : 'hover:bg-black/[0.04] dark:hover:bg-white/[0.06]'
+                            }`}
+                          >
+                            <span
+                              className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 mt-0.5 transition-colors ${
+                                active
+                                  ? 'bg-emerald-600 dark:bg-[#10E89A] text-white dark:text-[#04130D]'
+                                  : 'bg-emerald-500/10 dark:bg-[#10E89A]/12 text-emerald-600 dark:text-[#10E89A]'
+                              }`}
+                            >
+                              <Icon className="w-4 h-4" />
+                            </span>
+                            <div className="min-w-0">
+                              <p className="text-sm font-semibold text-slate-900 dark:text-[#F1F7FA] group-hover:text-emerald-600 dark:group-hover:text-[#10E89A] transition-colors truncate">
+                                {item.label}
+                              </p>
+                              <p className="text-[11px] text-slate-500 dark:text-[#86A1B0] line-clamp-1">
+                                {item.desc}
+                              </p>
+                            </div>
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
           </nav>
 
           {/* Zone 3: Search + Animated Light/Dark Mode Toggle */}
@@ -176,7 +359,10 @@ export function Navbar() {
               whileHover={{ scale: 1.03 }}
               whileTap={{ scale: 0.95 }}
               transition={APPLE_SPRING}
-              onClick={() => setSearchOpen(true)}
+              onClick={() => {
+                setExploreOpen(false);
+                setSearchOpen(true);
+              }}
               aria-label="Search games"
               className="flex items-center gap-2 px-3 sm:px-3.5 h-9 text-sm text-slate-600 dark:text-[#9CB3C0] bg-black/[0.04] dark:bg-white/[0.06] border border-slate-900/10 dark:border-white/10 rounded-full hover:border-emerald-500/50 hover:text-slate-950 dark:hover:text-white transition-colors whitespace-nowrap shrink-0 cursor-pointer"
             >
@@ -225,16 +411,18 @@ export function Navbar() {
         className="md:hidden fixed bottom-3 left-3 right-3 z-40"
       >
         <div className="max-w-md mx-auto liquid-glass-strong rounded-full p-1.5 grid grid-cols-5 gap-1">
-          {MOBILE_DOCK_ITEMS.map((item) => {
+          {MOBILE_DOCK_LINKS.map((item) => {
             const Icon = item.icon;
             const active =
-              item.href === '/'
+              !mobileExploreOpen &&
+              (item.href === '/'
                 ? pathname === '/'
-                : pathname === item.href || pathname?.startsWith(item.href);
+                : pathname === item.href || pathname?.startsWith(item.href));
             return (
               <Link
                 key={item.href}
                 href={item.href}
+                onClick={() => setMobileExploreOpen(false)}
                 className={`relative flex flex-col items-center justify-center py-1.5 rounded-full text-[11px] font-medium transition-colors ${
                   active
                     ? 'text-emerald-700 dark:text-[#10E89A]'
@@ -253,8 +441,93 @@ export function Navbar() {
               </Link>
             );
           })}
+
+          <button
+            type="button"
+            onClick={() => setMobileExploreOpen((prev) => !prev)}
+            className={`relative flex flex-col items-center justify-center py-1.5 rounded-full text-[11px] font-medium transition-colors cursor-pointer ${
+              mobileExploreOpen || isExploreRoute
+                ? 'text-emerald-700 dark:text-[#10E89A]'
+                : 'text-slate-600 dark:text-[#9CB3C0] hover:text-slate-900 dark:hover:text-white'
+            }`}
+          >
+            {(mobileExploreOpen || isExploreRoute) && (
+              <motion.span
+                layoutId="mobile-dock-pill"
+                transition={APPLE_SPRING}
+                className="absolute inset-0 rounded-full bg-emerald-500/18 dark:bg-[#10E89A]/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.45)] dark:shadow-[inset_0_1px_0_rgba(16,232,154,0.45)] -z-10"
+              />
+            )}
+            <Compass className="w-4 h-4 mb-0.5" />
+            <span className="truncate">Explore</span>
+          </button>
         </div>
       </nav>
+
+      {/* Mobile Explore Sheet */}
+      <AnimatePresence>
+        {mobileExploreOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.18 }}
+            className="md:hidden fixed inset-0 z-50 bg-slate-950/50 dark:bg-black/75 backdrop-blur-md flex items-end justify-center p-3 pb-20"
+            onClick={() => setMobileExploreOpen(false)}
+          >
+            <motion.div
+              initial={{ opacity: 0, y: 24 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 20 }}
+              transition={APPLE_SPRING}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-md liquid-glass-strong rounded-3xl p-4 space-y-3 max-h-[75vh] overflow-y-auto"
+            >
+              <div className="flex items-center justify-between px-1">
+                <p className="font-display text-base font-bold text-slate-900 dark:text-[#F1F7FA]">
+                  Explore RoMetric
+                </p>
+                <button
+                  type="button"
+                  aria-label="Close explore menu"
+                  onClick={() => setMobileExploreOpen(false)}
+                  className="p-1.5 rounded-full text-slate-500 dark:text-[#9CB3C0] hover:bg-black/5 dark:hover:bg-white/10"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <Link
+                  href="/trending"
+                  onClick={() => setMobileExploreOpen(false)}
+                  className="flex items-center gap-2.5 p-3 rounded-2xl bg-black/[0.03] dark:bg-white/[0.04]"
+                >
+                  <Flame className="w-4 h-4 text-emerald-600 dark:text-[#10E89A] shrink-0" />
+                  <span className="text-xs font-semibold text-slate-900 dark:text-[#F1F7FA] truncate">
+                    Trending
+                  </span>
+                </Link>
+                {EXPLORE_ITEMS.map((item) => {
+                  const Icon = item.icon;
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      onClick={() => setMobileExploreOpen(false)}
+                      className="flex items-center gap-2.5 p-3 rounded-2xl bg-black/[0.03] dark:bg-white/[0.04]"
+                    >
+                      <Icon className="w-4 h-4 text-emerald-600 dark:text-[#10E89A] shrink-0" />
+                      <span className="text-xs font-semibold text-slate-900 dark:text-[#F1F7FA] truncate">
+                        {item.label}
+                      </span>
+                    </Link>
+                  );
+                })}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Spring-Animated Instant Search Modal */}
       <AnimatePresence>
