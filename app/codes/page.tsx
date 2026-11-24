@@ -1,24 +1,39 @@
 import type { Metadata } from 'next';
 import { fetchCodesDirectory } from '@/lib/codes-server';
 import { CodesDirectoryClient } from '@/components/CodesDirectoryClient';
+import {
+  SITE_URL,
+  cleanSeoGameName,
+  getCurrentMonthYear,
+  safeJsonLd,
+} from '@/lib/seo';
 
-export const dynamic = 'force-dynamic';
+export const revalidate = 180;
 
-export const metadata: Metadata = {
-  title: 'Roblox Game Codes Directory — Active & Working Codes',
-  description:
-    'Browse automatically updated Roblox game promo codes across tracked experiences, with clear verification timestamps, reward details, and source attribution on RoMetric.',
-  alternates: {
-    canonical: 'https://rometrics.vercel.app/codes',
-  },
-  openGraph: {
-    title: 'Roblox Game Codes Directory | RoMetric',
-    description:
-      'Search active and historical Roblox promo codes with honest verification timestamps and one-tap copy.',
-    url: 'https://rometrics.vercel.app/codes',
-    type: 'website',
-  },
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const monthYear = getCurrentMonthYear();
+  const title = `Roblox Game Codes (${monthYear}) — Active & Working Directory`;
+  const description = `Browse automatically updated active and working Roblox promo codes for ${monthYear} across hundreds of top games, with verification timestamps and one-tap copy on RoMetric.`;
+
+  return {
+    title,
+    description,
+    alternates: {
+      canonical: `${SITE_URL}/codes`,
+    },
+    openGraph: {
+      title: `${title} | RoMetric`,
+      description,
+      url: `${SITE_URL}/codes`,
+      type: 'website',
+    },
+    twitter: {
+      card: 'summary_large_image',
+      title: `${title} | RoMetric`,
+      description,
+    },
+  };
+}
 
 export default async function CodesDirectoryPage() {
   const initialData = await fetchCodesDirectory({
@@ -26,5 +41,44 @@ export default async function CodesDirectoryPage() {
     sort: 'popular',
   });
 
-  return <CodesDirectoryClient initialData={initialData} />;
+  const topGames = initialData.games.slice(0, 20);
+  const jsonLd = {
+    '@context': 'https://schema.org',
+    '@graph': [
+      {
+        '@type': 'BreadcrumbList',
+        itemListElement: [
+          { '@type': 'ListItem', position: 1, name: 'Home', item: SITE_URL },
+          {
+            '@type': 'ListItem',
+            position: 2,
+            name: 'Roblox Game Codes',
+            item: `${SITE_URL}/codes`,
+          },
+        ],
+      },
+      {
+        '@type': 'ItemList',
+        name: `Active Roblox Game Codes (${getCurrentMonthYear()})`,
+        url: `${SITE_URL}/codes`,
+        numberOfItems: topGames.length,
+        itemListElement: topGames.map((g, idx) => ({
+          '@type': 'ListItem',
+          position: idx + 1,
+          name: `${cleanSeoGameName(g.name)} Codes`,
+          url: `${SITE_URL}/codes/${encodeURIComponent(g.slug)}`,
+        })),
+      },
+    ],
+  };
+
+  return (
+    <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(jsonLd) }}
+      />
+      <CodesDirectoryClient initialData={initialData} />
+    </>
+  );
 }

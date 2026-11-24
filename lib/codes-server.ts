@@ -940,9 +940,10 @@ export async function runCodesCollectionCycle(options: {
                 const isExpiredByDate =
                   item.expiresAt !== null &&
                   Date.parse(item.expiresAt) < Date.now();
-                const targetStatus: CodeStatus = isExpiredByDate
-                  ? 'expired'
-                  : item.status;
+                const targetStatus: CodeStatus =
+                  isExpiredByDate || item.status === 'expired'
+                    ? 'expired'
+                    : 'active';
 
                 if (!prev) {
                   const insertRes = await supabaseRest(

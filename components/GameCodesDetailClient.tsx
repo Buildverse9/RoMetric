@@ -30,15 +30,23 @@ import {
   LiquidGlassCard,
 } from './MotionPrimitives';
 import { SubmitCodeModal } from './SubmitCodeModal';
+import {
+  buildCodeFaqItems,
+  cleanSeoGameName,
+  getCurrentMonthYear,
+} from '@/lib/seo';
 
 export function GameCodesDetailClient({
   initialPayload,
+  monthYear,
 }: {
   initialPayload: GameCodesDetailPayload;
+  monthYear?: string;
 }) {
   const [payload, setPayload] = useState<GameCodesDetailPayload>(initialPayload);
   const [showExpired, setShowExpired] = useState(false);
   const [submitOpen, setSubmitOpen] = useState(false);
+  const effectiveMonthYear = monthYear || getCurrentMonthYear();
 
   const game = payload.game;
 
@@ -167,7 +175,7 @@ export function GameCodesDetailClient({
               </div>
               <div className="min-w-0 space-y-1">
                 <h1 className="font-display text-2xl sm:text-3xl font-extrabold text-slate-950 dark:text-white tracking-tight text-balance">
-                  {game.name} Codes
+                  {game.name} Codes ({effectiveMonthYear})
                 </h1>
                 <p className="text-sm text-slate-600 dark:text-[#9CB3C0] flex flex-wrap items-center gap-x-2 gap-y-1">
                   <Link
@@ -373,6 +381,79 @@ export function GameCodesDetailClient({
           </LiquidGlassCard>
         </FadeInSection>
       )}
+
+      {/* How to Redeem & Frequently Asked Questions (SEO + Player Guide) */}
+      <FadeInSection>
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+          <LiquidGlassCard
+            hideCardActions
+            className="lg:col-span-5 rounded-[24px] p-5 sm:p-6 space-y-3.5"
+          >
+            <h2 className="font-display text-base sm:text-lg font-bold text-slate-950 dark:text-white">
+              How to Redeem {cleanSeoGameName(game.name)} Codes
+            </h2>
+            <ol className="space-y-2.5 text-xs sm:text-sm text-slate-600 dark:text-[#9CB3C0] leading-relaxed list-decimal list-inside">
+              <li>
+                Launch{' '}
+                <strong className="text-slate-900 dark:text-[#F1F7FA]">
+                  {cleanSeoGameName(game.name)}
+                </strong>{' '}
+                on Roblox (PC, mobile, or console).
+              </li>
+              <li>
+                Open the in-game{' '}
+                <strong className="text-slate-900 dark:text-[#F1F7FA]">
+                  Codes
+                </strong>{' '}
+                menu (usually found on the side HUD, shop icon, gift box, or
+                settings gear).
+              </li>
+              <li>
+                Copy an active code above using the one-tap copy button and
+                paste it into the text field.
+              </li>
+              <li>
+                Press{' '}
+                <strong className="text-slate-900 dark:text-[#F1F7FA]">
+                  Redeem
+                </strong>{' '}
+                or{' '}
+                <strong className="text-slate-900 dark:text-[#F1F7FA]">
+                  Confirm
+                </strong>{' '}
+                to claim your in-game reward immediately.
+              </li>
+            </ol>
+          </LiquidGlassCard>
+
+          <LiquidGlassCard
+            hideCardActions
+            className="lg:col-span-7 rounded-[24px] p-5 sm:p-6 space-y-4"
+          >
+            <h2 className="font-display text-base sm:text-lg font-bold text-slate-950 dark:text-white">
+              {cleanSeoGameName(game.name)} Codes FAQ ({effectiveMonthYear})
+            </h2>
+            <div className="divide-y divide-slate-900/6 dark:divide-white/8 space-y-3">
+              {buildCodeFaqItems({
+                gameName: game.name,
+                activeCount: activeCodes.length,
+                expiredCount: expiredCodes.length,
+                monthYear: effectiveMonthYear,
+                newestCode: activeCodes[0]?.code ?? null,
+              }).map((faq, idx) => (
+                <div key={faq.question} className={idx > 0 ? 'pt-3' : ''}>
+                  <h3 className="text-xs sm:text-sm font-semibold text-slate-900 dark:text-[#F1F7FA]">
+                    {faq.question}
+                  </h3>
+                  <p className="mt-1 text-xs sm:text-sm text-slate-600 dark:text-[#8BA3B2] leading-relaxed">
+                    {faq.answer}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </LiquidGlassCard>
+        </div>
+      </FadeInSection>
 
       {/* Mandatory Source Attribution & Licensing Box */}
       <FadeInSection>

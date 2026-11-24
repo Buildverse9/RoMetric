@@ -9,6 +9,7 @@
     "lint": "eslint .",
     "clean": "next clean",
     "sync:codes": "node scripts/sync-bloxarchive-codes.mjs",
+    "sync:wiki": "node scripts/sync-wiki-codes.mjs",
     "list:codes": "node scripts/list-codes.mjs",
     "import:codes": "node scripts/import-local-codes.mjs"
   },

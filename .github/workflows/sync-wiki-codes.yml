@@ -1,0 +1,48 @@
+name: RoMetric Automated Wiki Codes Sync
+
+on:
+  schedule:
+    # Runs automatically every 6 hours (03:15, 09:15, 15:15, 21:15 UTC) — staggered from BloxArchive sync
+    - cron: '15 3,9,15,21 * * *'
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: 'Games to scan (number or "all")'
+        required: false
+        default: 'all'
+      only_missing:
+        description: 'Only scan games currently missing codes'
+        type: boolean
+        required: false
+        default: false
+
+concurrency:
+  group: rometric-sync-wiki-codes
+  cancel-in-progress: false
+
+jobs:
+  sync-wiki-codes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Sync Codes from Fandom & Wiki.gg MediaWiki APIs
+        env:
+          CI: 'true'
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          LIMIT="${{ github.event.inputs.limit || 'all' }}"
+          EXTRA_FLAGS=""
+          if [ "${{ github.event.inputs.only_missing }}" = "true" ]; then
+            EXTRA_FLAGS="--only-missing"
+          fi
+          node scripts/sync-wiki-codes.mjs --ci --limit="$LIMIT" --concurrency=8 $EXTRA_FLAGS

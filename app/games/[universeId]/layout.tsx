@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { fetchSupabaseGameById } from '@/lib/supabase-server';
 import { formatCompactNumber } from '@/lib/format';
+import { cleanSeoGameName, getCurrentMonthYear } from '@/lib/seo';
 
 export async function generateMetadata({
   params,
@@ -20,8 +21,10 @@ export async function generateMetadata({
   try {
     const game = await fetchSupabaseGameById(cleanId);
     if (game) {
-      const title = `${game.name} Live Player Count, Stats & Revenue`;
-      const description = `${game.name} by ${game.creatorName} currently has ${formatCompactNumber(game.currentCcu)} live players and ${formatCompactNumber(game.totalVisits)} total visits. Track historical CCU charts, benchmarks, gamepasses, badges, and codes on RoMetric.`;
+      const seoName = cleanSeoGameName(game.name);
+      const monthYear = getCurrentMonthYear();
+      const title = `${seoName} Live Player Count, Stats & Revenue (${monthYear})`;
+      const description = `${seoName} by ${game.creatorName} has ${formatCompactNumber(game.currentCcu)} live players and ${formatCompactNumber(game.totalVisits)} total visits. Track live CCU charts, peak records, estimated revenue, and active codes on RoMetric.`;
       const ogCardUrl = `https://rometrics.vercel.app/og/social?t=surge&g=${game.universeId}`;
 
       return {
@@ -40,7 +43,7 @@ export async function generateMetadata({
               url: ogCardUrl,
               width: 1200,
               height: 630,
-              alt: `${game.name} live stats on RoMetric`,
+              alt: `${seoName} live stats on RoMetric`,
             },
           ],
         },

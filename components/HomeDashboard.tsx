@@ -71,18 +71,28 @@ interface PlatformHistoryPayload {
   sourceTable: string;
 }
 
-export function HomeDashboard() {
+export function HomeDashboard({
+  initialGames = [],
+  initialLastUpdatedAt = null,
+}: {
+  initialGames?: GameRecordData[];
+  initialLastUpdatedAt?: string | null;
+}) {
   const router = useRouter();
   const {
     theme,
-    games,
+    games: contextGames,
     developers,
-    loadingGames,
+    loadingGames: contextLoadingGames,
     gamesError,
-    lastUpdatedAt,
+    lastUpdatedAt: contextLastUpdatedAt,
     refreshCatalog,
     setSearchOpen,
   } = useApp();
+
+  const games = contextGames.length > 0 ? contextGames : initialGames;
+  const loadingGames = contextLoadingGames && games.length === 0;
+  const lastUpdatedAt = contextLastUpdatedAt || initialLastUpdatedAt;
 
   const isDark = theme === 'dark';
   const [heroRange, setHeroRange] = useState<TimeRange>('24h');
@@ -728,17 +738,17 @@ export function HomeDashboard() {
           {/* Hero Metric Readout with Rolling Odometer CCU Animation */}
           <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-5">
             <div>
-              <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-emerald-700 dark:text-[#10E89A]">
+              <h1 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-emerald-700 dark:text-[#10E89A]">
                 <Activity className="w-3.5 h-3.5" />
-                <span>Roblox Platform Live CCU</span>
-              </div>
-              <h1 className="mt-2 font-display text-4xl sm:text-[52px] leading-[1.05] font-extrabold text-slate-950 dark:text-white tracking-tight tabular-nums">
+                <span>Roblox Live Player Counts &amp; Game Analytics</span>
+              </h1>
+              <p className="mt-2 font-display text-4xl sm:text-[52px] leading-[1.05] font-extrabold text-slate-950 dark:text-white tracking-tight tabular-nums">
                 {loadingGames ? (
                   '—'
                 ) : (
                   <RollingCcuNumber value={totalLiveCcu} showDelta />
                 )}
-              </h1>
+              </p>
               <div className="mt-2.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-slate-500 dark:text-[#9CB3C0]">
                 {weightedGrowth !== null && (
                   <>

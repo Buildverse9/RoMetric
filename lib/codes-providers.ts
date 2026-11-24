@@ -353,12 +353,8 @@ export function parseMediaWikiCodesWikitext(
         ? sanitizePlainText(currentRowCells[2], 60)
         : null;
 
-      let status: 'active' | 'expired' | 'unverified' =
-        sectionState === 'expired'
-          ? 'expired'
-          : sectionState === 'active'
-            ? 'active'
-            : 'unverified';
+      let status: 'active' | 'expired' =
+        sectionState === 'expired' ? 'expired' : 'active';
 
       if (statusCell) {
         if (/\b(expired|inactive|invalid|disabled|no)\b/i.test(statusCell)) {
@@ -459,12 +455,8 @@ export function parseMediaWikiCodesWikitext(
           const norm = normalizePromoCode(codeToken);
           if (!results.has(norm)) {
             const reward = sanitizePlainText(bulletMatch[2], 180);
-            const status: 'active' | 'expired' | 'unverified' =
-              sectionState === 'expired'
-                ? 'expired'
-                : sectionState === 'active'
-                  ? 'active'
-                  : 'unverified';
+            const status: 'active' | 'expired' =
+              sectionState === 'expired' ? 'expired' : 'active';
             results.set(norm, {
               code: codeToken,
               rewardDescription: reward,
