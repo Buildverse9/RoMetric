@@ -291,7 +291,16 @@ BLOXARCHIVE_API_KEY="${bloxApiKey}"
       headers: { 'X-API-Key': bloxApiKey, Accept: 'application/json' },
     });
     if (!pageRes.ok) {
-      console.error(`BloxArchive /games returned HTTP ${pageRes.status}:`, await pageRes.text());
+      const errText = await pageRes.text();
+      let isDaily = false;
+      try {
+        if (JSON.parse(errText).error === 'daily_limit') isDaily = true;
+      } catch {}
+      if (isDaily) {
+        console.error('\n✖ BloxArchive Daily Limit Reached: Your key has reached its daily request ceiling. Resets at 00:00 UTC.');
+      } else {
+        console.error(`BloxArchive /games returned HTTP ${pageRes.status}:`, errText);
+      }
       break;
     }
     const pageData = await pageRes.json();
@@ -462,6 +471,15 @@ BLOXARCHIVE_API_KEY="${bloxApiKey}"
           headers: { 'X-API-Key': bloxApiKey, Accept: 'application/json' },
         });
         if (res.status === 429) {
+          const bodyClone = res.clone();
+          try {
+            const bodyJson = await bodyClone.json();
+            if (bodyJson.error === 'daily_limit') {
+              console.error(`\n✖ BloxArchive Daily Limit: ${bodyJson.message || 'Daily limit reached.'}`);
+              return { skipped: true, name: bg.name, reason: 'BloxArchive daily request limit reached' };
+            }
+          } catch {}
+
           const retryAfter = res.headers.get('retry-after');
           const waitMs = retryAfter
             ? (parseInt(retryAfter, 10) + 1) * 1000
