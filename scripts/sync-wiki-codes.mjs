@@ -1,20 +1,15 @@
 #!/usr/bin/env node
 /**
- * RoMetric — High-Speed Fandom & Wiki.gg MediaWiki Codes Sync (PC Native)
+ * RoMetric — High-Speed Fandom MediaWiki Codes Sync (PC Native)
  *
- * Uses official public MediaWiki JSON APIs (CC-BY-SA) with ZERO daily API-key quotas:
- *   - Fandom MediaWiki API (*.fandom.com/api.php)
- *   - Wiki.gg MediaWiki API (*.wiki.gg/api.php)
- *   - Curated independent Roblox MediaWikis (e.g., Miraheze, Fischipedia, Urbanshade)
- *
- * Built for high-end PCs with configurable concurrency (default: 16 workers)
- * to scan 1,000+ Roblox games in ~1–2 minutes and upsert directly into Supabase.
+ * Uses official public MediaWiki JSON APIs (CC-BY-SA) with ZERO daily API-key quotas.
+ * Automatically classifies every code directly into `active` or `expired` (no manual approval).
  *
  * Usage:
  *   npm run sync:wiki
- *   npm run sync:wiki -- --concurrency=20
+ *   npm run sync:wiki -- --concurrency=24
  *   npm run sync:wiki -- --game="Blox Fruits"
- *   npm run sync:wiki -- --limit=200
+ *   npm run sync:wiki -- --limit=500
  *   npm run sync:wiki -- --only-missing
  *   npm run sync:wiki -- --dry-run
  */
@@ -24,85 +19,111 @@ import path from 'path';
 import readline from 'readline';
 
 const USER_AGENT =
-  'RoMetricWikiSync/2.1 (+https://rometrics.vercel.app; legitimate MediaWiki public API consumer)';
+  'RoMetricWikiSync/2.2 (+https://rometrics.vercel.app; legitimate MediaWiki public API consumer)';
 
-// Curated high-accuracy wiki mappings (Fandom + Wiki.gg + Miraheze)
+const CODE_SOURCE_ID = 'fandom_mediawiki_api';
+
+// Curated verified Fandom MediaWiki mappings (exact/near-exact cleaned name matching to prevent clone mismatches)
 const KNOWN_WIKIS = [
-  { keywords: ['blox fruits'], hosts: ['blox-fruits.fandom.com'] },
-  { keywords: ['pet simulator 99', 'pet sim 99'], hosts: ['pet-simulator.fandom.com'] },
-  { keywords: ['adopt me'], hosts: ['adoptme.fandom.com'] },
-  { keywords: ['brookhaven'], hosts: ['brookhaven-rp.fandom.com'] },
-  { keywords: ['blade ball'], hosts: ['blade-ball.fandom.com'] },
-  { keywords: ['dress to impress'], hosts: ['dti-dress-to-impress.fandom.com'] },
-  { keywords: ['anime defenders'], hosts: ['animedefenders.fandom.com'] },
-  { keywords: ['anime vanguards'], hosts: ['animevanguards.fandom.com', 'animevanguards.wiki.gg'] },
-  { keywords: ['fisch'], hosts: ['fisch.fandom.com', 'fischipedia.org'] },
-  { keywords: ['bee swarm simulator', 'beeswarm'], hosts: ['bee-swarm-simulator.fandom.com'] },
-  { keywords: ['shindo life', 'shinobi life'], hosts: ['shindo-life-rell.fandom.com'] },
-  { keywords: ['king legacy'], hosts: ['king-legacy.fandom.com'] },
-  { keywords: ['all star tower defense'], hosts: ['allstartowerdefense.fandom.com'] },
-  { keywords: ['tower defense simulator'], hosts: ['tds.fandom.com'] },
-  { keywords: ['jailbreak'], hosts: ['jailbreak.fandom.com'] },
-  { keywords: ['murder mystery 2'], hosts: ['murder-mystery-2.fandom.com'] },
-  { keywords: ['toilet tower defense'], hosts: ['toilet-tower-defense.fandom.com'] },
-  { keywords: ['rivals'], hosts: ['robloxrivals.fandom.com'] },
-  { keywords: ['blue lock rivals', 'blue lock: rivals'], hosts: ['bluelockrivals.fandom.com'] },
-  { keywords: ["sol's rng", 'sols rng'], hosts: ['sol-rng.fandom.com'] },
-  { keywords: ['fruit battlegrounds'], hosts: ['fruitbattlegrounds.fandom.com'] },
-  { keywords: ['grand piece online'], hosts: ['grand-piece-online.fandom.com'] },
-  { keywords: ['your bizarre adventure'], hosts: ['your-bizarre-adventure.fandom.com'] },
-  { keywords: ['a universal time'], hosts: ['a-universal-time-roblox.fandom.com'] },
-  { keywords: ['driving empire'], hosts: ['driving-empire.fandom.com'] },
-  { keywords: ['da hood'], hosts: ['dahood.fandom.com'] },
-  { keywords: ['slap battles'], hosts: ['roblox-slap-battles.fandom.com'] },
-  { keywords: ['doors'], hosts: ['doors-game.fandom.com'] },
-  { keywords: ['peroxide'], hosts: ['peroxide.fandom.com'] },
-  { keywords: ['type soul', 'type://soul'], hosts: ['typesoul.fandom.com'] },
-  { keywords: ['jujutsu shenanigans'], hosts: ['jujutsu-shenanigans.fandom.com'] },
-  { keywords: ['jujutsu infinite'], hosts: ['jujutsu-infinite.fandom.com'] },
-  { keywords: ['anime adventures'], hosts: ['animeadventures.fandom.com'] },
-  { keywords: ['grow a garden'], hosts: ['growagarden.fandom.com'] },
-  { keywords: ['dead rails'], hosts: ['dead-rails.fandom.com', 'deadrails.wiki.gg'] },
-  { keywords: ['basketball zero'], hosts: ['basketball-zero.fandom.com'] },
-  { keywords: ['arise crossover'], hosts: ['arise-crossover.fandom.com'] },
-  { keywords: ['spongebob tower defense'], hosts: ['spongebob-tower-defense.fandom.com'] },
-  { keywords: ['bubble gum simulator infinity'], hosts: ['bgsi.fandom.com'] },
-  { keywords: ["dandy's world", 'dandys world'], hosts: ['dandys-world-robloxhorror.fandom.com'] },
-  { keywords: ['the strongest battlegrounds'], hosts: ['the-strongest-battlegrounds-rblx.fandom.com'] },
-  { keywords: ['anime last stand'], hosts: ['alsroblox.fandom.com', 'animelaststand.fandom.com'] },
-  { keywords: ['anime reborn'], hosts: ['anime-reborn.fandom.com'] },
-  { keywords: ['haikyuu legends', 'volleyball legends'], hosts: ['volleyball-legends.fandom.com', 'haikyuu-legends.fandom.com'] },
-  { keywords: ['flee the facility'], hosts: ['flee-the-facility.fandom.com'] },
-  { keywords: ['bedwars'], hosts: ['robloxbedwars.fandom.com'] },
-  { keywords: ['arsenal'], hosts: ['roblox-arsenal.fandom.com'] },
-  { keywords: ['phantom forces'], hosts: ['roblox-phantom-forces.fandom.com'] },
-  { keywords: ['loomian legacy'], hosts: ['loomian-legacy.fandom.com'] },
-  { keywords: ['doodle world'], hosts: ['doodle-world.fandom.com'] },
-  { keywords: ['dragon adventures'], hosts: ['dragon-adventures.fandom.com'] },
-  { keywords: ['creatures of sonaria'], hosts: ['creatures-of-sonaria-official.fandom.com'] },
-  { keywords: ['royale high'], hosts: ['royale-high.fandom.com'] },
-  { keywords: ['bloxburg', 'welcome to bloxburg'], hosts: ['welcome-to-bloxburg.fandom.com'] },
-  { keywords: ['livetopia'], hosts: ['livetopia.fandom.com'] },
-  { keywords: ['berry avenue'], hosts: ['berry-avenue.fandom.com'] },
-  { keywords: ['evade'], hosts: ['evade-nextbot.fandom.com'] },
-  { keywords: ['pressure'], hosts: ['urbanshade.org', 'pressure-roblox.fandom.com'] },
-  { keywords: ['regretevator'], hosts: ['regretevator.fandom.com'] },
-  { keywords: ['forsaken'], hosts: ['forsaken2024.fandom.com'] },
-  { keywords: ['deepwoken'], hosts: ['deepwoken.fandom.com'] },
-  { keywords: ['pilgrammed'], hosts: ['pilgrammed-rblx.fandom.com'] },
-  { keywords: ['arcane odyssey'], hosts: ['roblox-arcane-odyssey.fandom.com'] },
-  { keywords: ['world zero'], hosts: ['world-zero.fandom.com'] },
-  { keywords: ['guts & blackpowder', 'guts and blackpowder'], hosts: ['gbp.miraheze.org', 'gutsandblackpowder.fandom.com'] },
-  { keywords: ['super league soccer'], hosts: ['super-league-soccer.fandom.com'] },
-  { keywords: ['untitled boxing game'], hosts: ['untitled-boxing-game.fandom.com'] },
-  { keywords: ['tsb', 'strongest battlegrounds'], hosts: ['the-strongest-battlegrounds-rblx.fandom.com'] },
-  { keywords: ['anime rangers x'], hosts: ['anime-rangers-x.fandom.com'] },
-  { keywords: ['dead spells'], hosts: ['dead-spells.fandom.com'] },
-  { keywords: ['steal a brainrot'], hosts: ['stealabrainrot.fandom.com'] },
-  { keywords: ['99 nights in the forest'], hosts: ['99-nights-in-the-forest.fandom.com'] },
-  { keywords: ['hunty zombie'], hosts: ['hunty-zombie.fandom.com'] },
-  { keywords: ['ink game'], hosts: ['ink-game.fandom.com'] },
-  { keywords: ['blue lock'], hosts: ['bluelockrivals.fandom.com'] },
+  { names: ['blox fruits'], hosts: ['blox-fruits.fandom.com'] },
+  { names: ['pet simulator 99', 'pet sim 99', 'pet simulator x'], hosts: ['pet-simulator.fandom.com'] },
+  { names: ['adopt me'], hosts: ['adoptme.fandom.com'] },
+  { names: ['brookhaven rp', 'brookhaven'], hosts: ['brookhaven-rp.fandom.com'] },
+  { names: ['blade ball'], hosts: ['bladeball.fandom.com', 'blade-ball.fandom.com'] },
+  { names: ['dress to impress'], hosts: ['dti-dress-to-impress.fandom.com'] },
+  { names: ['anime defenders'], hosts: ['animedefenders.fandom.com', 'anime-defenders.fandom.com'] },
+  { names: ['anime vanguards'], hosts: ['animevanguards.fandom.com', 'anime-vanguards.fandom.com'] },
+  { names: ['fisch'], hosts: ['fisch.fandom.com'] },
+  { names: ['bee swarm simulator', 'beeswarm'], hosts: ['bee-swarm-simulator.fandom.com'] },
+  { names: ['shindo life', 'shinobi life 2'], hosts: ['shindo-life-rell.fandom.com'] },
+  { names: ['king legacy'], hosts: ['king-legacy.fandom.com'] },
+  { names: ['all star tower defense', 'all star tower defense x'], hosts: ['all-star-tower-defense.fandom.com'] },
+  { names: ['tower defense simulator'], hosts: ['tds.fandom.com'] },
+  { names: ['jailbreak'], hosts: ['jailbreak.fandom.com'] },
+  { names: ['murder mystery 2'], hosts: ['murder-mystery-2.fandom.com'] },
+  { names: ['toilet tower defense'], hosts: ['toilet-tower-defense.fandom.com'] },
+  { names: ['rivals'], hosts: ['robloxrivals.fandom.com'] },
+  { names: ['blue lock rivals', 'blue lock: rivals'], hosts: ['blue-lock-rivals.fandom.com', 'bluelockrivals.fandom.com'] },
+  { names: ["sol's rng", 'sols rng'], hosts: ['sol-rng.fandom.com'] },
+  { names: ['fruit battlegrounds'], hosts: ['fruit-battlegrounds.fandom.com'] },
+  { names: ['grand piece online'], hosts: ['grand-piece-online.fandom.com'] },
+  { names: ['your bizarre adventure'], hosts: ['your-bizarre-adventure.fandom.com'] },
+  { names: ['a universal time'], hosts: ['a-universal-time-roblox.fandom.com'] },
+  { names: ['driving empire'], hosts: ['drivingempire.fandom.com', 'driving-empire.fandom.com'] },
+  { names: ['da hood'], hosts: ['dahood.fandom.com', 'da-hood.fandom.com'] },
+  { names: ['slap battles'], hosts: ['roblox-slap-battles.fandom.com'] },
+  { names: ['doors'], hosts: ['doors-game.fandom.com'] },
+  { names: ['peroxide'], hosts: ['peroxide.fandom.com'] },
+  { names: ['type soul', 'type://soul'], hosts: ['type-soul.fandom.com'] },
+  { names: ['jujutsu shenanigans'], hosts: ['jujutsu-shenanigans.fandom.com'] },
+  { names: ['jujutsu infinite'], hosts: ['jujutsuinfinite.fandom.com'] },
+  { names: ['anime adventures'], hosts: ['animeadventures.fandom.com'] },
+  { names: ['grow a garden'], hosts: ['growagarden.fandom.com'] },
+  { names: ['dead rails'], hosts: ['dead-rails.fandom.com'] },
+  { names: ['spongebob tower defense'], hosts: ['spongebob-tower-defense.fandom.com'] },
+  { names: ["dandy's world", 'dandys world'], hosts: ['dandys-world-robloxhorror.fandom.com'] },
+  { names: ['the strongest battlegrounds'], hosts: ['the-strongest-battlegrounds-rblx.fandom.com'] },
+  { names: ['anime last stand'], hosts: ['anime-last-stand.fandom.com', 'alsroblox.fandom.com'] },
+  { names: ['anime reborn'], hosts: ['animereborn.fandom.com', 'anime-reborn.fandom.com'] },
+  { names: ['volleyball legends', 'haikyuu legends'], hosts: ['volleyball-legends.fandom.com'] },
+  { names: ['flee the facility'], hosts: ['flee-the-facility.fandom.com'] },
+  { names: ['bedwars'], hosts: ['robloxbedwars.fandom.com'] },
+  { names: ['arsenal'], hosts: ['roblox-arsenal.fandom.com'] },
+  { names: ['phantom forces'], hosts: ['roblox-phantom-forces.fandom.com'] },
+  { names: ['loomian legacy'], hosts: ['loomian-legacy.fandom.com'] },
+  { names: ['doodle world'], hosts: ['doodle-world.fandom.com'] },
+  { names: ['dragon adventures'], hosts: ['dragon-adventures.fandom.com'] },
+  { names: ['creatures of sonaria'], hosts: ['creatures-of-sonaria-official.fandom.com'] },
+  { names: ['royale high'], hosts: ['royale-high.fandom.com'] },
+  { names: ['welcome to bloxburg', 'bloxburg'], hosts: ['welcome-to-bloxburg.fandom.com'] },
+  { names: ['evade'], hosts: ['evade-nextbot.fandom.com', 'evade.fandom.com'] },
+  { names: ['regretevator'], hosts: ['regretevator.fandom.com'] },
+  { names: ['forsaken'], hosts: ['forsaken2024.fandom.com'] },
+  { names: ['deepwoken'], hosts: ['deepwoken.fandom.com'] },
+  { names: ['pilgrammed'], hosts: ['pilgrammed-rblx.fandom.com'] },
+  { names: ['arcane odyssey'], hosts: ['roblox-arcane-odyssey.fandom.com'] },
+  { names: ['world zero'], hosts: ['world-zero.fandom.com'] },
+  { names: ['super league soccer'], hosts: ['super-league-soccer.fandom.com'] },
+  { names: ['steal a brainrot'], hosts: ['stealabrainrot.fandom.com'] },
+  { names: ['99 nights in the forest'], hosts: ['99-nights-in-the-forest.fandom.com'] },
+  { names: ['attack on titan revolution'], hosts: ['attack-on-titan-revolution.fandom.com'] },
+  { names: ['squid game x'], hosts: ['squid-game-x.fandom.com'] },
+  { names: ['gym league'], hosts: ['gym-league.fandom.com'] },
+  { names: ['pull a sword'], hosts: ['pull-a-sword.fandom.com'] },
+  { names: ['flag wars'], hosts: ['flag-wars.fandom.com'] },
+  { names: ['portal tower defense'], hosts: ['portaltowerdefense.fandom.com'] },
+  { names: ['anime fighters simulator'], hosts: ['anime-fighters-simulator.fandom.com'] },
+  { names: ['anime champions simulator'], hosts: ['anime-champions-simulator.fandom.com'] },
+  { names: ['shinobi life 2'], hosts: ['shindo-life-rell.fandom.com'] },
+  { names: ['project slayers'], hosts: ['project-slayers.fandom.com'] },
+  { names: ['demonfall'], hosts: ['demonfall.fandom.com'] },
+  { names: ['haze piece'], hosts: ['haze-piece.fandom.com'] },
+  { names: ['kaizen'], hosts: ['kaizen-roblox.fandom.com'] },
+  { names: ['clover retribution'], hosts: ['clover-retribution.fandom.com'] },
+  { names: ['elemental dungeons'], hosts: ['elemental-dungeons.fandom.com'] },
+  { names: ['death ball'], hosts: ['death-ball.fandom.com'] },
+  { names: ['arm wrestle simulator'], hosts: ['arm-wrestle-simulator.fandom.com'] },
+  { names: ['strongman simulator'], hosts: ['strongman-simulator.fandom.com'] },
+  { names: ['car dealership tycoon'], hosts: ['car-dealership-tycoon.fandom.com'] },
+  { names: ['vehicle legends'], hosts: ['vehicle-legends.fandom.com'] },
+  { names: ['southwest florida'], hosts: ['southwest-florida-beta.fandom.com'] },
+  { names: ['greenville'], hosts: ['greenville-wisconsin.fandom.com'] },
+  { names: ['emergency response: liberty county'], hosts: ['police-roleplay-community.fandom.com'] },
+  { names: ['build a boat for treasure'], hosts: ['build-a-boat-for-treasure.fandom.com'] },
+  { names: ['natural disaster survival'], hosts: ['natural-disaster-survival.fandom.com'] },
+  { names: ['piggy'], hosts: ['piggy.fandom.com'] },
+  { names: ['epic minigames'], hosts: ['epic-minigames.fandom.com'] },
+  { names: ['my restaurant'], hosts: ['my-restaurant.fandom.com'] },
+  { names: ['restaurant tycoon 2'], hosts: ['restaurant-tycoon-2.fandom.com'] },
+  { names: ['sonic speed simulator'], hosts: ['sonic-speed-simulator.fandom.com'] },
+  { names: ['combat warriors'], hosts: ['combat-warriors.fandom.com'] },
+  { names: ['heroes battlegrounds'], hosts: ['heroes-battlegrounds.fandom.com'] },
+  { names: ['realm rampage'], hosts: ['realm-rampage.fandom.com'] },
+  { names: ['meme sea'], hosts: ['meme-sea.fandom.com'] },
+  { names: ['pets go'], hosts: ['pets-go.fandom.com'] },
+  { names: ['sponge bob tower defense'], hosts: ['spongebob-tower-defense.fandom.com'] },
+  { names: ['anime royale'], hosts: ['anime-royale.fandom.com'] },
+  { names: ['anime shadow'], hosts: ['anime-shadow.fandom.com'] },
 ];
 
 const WIKI_CODE_TITLES = [
@@ -111,6 +132,7 @@ const WIKI_CODE_TITLES = [
   'Redeem_Codes',
   'List_of_Codes',
   'Twitter_Codes',
+  'ATMs_&_Codes',
 ];
 
 const STOP_WORDS = new Set([
@@ -195,7 +217,6 @@ function sanitizePlainText(raw, maxLen = 180) {
     .replace(/<[^>]*>/g, ' ')
     .replace(/\[\[(?:File|Image):[^\]]+\]\]/gi, ' ')
     .replace(/\[\[(?:[^|\]]*\|)?([^\]]+)\]\]/g, '$1')
-    // Preserve currency/item templates like {{Doorknobs|150}} -> "150 Doorknobs", {{CopyText|3YEARS}} -> "3YEARS"
     .replace(/\{\{\s*CopyText\s*\|([^}|]+)[^}]*\}\}/gi, '$1')
     .replace(/\{\{\s*([A-Za-z][A-Za-z0-9 _-]{1,24})\s*\|\s*([0-9,.]+(?:[kKmMbB])?)\s*\}\}/g, '$2 $1')
     .replace(/\{\{[^}|]+\|([^}|]+)[^}]*\}\}/g, '$1')
@@ -244,21 +265,18 @@ function extractPrimaryCodeFromCell(cellHtml) {
   const raw = String(cellHtml || '').trim();
   if (!raw) return null;
 
-  // 1. {{CopyText|CODE}} template (used by DTI and modern Fandom wikis)
   const copyMatch = raw.match(/\{\{\s*CopyText\s*\|\s*([^}|]+?)\s*(?:\|[^}]*)?\}\}/i);
   if (copyMatch?.[1]) {
     const c = sanitizePlainText(copyMatch[1], 48);
     if (c) return c;
   }
 
-  // 2. <code>CODE</code> tag (used by Blox Fruits, DOORS, etc. — preserves multi-word codes like "ACCESS GRANTED")
   const codeTagMatch = raw.match(/<code[^>]*>([\s\S]*?)<\/code>/i);
   if (codeTagMatch?.[1]) {
     const c = sanitizePlainText(codeTagMatch[1], 48);
     if (c) return c;
   }
 
-  // 3. Bold '''CODE'''
   const boldMatch = raw.match(/'''([^']{3,48})'''/);
   if (boldMatch?.[1]) {
     const c = sanitizePlainText(boldMatch[1], 48);
@@ -271,7 +289,6 @@ function extractPrimaryCodeFromCell(cellHtml) {
     }
   }
 
-  // 4. Plain cell text fallback
   const plain = sanitizePlainText(raw, 64);
   if (!plain) return null;
   const cleaned = plain
@@ -282,14 +299,28 @@ function extractPrimaryCodeFromCell(cellHtml) {
   return cleaned.split(/\s+/)[0] || cleaned;
 }
 
-function cleanGameNameForSlug(name) {
+function cleanGameNameForMatching(name) {
   return String(name || '')
-    .replace(/^(?:\s*[\[\(\{][^\]\)\}]{1,36}[\]\)\}]\s*)+/g, '')
-    .replace(/(?:\s*[\[\(\{][^\]\)\}]{1,36}[\]\)\}]\s*)+$/g, '')
+    .replace(/^(?:\s*[\[\(\{][^\]\)\}]{1,40}[\]\)\}]\s*)+/g, '')
+    .replace(/(?:\s*[\[\(\{][^\]\)\}]{1,40}[\]\)\}]\s*)+$/g, '')
     .replace(/[\p{Extended_Pictographic}\p{Emoji_Presentation}\uFE0F\u200D]/gu, ' ')
-    .replace(/[^a-zA-Z0-9\s-]/g, ' ')
+    .replace(/[|•·–—]+.*$/g, '')
+    .replace(/[^a-zA-Z0-9\s:'-]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function matchesKnownGameName(cleanedLower, knownName) {
+  if (cleanedLower === knownName) return true;
+  // Allow trailing subtitle like "creatures of sonaria survive kaiju animals"
+  // but reject numbered clones like "grow a garden 2" or prefix clones like "aura edit slap battles"
+  if (cleanedLower.startsWith(`${knownName} `)) {
+    const rest = cleanedLower.slice(knownName.length).trim();
+    if (/^\d+$/.test(rest)) return false; // Reject "Game 2"
+    if (/^(modded|remake|fan|test|testing|copy|edit|fake|rp|tycoon|obby)\b/.test(rest)) return false;
+    return true;
+  }
+  return false;
 }
 
 function buildWikiCandidateHosts(game) {
@@ -304,35 +335,33 @@ function buildWikiCandidateHosts(game) {
       pushHost(game.wiki_subdomain);
     } else {
       pushHost(`${game.wiki_subdomain}.fandom.com`);
-      pushHost(`${game.wiki_subdomain}.wiki.gg`);
     }
   }
 
-  const lowerName = String(game.name || '').toLowerCase();
+  const cleaned = cleanGameNameForMatching(game.name).toLowerCase();
+
   for (const entry of KNOWN_WIKIS) {
-    if (entry.keywords.some((kw) => lowerName.includes(kw))) {
+    if (entry.names.some((kw) => matchesKnownGameName(cleaned, kw))) {
       for (const h of entry.hosts) pushHost(h);
     }
   }
 
-  const cleaned = cleanGameNameForSlug(game.name).toLowerCase();
-  const hyphenSlug = cleaned.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 42);
+  const slugBase = cleaned.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 42);
   const compactSlug = cleaned.replace(/[^a-z0-9]+/g, '').slice(0, 36);
 
-  if (hyphenSlug.length >= 3) {
-    pushHost(`${hyphenSlug}.fandom.com`);
-    if (compactSlug !== hyphenSlug && compactSlug.length >= 4) {
+  if (slugBase.length >= 3) {
+    pushHost(`${slugBase}.fandom.com`);
+    if (compactSlug !== slugBase && compactSlug.length >= 4) {
       pushHost(`${compactSlug}.fandom.com`);
     }
-    pushHost(`roblox-${hyphenSlug}.fandom.com`);
-    pushHost(`${hyphenSlug}-roblox.fandom.com`);
-    pushHost(`${hyphenSlug}.wiki.gg`);
+    pushHost(`roblox-${slugBase}.fandom.com`);
+    pushHost(`${slugBase}-roblox.fandom.com`);
   }
 
-  return hosts.slice(0, 5);
+  return hosts.slice(0, 4);
 }
 
-async function fetchJsonFast(url, timeoutMs = 5500) {
+async function fetchJsonFast(url, timeoutMs = 4000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -362,7 +391,7 @@ async function fetchMediaWikiCodesPage(host) {
     `https://${host}/api.php?action=query&prop=revisions&rvprop=content&rvslots=main` +
     `&redirects=1&format=json&formatversion=2&titles=${encodeURIComponent(titlesParam)}`;
 
-  const res = await fetchJsonFast(apiUrl, 5500);
+  const res = await fetchJsonFast(apiUrl, 4000);
   if (!res.ok || !res.data?.query?.pages) {
     return { found: false, host };
   }
@@ -382,20 +411,13 @@ async function fetchMediaWikiCodesPage(host) {
   return { found: false, host };
 }
 
-/**
- * High-Accuracy MediaWiki Active vs Expired Codes Parser:
- * - Strictly outputs 'active' or 'expired' (zero manual approval needed)
- * - Handles <tabber> first tabs, inline |-|Tab=, and multi-line |-|\nTab=
- * - Handles == Headings ==, '''Bold Sections''', |+ Table Captions, and mw-collapsible Expired divs
- * - Handles {{CopyText|CODE}}, <code>MULTI WORD CODE</code>, multi-line cells, and Expiration Date columns
- */
 function parseMediaWikiCodes(wikitext, wikiPageUrl) {
   if (!wikitext || wikitext.length < 25) return [];
 
   const results = new Map();
   const lines = wikitext.split(/\r?\n/);
 
-  let sectionState = 'active'; // Always resolves to 'active' or 'expired'
+  let sectionState = 'active';
   let inTabber = false;
   let inTable = false;
   let currentRowCells = [];
@@ -418,7 +440,6 @@ function parseMediaWikiCodes(wikitext, wikiPageUrl) {
       if (!existing.reward_description && reward) {
         existing.reward_description = reward;
       }
-      // If later explicitly marked expired (e.g. Expired section), update to expired
       if (finalStatus === 'expired' && existing.status !== 'expired') {
         existing.status = 'expired';
         existing.source_reported_status = 'wiki_expired';
@@ -521,7 +542,6 @@ function parseMediaWikiCodes(wikitext, wikiPageUrl) {
     const line = rawLine.trim();
     if (!line) continue;
 
-    // Detect <tabber> open/close (used by Blox Fruits, DOORS, etc.)
     if (/<tabber\b/i.test(line)) {
       flushTableRow();
       inTabber = true;
@@ -539,7 +559,6 @@ function parseMediaWikiCodes(wikitext, wikiPageUrl) {
       continue;
     }
 
-    // Detect tabber separators: "|-|Expired Codes=" OR standalone "|-|" followed by "Expired Codes="
     const inlineTabber = line.match(/^\|-\|\s*([^=<>|{}]{2,45})=/);
     if (inlineTabber) {
       flushTableRow();
@@ -563,13 +582,11 @@ function parseMediaWikiCodes(wikitext, wikiPageUrl) {
       }
     }
 
-    // Detect collapsible expired divs/sections
     if (/mw-collapsible/i.test(line) && !inTable) {
       const cls = classifySectionText(line);
       if (cls) sectionState = cls;
     }
 
-    // Detect section headings == Active Codes == / == Expired Codes == (including wrapped in {{Mobile|===...===}})
     const headingMatch = line.match(/={2,5}\s*([^=]+?)\s*={2,5}/);
     if (headingMatch && !inTable) {
       flushTableRow();
@@ -578,7 +595,6 @@ function parseMediaWikiCodes(wikitext, wikiPageUrl) {
       continue;
     }
 
-    // Detect standalone bold headings like '''Expired Codes'''
     const boldHeadingMatch = line.match(/^'''([^']{4,50})'''$/);
     if (boldHeadingMatch && !inTable) {
       const cls = classifySectionText(boldHeadingMatch[1]);
@@ -589,7 +605,6 @@ function parseMediaWikiCodes(wikitext, wikiPageUrl) {
       }
     }
 
-    // Template-based rows: {{Code|CODE123|2x XP|Active}}
     const tplMatch = line.match(/^\{\{\s*(?:Code|CodesRow|CodeRow|PromoCode)\s*\|(.+?)\}\}$/i);
     if (tplMatch) {
       const parts = tplMatch[1].split('|').map((p) => p.trim());
@@ -615,7 +630,6 @@ function parseMediaWikiCodes(wikitext, wikiPageUrl) {
       continue;
     }
 
-    // Wiki tables
     if (line.startsWith('{|')) {
       inTable = true;
       currentRowCells = [];
@@ -663,14 +677,12 @@ function parseMediaWikiCodes(wikitext, wikiPageUrl) {
         }
         continue;
       }
-      // Multi-line cell continuation (e.g. "* [[Classic DTI Doll]]" inside reward cell)
       if (currentRowCells.length > 0) {
         currentRowCells[currentRowCells.length - 1] += ` ${line}`;
       }
       continue;
     }
 
-    // Bulleted list parsing outside tables: * '''CODE123''' - 2x XP for 20 minutes
     if (line.startsWith('*')) {
       const isStrike = /<(?:s|del|strike)\b/i.test(line);
       const bulletMatch = line.match(
@@ -692,13 +704,13 @@ function parseMediaWikiCodes(wikitext, wikiPageUrl) {
 async function main() {
   if (hasFlag('help') || hasFlag('h')) {
     console.log(`
-RoMetric — High-Speed Fandom & Wiki.gg MediaWiki Codes Sync (PC Native)
+RoMetric — High-Speed Fandom MediaWiki Codes Sync (PC Native)
 
 Usage:
   npm run sync:wiki [options]
 
 Options:
-  --concurrency=<n>     Parallel game workers (default: 16 on PC, 8 in CI; max: 24)
+  --concurrency=<n>     Parallel game workers (default: 20 on PC, 8 in CI; max: 30)
   --limit=<n|all>       Max games to scan from Supabase (default: all)
   --game="<name>"       Scan only games matching this name
   --only-missing        Only scan games that currently have 0 codes
@@ -709,7 +721,7 @@ Options:
   }
 
   console.log('\n================================================================');
-  console.log('   RoMetric — High-Speed Fandom & Wiki.gg MediaWiki Sync        ');
+  console.log('   RoMetric — High-Speed Fandom MediaWiki Codes Sync (v2.2)     ');
   console.log('================================================================\n');
 
   const isCiMode = Boolean(process.env.CI) || hasFlag('ci') || !process.stdin.isTTY;
@@ -742,17 +754,31 @@ Options:
     process.exit(1);
   }
 
+  // Save credentials into local .env.local so you don't have to paste them every time
+  const envLocalPath = path.join(process.cwd(), '.env.local');
+  if (!isCiMode && !fs.existsSync(envLocalPath)) {
+    const saveAns = await promptInput('Save Supabase credentials to .env.local for future runs? (Y/n): ');
+    if (!saveAns || saveAns.toLowerCase().startsWith('y')) {
+      fs.writeFileSync(
+        envLocalPath,
+        `SUPABASE_URL="${supabaseUrl}"\nSUPABASE_SERVICE_ROLE_KEY="${serviceRoleKey}"\n`,
+        'utf8'
+      );
+      console.log('✓ Saved credentials to .env.local (ignored by git)\n');
+    }
+  }
+
   const dryRun = hasFlag('dry-run');
   const onlyMissing = hasFlag('only-missing');
   const gameFilter = getArg('game');
   const limitArg = getArg('limit');
-  const maxGames = limitArg && limitArg !== 'all' ? parseInt(limitArg, 10) || 100 : Infinity;
-  const defaultWorkers = isCiMode ? 8 : 16;
-  const concurrency = Math.min(24, Math.max(1, parseInt(getArg('concurrency') || String(defaultWorkers), 10)));
+  const maxGames = limitArg && limitArg !== 'all' ? parseInt(limitArg, 10) || 200 : Infinity;
+  const defaultWorkers = isCiMode ? 8 : 20;
+  const concurrency = Math.min(30, Math.max(1, parseInt(getArg('concurrency') || String(defaultWorkers), 10)));
 
   console.log(`Supabase host:   ${new URL(supabaseUrl).host}`);
+  console.log(`Source ID:       ${CODE_SOURCE_ID}`);
   console.log(`Workers:         ${concurrency} parallel workers`);
-  console.log(`Sources:         Fandom + Wiki.gg MediaWiki APIs (CC-BY-SA)`);
   console.log(`Mode:            ${dryRun ? 'DRY RUN (no DB writes)' : 'LIVE UPSERT'}${onlyMissing ? ' (only 0-code games)' : ''}\n`);
 
   const sbHeaders = {
@@ -761,26 +787,32 @@ Options:
     'Content-Type': 'application/json',
   };
 
+  // Verify / register fandom_mediawiki_api in code_sources with schema-valid provider_type='mediawiki'
   if (!dryRun) {
-    await fetch(`${supabaseUrl}/rest/v1/code_sources?on_conflict=id`, {
+    const srcRes = await fetch(`${supabaseUrl}/rest/v1/code_sources?on_conflict=id`, {
       method: 'POST',
       headers: { ...sbHeaders, Prefer: 'resolution=merge-duplicates,return=minimal' },
       body: JSON.stringify([
         {
-          id: 'fandom_mediawiki',
-          name: 'Fandom & Wiki.gg MediaWiki API',
-          provider_type: 'fandom_mediawiki',
+          id: CODE_SOURCE_ID,
+          name: 'Community Wiki MediaWiki Action API',
+          provider_type: 'mediawiki',
           enabled: true,
           requires_api_key: false,
-          attribution_label: 'Community Wikis (CC-BY-SA)',
-          attribution_url: 'https://www.fandom.com/licensing',
-          license_notice: 'Community wiki code tables retrieved via public MediaWiki APIs under CC-BY-SA.',
-          rate_limit_rpm: 180,
+          attribution_label: 'Fandom Community Wiki',
+          attribution_url: 'https://www.fandom.com',
+          license_notice: 'Community wiki text licensed under CC BY-SA (attribution & source link required)',
+          rate_limit_rpm: 120,
           last_status: 'healthy',
           updated_at: new Date().toISOString(),
         },
       ]),
-    }).catch(() => {});
+    });
+    if (!srcRes.ok) {
+      console.error(`✖ Failed verifying code_sources (${srcRes.status}):`, await srcRes.text());
+      process.exit(1);
+    }
+    console.log(`✓ Verified "${CODE_SOURCE_ID}" in code_sources table`);
   }
 
   console.log('Loading tracked Roblox games from Supabase...');
@@ -822,20 +854,21 @@ Options:
   const startTime = Date.now();
   let idx = 0;
   let processed = 0;
-  let gamesWithHits = 0;
-  let totalCodesDiscovered = 0;
-  let totalActiveDiscovered = 0;
+  let gamesSaved = 0;
+  let dbErrors = 0;
+  let totalCodesSaved = 0;
+  let totalActiveSaved = 0;
+  let totalExpiredSaved = 0;
 
   async function scanGame(game) {
     const uid = String(game.universe_id);
     const candidateHosts = buildWikiCandidateHosts(game);
     if (candidateHosts.length === 0) {
-      return { name: game.name, total: 0, active: 0, wikiHost: null };
+      return { name: game.name, total: 0, active: 0, expired: 0, wikiHost: null };
     }
 
     let matchedPage = null;
 
-    // Fast path: if wiki_subdomain is already cached, check primary host first
     if (game.wiki_subdomain) {
       const primary = await fetchMediaWikiCodesPage(candidateHosts[0]);
       if (primary.found) {
@@ -843,7 +876,6 @@ Options:
       }
     }
 
-    // Otherwise probe all candidate hosts for this game in parallel for maximum speed
     if (!matchedPage) {
       const probeHosts = game.wiki_subdomain ? candidateHosts.slice(1) : candidateHosts;
       const results = await Promise.all(probeHosts.map((h) => fetchMediaWikiCodesPage(h)));
@@ -851,12 +883,12 @@ Options:
     }
 
     if (!matchedPage) {
-      return { name: game.name, total: 0, active: 0, wikiHost: null };
+      return { name: game.name, total: 0, active: 0, expired: 0, wikiHost: null };
     }
 
     const parsed = parseMediaWikiCodes(matchedPage.wikitext, matchedPage.wikiUrl);
     if (parsed.length === 0) {
-      return { name: game.name, total: 0, active: 0, wikiHost: null };
+      return { name: game.name, total: 0, active: 0, expired: 0, wikiHost: null };
     }
 
     const nowIso = new Date().toISOString();
@@ -866,7 +898,7 @@ Options:
       normalized_code: c.normalized_code.slice(0, 48),
       reward_description: c.reward_description || null,
       status: c.status === 'expired' ? 'expired' : 'active',
-      source_id: 'fandom_mediawiki',
+      source_id: CODE_SOURCE_ID,
       source_url: c.source_url,
       source_reported_status: c.source_reported_status,
       admin_locked: false,
@@ -889,35 +921,49 @@ Options:
         }
       );
 
-      if (upRes.ok) {
-        const countRes = await fetch(
-          `${supabaseUrl}/rest/v1/game_codes?select=status&universe_id=eq.${uid}`,
-          { headers: sbHeaders }
-        );
-        let dbActive = activeHere;
-        let dbTotal = rows.length;
-        if (countRes.ok) {
-          const allDb = await countRes.json();
-          dbTotal = allDb.length;
-          dbActive = allDb.filter((x) => x.status === 'active').length;
-        }
-
-        const patchBody = {
-          active_code_count: dbActive,
-          total_code_count: dbTotal,
-          code_coverage_status: dbTotal > 0 ? 'covered' : 'no_provider_data',
-          codes_last_checked_at: nowIso,
-          updated_at: nowIso,
+      if (!upRes.ok) {
+        const errTxt = await upRes.text();
+        return {
+          name: game.name,
+          total: 0,
+          active: 0,
+          expired: 0,
+          wikiHost: matchedPage.host,
+          dbError: `HTTP ${upRes.status}: ${errTxt.slice(0, 160)}`,
         };
-        if (matchedPage.host && !game.wiki_subdomain) {
-          patchBody.wiki_subdomain = matchedPage.host.replace(/\.fandom\.com$/, '');
-        }
+      }
 
-        await fetch(`${supabaseUrl}/rest/v1/games?universe_id=eq.${uid}`, {
-          method: 'PATCH',
-          headers: { ...sbHeaders, Prefer: 'return=minimal' },
-          body: JSON.stringify(patchBody),
-        });
+      const countRes = await fetch(
+        `${supabaseUrl}/rest/v1/game_codes?select=status&universe_id=eq.${uid}`,
+        { headers: sbHeaders }
+      );
+      let dbActive = activeHere;
+      let dbTotal = rows.length;
+      if (countRes.ok) {
+        const allDb = await countRes.json();
+        dbTotal = allDb.length;
+        dbActive = allDb.filter((x) => x.status === 'active').length;
+      }
+
+      const patchBody = {
+        active_code_count: dbActive,
+        total_code_count: dbTotal,
+        code_coverage_status: dbTotal > 0 ? 'covered' : 'no_provider_data',
+        codes_last_checked_at: nowIso,
+        updated_at: nowIso,
+      };
+      if (matchedPage.host && !game.wiki_subdomain) {
+        patchBody.wiki_subdomain = matchedPage.host.replace(/\.fandom\.com$/, '');
+      }
+
+      const patchRes = await fetch(`${supabaseUrl}/rest/v1/games?universe_id=eq.${uid}`, {
+        method: 'PATCH',
+        headers: { ...sbHeaders, Prefer: 'return=minimal' },
+        body: JSON.stringify(patchBody),
+      });
+      if (!patchRes.ok) {
+        const errTxt = await patchRes.text();
+        console.warn(`  ⚠ Games count PATCH failed for ${game.name} (${patchRes.status}): ${errTxt.slice(0, 120)}`);
       }
     }
 
@@ -930,25 +976,26 @@ Options:
     };
   }
 
-  let totalExpiredDiscovered = 0;
-
   async function worker() {
     while (idx < games.length) {
       const current = games[idx++];
       try {
         const result = await scanGame(current);
         processed++;
-        if (result.total > 0) {
-          gamesWithHits++;
-          totalCodesDiscovered += result.total;
-          totalActiveDiscovered += result.active;
-          totalExpiredDiscovered += result.expired || 0;
+        if (result.dbError) {
+          dbErrors++;
+          console.error(`[${processed}/${games.length}] ✖ DB WRITE FAILED for ${result.name}: ${result.dbError}`);
+        } else if (result.total > 0) {
+          gamesSaved++;
+          totalCodesSaved += result.total;
+          totalActiveSaved += result.active;
+          totalExpiredSaved += result.expired;
           console.log(
-            `[${processed}/${games.length}] ✓ ${result.name}: ` +
-            `${result.active} active, ${result.expired || 0} expired (${result.wikiHost})`
+            `[${processed}/${games.length}] ✓ SAVED ${result.name}: ` +
+            `${result.active} active, ${result.expired} expired (${result.wikiHost})`
           );
-        } else if (processed % 25 === 0 || processed === games.length) {
-          process.stdout.write(`  Progress: ${processed}/${games.length} scanned (${gamesWithHits} wikis matched, ${totalCodesDiscovered} codes)...\r`);
+        } else if (processed % 40 === 0 || processed === games.length) {
+          process.stdout.write(`  Progress: ${processed}/${games.length} scanned (${gamesSaved} saved, ${totalCodesSaved} codes)...\r`);
         }
       } catch (err) {
         processed++;
@@ -962,13 +1009,14 @@ Options:
   const elapsedSec = ((Date.now() - startTime) / 1000).toFixed(1);
 
   console.log('\n\n================================================================');
-  console.log('✓ Fandom & Wiki.gg MediaWiki Codes Sync Complete!');
+  console.log('✓ Fandom MediaWiki Codes Sync Complete!');
   console.log('================================================================');
   console.log(`  Games Scanned:         ${processed}`);
-  console.log(`  Wikis Matched:         ${gamesWithHits}`);
-  console.log(`  Active Codes Synced:   ${totalActiveDiscovered}`);
-  console.log(`  Expired Codes Synced:  ${totalExpiredDiscovered}`);
-  console.log(`  Total Codes Synced:    ${totalCodesDiscovered}`);
+  console.log(`  Games Saved to DB:     ${gamesSaved}`);
+  console.log(`  Active Codes Saved:    ${totalActiveSaved}`);
+  console.log(`  Expired Codes Saved:   ${totalExpiredSaved}`);
+  console.log(`  Total Codes Saved:     ${totalCodesSaved}`);
+  console.log(`  DB Write Errors:       ${dbErrors}`);
   console.log(`  Elapsed Time:          ${elapsedSec} seconds`);
   console.log('================================================================\n');
 
@@ -979,16 +1027,21 @@ Options:
       '| Metric | Value |',
       '| --- | ---: |',
       `| Games Scanned | ${processed} |`,
-      `| Wikis Matched | ${gamesWithHits} |`,
-      `| Active Codes Synced | ${totalActiveDiscovered} |`,
-      `| Expired Codes Synced | ${totalExpiredDiscovered} |`,
-      `| Total Codes Synced | ${totalCodesDiscovered} |`,
+      `| Games Saved to DB | ${gamesSaved} |`,
+      `| Active Codes Saved | ${totalActiveSaved} |`,
+      `| Expired Codes Saved | ${totalExpiredSaved} |`,
+      `| Total Codes Saved | ${totalCodesSaved} |`,
+      `| DB Write Errors | ${dbErrors} |`,
       `| Elapsed Time | ${elapsedSec}s |`,
       '',
     ].join('\n');
     try {
       fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, md, 'utf8');
     } catch {}
+  }
+
+  if (dbErrors > 0 && gamesSaved === 0) {
+    process.exit(1);
   }
 }
 
