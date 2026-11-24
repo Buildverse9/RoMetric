@@ -213,7 +213,7 @@ export function buildOgSocialImageUrl(
   origin = SITE_ORIGIN
 ): string {
   const query = buildCardQueryString(params);
-  return `${origin}/api/og/social?${query}`;
+  return `${origin}/og/social?${query}`;
 }
 
 export function getTopLeaderboardGames(
@@ -628,7 +628,7 @@ export function generateSocialCaptions(
     }
     replyPrompt = `Full live rankings, 24h deltas & historical charts on RoMetric:`;
   } else if (template === 'top_earning') {
-    path = '/rankings';
+    path = '/rankings?tab=revenue';
     const top3 = topEarningGames.slice(0, 3);
     const lines = top3
       .map(

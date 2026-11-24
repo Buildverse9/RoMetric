@@ -22,10 +22,7 @@ export async function generateMetadata({
     if (game) {
       const title = `${game.name} Live Player Count, Stats & Revenue`;
       const description = `${game.name} by ${game.creatorName} currently has ${formatCompactNumber(game.currentCcu)} live players and ${formatCompactNumber(game.totalVisits)} total visits. Track historical CCU charts, benchmarks, gamepasses, badges, and codes on RoMetric.`;
-      const imageUrl =
-        game.thumbnailUrl ||
-        game.iconUrl ||
-        '/assets/aistudio/logowithName_50295ff0.png';
+      const ogCardUrl = `https://rometrics.vercel.app/og/social?t=surge&g=${game.universeId}`;
 
       return {
         title,
@@ -38,13 +35,20 @@ export async function generateMetadata({
           description,
           url: `https://rometrics.vercel.app/games/${game.universeId}`,
           type: 'website',
-          images: [imageUrl],
+          images: [
+            {
+              url: ogCardUrl,
+              width: 1200,
+              height: 630,
+              alt: `${game.name} live stats on RoMetric`,
+            },
+          ],
         },
         twitter: {
           card: 'summary_large_image',
           title: `${title} | RoMetric`,
           description,
-          images: [imageUrl],
+          images: [ogCardUrl],
         },
       };
     }

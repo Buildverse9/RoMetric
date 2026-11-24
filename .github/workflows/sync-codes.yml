@@ -1,0 +1,49 @@
+name: RoMetric Automated Game Codes Sync
+
+on:
+  schedule:
+    # Runs automatically every 6 hours (00:15, 06:15, 12:15, 18:15 UTC)
+    - cron: '15 */6 * * *'
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: 'Games to sync (number or "all")'
+        required: false
+        default: 'all'
+      force:
+        description: 'Force re-check even recently checked games'
+        type: boolean
+        required: false
+        default: false
+
+concurrency:
+  group: rometric-sync-codes
+  cancel-in-progress: false
+
+jobs:
+  sync-codes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Sync Verified Roblox Game Codes to Supabase
+        env:
+          CI: 'true'
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          BLOXARCHIVE_API_KEY: ${{ secrets.BLOXARCHIVE_API_KEY }}
+        run: |
+          LIMIT="${{ github.event.inputs.limit || 'all' }}"
+          FORCE_FLAG=""
+          if [ "${{ github.event.inputs.force }}" = "true" ]; then
+            FORCE_FLAG="--force"
+          fi
+          node scripts/sync-bloxarchive-codes.mjs --ci --limit="$LIMIT" --concurrency=4 --max-age-hours=5.5 $FORCE_FLAG

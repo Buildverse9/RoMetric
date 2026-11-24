@@ -1015,8 +1015,8 @@ function normalizePromoCodeGas_(raw) {
 }
 
 function isValidPromoCodeGas_(code) {
-  if (!code || code.length < 3 || code.length > 32) return false;
-  if (!/^[A-Za-z0-9_!@#$%&*-]+$/.test(code)) return false;
+  if (!code || code.length < 3 || code.length > 48) return false;
+  if (!/^[A-Za-z0-9_!@#$%&*+?-]+(?: [A-Za-z0-9_!@#$%&*+?-]+)*$/.test(code)) return false;
   var upper = code.toUpperCase();
   var stop = {
     CODE: 1, CODES: 1, ACTIVE: 1, EXPIRED: 1, WORKING: 1, REWARD: 1,
@@ -1207,48 +1207,124 @@ function cleanWikiCellGas_(raw) {
     .trim();
 }
 
-function collectBloxArchiveGas_(game, baseUrl, apiKey, counters) {
-  var cleanSlug = slugify_(game.slug || game.name);
-  var slugWithCodes =
-    cleanSlug.slice(-6) === '-codes' ? cleanSlug : cleanSlug + '-codes';
-  var url =
-    baseUrl +
-    '/games/' +
-    encodeURIComponent(slugWithCodes) +
-    '?locale=en';
-  counters.apiRequests += 1;
-  var res = UrlFetchApp.fetch(url, {
-    method: 'get',
-    headers: {
-      Accept: 'application/json',
-      'X-API-Key': apiKey,
-      'User-Agent': 'RoMetricSidecar/1.0',
-    },
-    muteHttpExceptions: true,
-  });
-  var code = res.getResponseCode();
-  if (code === 429) counters.http429Count += 1;
-  if (code < 200 || code >= 300) return { hasProviderData: false, codes: [] };
+function buildBloxArchiveSlugCandidatesGas_(game) {
+  var seen = {};
+  var out = [];
+  function addSlug(raw) {
+    if (!raw) return;
+    var s = slugify_(raw);
+    if (!s || s === 'experience') return;
+    var withCodes = s.slice(-6) === '-codes' ? s : s + '-codes';
+    if (!seen[withCodes]) {
+      seen[withCodes] = true;
+      out.push(withCodes);
+    }
+    var base = s.slice(-6) === '-codes' ? s.slice(0, -6) : s;
+    if (base && !seen[base]) {
+      seen[base] = true;
+      out.push(base);
+    }
+  }
 
-  var payload = JSON.parse(res.getContentText() || '{}');
-  var rawList =
-    payload.codes ||
-    payload.active_codes ||
-    payload.active ||
-    (payload.data && payload.data.codes) ||
-    [];
+  var strippedName = String(game.name || '')
+    .replace(/\[[^\]]*\]/g, ' ')
+    .replace(/\([^)]*\)/g, ' ')
+    .replace(/[^\x20-\x7E]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  addSlug(game.slug);
+  addSlug(strippedName);
+  addSlug(game.name);
+  return out.slice(0, 4);
+}
+
+function collectBloxArchiveGas_(game, baseUrl, apiKey, counters) {
+  var candidates = buildBloxArchiveSlugCandidatesGas_(game);
+  if (candidates.length === 0) return { hasProviderData: false, codes: [] };
+
+  var payload = null;
+  var matchedSlug = candidates[0];
+
+  for (var ci = 0; ci < candidates.length; ci++) {
+    var candidateSlug = candidates[ci];
+    var url =
+      baseUrl +
+      '/games/' +
+      encodeURIComponent(candidateSlug) +
+      '?locale=en';
+    counters.apiRequests += 1;
+    var res = UrlFetchApp.fetch(url, {
+      method: 'get',
+      headers: {
+        Accept: 'application/json',
+        'X-API-Key': apiKey,
+        'User-Agent': 'RoMetricSidecar/1.0',
+      },
+      muteHttpExceptions: true,
+    });
+    var statusCode = res.getResponseCode();
+    if (statusCode === 429) {
+      counters.http429Count += 1;
+      break;
+    }
+    if (statusCode >= 200 && statusCode < 300) {
+      payload = JSON.parse(res.getContentText() || '{}');
+      matchedSlug = candidateSlug;
+      break;
+    }
+  }
+
+  if (!payload) return { hasProviderData: false, codes: [] };
+
   var attributionUrl =
     payload.url ||
     payload.pageUrl ||
-    'https://bloxarchive.com/' + encodeURIComponent(slugWithCodes);
+    (payload.game && (payload.game.url || payload.game.pageUrl)) ||
+    'https://bloxarchive.com/' + encodeURIComponent(matchedSlug);
+
+  // BloxArchive Partner API v1 returns either an array OR { active: [], pending: [], expired: [] }
+  var rawItems = [];
+  function pushBucket(arr, forcedStatus) {
+    if (!Array.isArray(arr)) return;
+    for (var i = 0; i < arr.length; i++) {
+      rawItems.push({ item: arr[i], forcedStatus: forcedStatus });
+    }
+  }
+
+  var codesNode = payload.codes || (payload.data && payload.data.codes) || null;
+  if (Array.isArray(codesNode)) {
+    pushBucket(codesNode, null);
+  } else if (codesNode && typeof codesNode === 'object') {
+    pushBucket(codesNode.active, 'active');
+    pushBucket(codesNode.working, 'active');
+    pushBucket(codesNode.pending, 'unverified');
+    pushBucket(codesNode.expired, 'expired');
+  }
+  pushBucket(payload.active_codes || payload.active, 'active');
+  pushBucket(payload.expired_codes || payload.expired, 'expired');
+
+  var seenCodes = {};
   var out = [];
-  for (var i = 0; i < rawList.length; i++) {
-    var item = rawList[i];
-    var c = String(item.code || item.value || '').trim();
+  for (var j = 0; j < rawItems.length; j++) {
+    var entry = rawItems[j];
+    var item = entry.item;
+    if (!item) continue;
+    var c =
+      typeof item === 'string'
+        ? item.trim()
+        : String(item.code || item.value || item.name || '').trim();
     if (!isValidPromoCodeGas_(c)) continue;
-    var st = String(
-      item.status || (item.expired ? 'expired' : item.verified ? 'active' : 'unverified')
-    ).toLowerCase();
+    var norm = c.replace(/\s+/g, '').toUpperCase();
+    if (seenCodes[norm]) continue;
+    seenCodes[norm] = true;
+
+    var st = entry.forcedStatus
+      ? entry.forcedStatus
+      : String(
+          item.status ||
+            (item.expired ? 'expired' : item.verified ? 'active' : 'active')
+        ).toLowerCase();
     var mapped =
       st === 'active' || st === 'working' || st === 'confirmed' || st === 'verified'
         ? 'active'
@@ -1258,13 +1334,14 @@ function collectBloxArchiveGas_(game, baseUrl, apiKey, counters) {
     out.push({
       code: c,
       rewardDescription:
-        item.reward || item.rewards || item.description
+        typeof item === 'object' && (item.reward || item.rewards || item.description)
           ? String(item.reward || item.rewards || item.description).slice(0, 220)
           : null,
       status: mapped,
-      sourceReportedStatus: st || 'unverified',
+      sourceReportedStatus: st || 'active',
       sourceUrl: attributionUrl,
-      expiresAt: item.expiresAt || item.expires_at || null,
+      expiresAt:
+        typeof item === 'object' ? item.expiresAt || item.expires_at || null : null,
     });
   }
   return { hasProviderData: out.length > 0, codes: out };

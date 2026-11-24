@@ -6,8 +6,13 @@ export default function robots(): MetadataRoute.Robots {
   return {
     rules: [
       {
+        userAgent: ['Twitterbot', 'facebookexternalhit', 'Discordbot'],
+        allow: ['/', '/og/', '/api/og/'],
+        disallow: ['/admin'],
+      },
+      {
         userAgent: '*',
-        allow: '/',
+        allow: ['/', '/og/', '/api/og/'],
         disallow: ['/admin', '/api/'],
       },
     ],

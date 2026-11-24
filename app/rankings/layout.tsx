@@ -12,7 +12,7 @@ export const metadata: Metadata = {
     url: 'https://rometrics.vercel.app/rankings',
     images: [
       {
-        url: 'https://rometrics.vercel.app/api/og/social?t=leaderboard&count=10',
+        url: 'https://rometrics.vercel.app/og/social?t=leaderboard&count=10',
         width: 1200,
         height: 630,
         alt: 'Top Roblox Games Live CCU Rankings on RoMetric',
@@ -24,7 +24,7 @@ export const metadata: Metadata = {
     title: 'Top Roblox Games Rankings — Live CCU & Visits | RoMetric',
     description:
       'Live Roblox player count leaderboard, 24h momentum, and estimated DevEx revenue on RoMetric.',
-    images: ['https://rometrics.vercel.app/api/og/social?t=leaderboard&count=10'],
+    images: ['https://rometrics.vercel.app/og/social?t=leaderboard&count=10'],
   },
 };
 

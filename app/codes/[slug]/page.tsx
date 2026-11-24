@@ -25,6 +25,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const title = `${game.name} Codes (${activeCount} Active & Working) — RoMetric`;
   const description = `Find all active and working Roblox promo codes for ${game.name}. Verified codes, reward descriptions, and one-tap copy on RoMetric.`;
   const pageUrl = `https://rometrics.vercel.app/codes/${encodeURIComponent(game.slug || slug)}`;
+  const ogCardUrl = `https://rometrics.vercel.app/og/social?t=codes&slug=${encodeURIComponent(game.slug || slug)}`;
 
   return {
     title,
@@ -37,13 +38,20 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
       description,
       url: pageUrl,
       type: 'website',
-      images: game.thumbnailUrl ? [game.thumbnailUrl] : game.iconUrl ? [game.iconUrl] : undefined,
+      images: [
+        {
+          url: ogCardUrl,
+          width: 1200,
+          height: 630,
+          alt: `${game.name} active Roblox codes on RoMetric`,
+        },
+      ],
     },
     twitter: {
       card: 'summary_large_image',
       title,
       description,
-      images: game.thumbnailUrl ? [game.thumbnailUrl] : game.iconUrl ? [game.iconUrl] : undefined,
+      images: [ogCardUrl],
     },
   };
 }

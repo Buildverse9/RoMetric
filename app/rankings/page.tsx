@@ -35,9 +35,15 @@ const RANKING_TABS: Array<{
 function RankingsContent() {
   const searchParams = useSearchParams();
   const initialQuery = searchParams.get('q') || '';
+  const initialTabParam = searchParams.get('tab');
+  const initialTab: RankingTab = RANKING_TABS.some(
+    (t) => t.id === initialTabParam
+  )
+    ? (initialTabParam as RankingTab)
+    : 'live_ccu';
   const { games, loadingGames, lastUpdatedAt } = useApp();
 
-  const [activeTab, setActiveTab] = useState<RankingTab>('live_ccu');
+  const [activeTab, setActiveTab] = useState<RankingTab>(initialTab);
   const [genreFilter, setGenreFilter] = useState<string>('All');
   const [searchTerm, setSearchTerm] = useState(initialQuery);
 

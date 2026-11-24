@@ -67,8 +67,18 @@ async function fetchImageDataUri(
     });
     clearTimeout(timer);
     if (!res.ok) return null;
-    const contentType = res.headers.get('content-type') || 'image/png';
-    if (!contentType.startsWith('image/')) return null;
+    const contentType = (res.headers.get('content-type') || 'image/png')
+      .split(';')[0]
+      .trim()
+      .toLowerCase();
+    if (
+      contentType !== 'image/png' &&
+      contentType !== 'image/jpeg' &&
+      contentType !== 'image/jpg' &&
+      contentType !== 'image/gif'
+    ) {
+      return null;
+    }
     const buf = Buffer.from(await res.arrayBuffer());
     if (buf.length === 0 || buf.length > 1_200_000) return null;
     return `data:${contentType};base64,${buf.toString('base64')}`;

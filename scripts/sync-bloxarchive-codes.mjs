@@ -135,10 +135,14 @@ Options:
   console.log('   RoMetric — BloxArchive Codes Sync Tool (PC Native)   ');
   console.log('========================================================\n');
 
+  const isCiMode = Boolean(process.env.CI) || hasFlag('ci') || !process.stdin.isTTY;
+
   let supabaseUrl =
     getArg('supabase-url') ||
     process.env.SUPABASE_URL ||
+    process.env.NEXT_PUBLIC_SUPABASE_URL ||
     fileEnv.SUPABASE_URL ||
+    fileEnv.NEXT_PUBLIC_SUPABASE_URL ||
     '';
   let serviceRoleKey =
     getArg('supabase-key') ||
@@ -152,27 +156,33 @@ Options:
     fileEnv.BLOXARCHIVE_API_KEY ||
     '';
 
-  if (!supabaseUrl) {
-    supabaseUrl = await promptInput('Enter your Supabase URL (e.g. https://xxx.supabase.co): ');
+  if (!isCiMode) {
+    if (!supabaseUrl) {
+      supabaseUrl = await promptInput('Enter your Supabase URL (e.g. https://xxx.supabase.co): ');
+    }
+    if (!serviceRoleKey) {
+      serviceRoleKey = await promptInput('Enter your Supabase service_role key: ');
+    }
+    if (!bloxApiKey) {
+      bloxApiKey = await promptInput('Enter your BloxArchive Partner API key: ');
+    }
   }
   supabaseUrl = supabaseUrl.replace(/\/+$/, '');
 
-  if (!serviceRoleKey) {
-    serviceRoleKey = await promptInput('Enter your Supabase service_role key: ');
-  }
+  const missingVars = [];
+  if (!supabaseUrl) missingVars.push('SUPABASE_URL');
+  if (!serviceRoleKey) missingVars.push('SUPABASE_SERVICE_ROLE_KEY');
+  if (!bloxApiKey) missingVars.push('BLOXARCHIVE_API_KEY');
 
-  if (!bloxApiKey) {
-    bloxApiKey = await promptInput('Enter your BloxArchive Partner API key: ');
-  }
-
-  if (!supabaseUrl || !serviceRoleKey || !bloxApiKey) {
-    console.error('Error: Supabase URL, service_role key, and BloxArchive API key are required.');
+  if (missingVars.length > 0) {
+    console.error(`Error: Missing required environment secret(s): ${missingVars.join(', ')}`);
+    console.error('Add them in GitHub Repo -> Settings -> Secrets and variables -> Actions.');
     process.exit(1);
   }
 
-  // Offer to save credentials to .env.local for future runs if missing
+  // Offer to save credentials to .env.local for future runs if missing (interactive terminals only)
   const envLocalPath = path.join(process.cwd(), '.env.local');
-  if (!fs.existsSync(envLocalPath)) {
+  if (!isCiMode && !fs.existsSync(envLocalPath)) {
     const saveAns = await promptInput('Save credentials into local .env.local for future runs? (Y/n): ');
     if (!saveAns || saveAns.toLowerCase().startsWith('y')) {
       const content = `# RoMetric local environment variables (never committed to git)
@@ -189,11 +199,16 @@ BLOXARCHIVE_API_KEY="${bloxApiKey}"
   const limitArg = getArg('limit');
   const maxGames = limitArg === 'all' || !limitArg ? Infinity : parseInt(limitArg, 10) || 50;
   const concurrency = parseInt(getArg('concurrency') || '4', 10);
+  const maxAgeHoursRaw = Number(getArg('max-age-hours') ?? (isCiMode ? '5.5' : '12'));
+  const maxAgeMs = Number.isFinite(maxAgeHoursRaw) && maxAgeHoursRaw >= 0
+    ? maxAgeHoursRaw * 3600 * 1000
+    : 5.5 * 3600 * 1000;
   const targetUniverse = getArg('universe');
 
-  console.log(`Connecting to Supabase at: ${supabaseUrl}`);
-  console.log(`BloxArchive API Key: ${bloxApiKey.slice(0, 8)}...${bloxApiKey.slice(-4)}`);
+  console.log(`Connecting to Supabase host: ${new URL(supabaseUrl).host}`);
+  console.log(`BloxArchive API Key: configured`);
   console.log(`Max games to sync: ${maxGames === Infinity ? 'ALL' : maxGames}`);
+  console.log(`Re-check threshold: ${maxAgeHoursRaw}h${hasFlag('force') ? ' (forced)' : ''}`);
   console.log(`Concurrency: ${concurrency} workers\n`);
 
   // Verify Supabase connection & headers
@@ -417,7 +432,7 @@ BLOXARCHIVE_API_KEY="${bloxApiKey}"
 
     if (!isForce && existingEntry?.codes_last_checked_at) {
       const checkedMs = Date.parse(existingEntry.codes_last_checked_at);
-      if (Date.now() - checkedMs < 12 * 3600 * 1000) {
+      if (Date.now() - checkedMs < maxAgeMs) {
         return {
           ok: true,
           alreadySynced: true,
@@ -645,6 +660,26 @@ BLOXARCHIVE_API_KEY="${bloxApiKey}"
   console.log(`  Skipped / Errors:      ${skippedCount}`);
   console.log(`  Elapsed Time:          ${totalTimeSec} seconds`);
   console.log('========================================================\n');
+
+  if (process.env.GITHUB_STEP_SUMMARY) {
+    const summaryMd = [
+      '### RoMetric Game Codes Sync Summary',
+      '',
+      '| Metric | Value |',
+      '| --- | ---: |',
+      `| Games Processed | ${processedCount} |`,
+      `| Active Codes Saved | ${totalActiveSaved} |`,
+      `| Expired Codes Saved | ${totalExpiredSaved} |`,
+      `| Skipped / Errors | ${skippedCount} |`,
+      `| Elapsed Time | ${totalTimeSec}s |`,
+      '',
+    ].join('\n');
+    try {
+      fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, summaryMd, 'utf8');
+    } catch {
+      // Ignore summary write errors
+    }
+  }
 }
 
 main().catch((err) => {

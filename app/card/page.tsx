@@ -78,8 +78,9 @@ async function resolveCardContext(sp: RawSearchParams) {
     showRevenue: parsed.showRevenue,
   });
 
-  const ogImageUrl = `${SITE_ORIGIN}/api/og/social?${ogQuery}`;
-  const ogImageRelative = `/api/og/social?${ogQuery}`;
+  const ogImageUrl = `${SITE_ORIGIN}/og/social?${ogQuery}`;
+  const ogImageRelative = `/og/social?${ogQuery}`;
+  const cardSelfUrl = `${SITE_ORIGIN}/card?${ogQuery}`;
 
   let title = 'RoMetric — Live Roblox Game Analytics & Codes';
   let description =
@@ -95,7 +96,7 @@ async function resolveCardContext(sp: RawSearchParams) {
       description =
         'Live Roblox concurrent player rankings, 24-hour momentum deltas, and historical CCU charts on RoMetric.';
     } else if (parsed.template === 'top_earning') {
-      destPath = '/rankings';
+      destPath = '/rankings?tab=revenue';
       title =
         parsed.headline ||
         `Top ${parsed.count} Earning Roblox Games (Est. Monthly) | RoMetric`;
@@ -179,6 +180,7 @@ async function resolveCardContext(sp: RawSearchParams) {
     ogImageUrl,
     ogImageRelative,
     targetUrl,
+    cardSelfUrl,
     canonicalUrl: `${SITE_ORIGIN}${destPath}`,
   };
 }
@@ -201,7 +203,7 @@ export async function generateMetadata({
     openGraph: {
       title: ctx.title,
       description: ctx.description,
-      url: ctx.canonicalUrl,
+      url: ctx.cardSelfUrl,
       siteName: 'RoMetric',
       type: 'website',
       images: [
