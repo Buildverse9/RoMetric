@@ -18,6 +18,7 @@ import fs from 'fs';
 import path from 'path';
 import readline from 'readline';
 
+const DEFAULT_BLOXARCHIVE_KEY = 'ba_e432406a1a5db5cc13cdc569f53f727ebde1be81';
 const BLOXARCHIVE_BASE = 'https://bloxarchive.com/api/partner/v1';
 
 // Load .env.local or .env if present
@@ -119,7 +120,9 @@ Usage:
 
 Options:
   --limit=<n|all>          Number of games to sync from BloxArchive (default: all)
-  --concurrency=<n>        Concurrent requests (default: 4)
+  --rpm=<n>                Safe rate limit requests per minute (default: 30, max safe: 60)
+  --delay=<ms>             Delay between requests in ms (default: 2000ms = 30 RPM)
+  --concurrency=<n>        Concurrent requests (default: 1, sequential for rate-limit safety)
   --universe=<id>          Sync codes for a single universe ID
   --supabase-url=<url>     Supabase project URL (e.g. https://xyz.supabase.co)
   --supabase-key=<key>     Supabase service_role secret key
@@ -198,7 +201,9 @@ BLOXARCHIVE_API_KEY="${bloxApiKey}"
   const dryRun = hasFlag('dry-run');
   const limitArg = getArg('limit');
   const maxGames = limitArg === 'all' || !limitArg ? Infinity : parseInt(limitArg, 10) || 50;
-  const concurrency = parseInt(getArg('concurrency') || '4', 10);
+  const concurrency = Math.max(1, parseInt(getArg('concurrency') || '1', 10));
+  const rpm = Math.min(60, Math.max(5, parseInt(getArg('rpm') || '30', 10)));
+  const delayMs = parseInt(getArg('delay') || String(Math.round(60_000 / rpm)), 10);
   const maxAgeHoursRaw = Number(getArg('max-age-hours') ?? (isCiMode ? '5.5' : '12'));
   const maxAgeMs = Number.isFinite(maxAgeHoursRaw) && maxAgeHoursRaw >= 0
     ? maxAgeHoursRaw * 3600 * 1000
@@ -209,7 +214,7 @@ BLOXARCHIVE_API_KEY="${bloxApiKey}"
   console.log(`BloxArchive API Key: configured`);
   console.log(`Max games to sync: ${maxGames === Infinity ? 'ALL' : maxGames}`);
   console.log(`Re-check threshold: ${maxAgeHoursRaw}h${hasFlag('force') ? ' (forced)' : ''}`);
-  console.log(`Concurrency: ${concurrency} workers\n`);
+  console.log(`Rate Limit: ${rpm} RPM (${delayMs}ms delay between calls, ${concurrency} worker)\n`);
 
   // Verify Supabase connection & headers
   const sbHeaders = {
@@ -299,6 +304,9 @@ BLOXARCHIVE_API_KEY="${bloxApiKey}"
     }
     offset += items.length;
     process.stdout.write(`  Loaded ${bloxGames.length}/${Math.min(totalOnBlox, maxGames)} games from directory...\r`);
+    if (offset < totalOnBlox && bloxGames.length < maxGames) {
+      await sleep(800); // Pacing between directory pages
+    }
   }
   console.log(`\n✓ Ready to sync ${bloxGames.length} games from BloxArchive (Total available: ${totalOnBlox}).\n`);
 
@@ -454,13 +462,18 @@ BLOXARCHIVE_API_KEY="${bloxApiKey}"
           headers: { 'X-API-Key': bloxApiKey, Accept: 'application/json' },
         });
         if (res.status === 429) {
-          await sleep(2000 * attempt);
+          const retryAfter = res.headers.get('retry-after');
+          const waitMs = retryAfter
+            ? (parseInt(retryAfter, 10) + 1) * 1000
+            : Math.max(3000 * attempt, 4000);
+          process.stdout.write(`\n  [BloxArchive 429] Rate limited. Pausing for ${(waitMs / 1000).toFixed(0)}s (retry-after)...\n`);
+          await sleep(waitMs);
           continue;
         }
         break;
       } catch (err) {
         if (attempt === 3) throw err;
-        await sleep(1000);
+        await sleep(2000);
       }
     }
 
@@ -612,9 +625,9 @@ BLOXARCHIVE_API_KEY="${bloxApiKey}"
       const idx = currentIndex++;
       const game = gamesToProcess[idx];
       const startMs = Date.now();
-
+      let result = null;
       try {
-        const result = await processGame(game);
+        result = await processGame(game);
         processedCount++;
         const elapsedMs = Date.now() - startMs;
 
@@ -641,7 +654,11 @@ BLOXARCHIVE_API_KEY="${bloxApiKey}"
         skippedCount++;
         console.error(`[${processedCount}/${gamesToProcess.length}] ✖ ${game.name}: error (${err.message})`);
       }
-      await sleep(80);
+      if (result && result.alreadySynced) {
+        await sleep(30);
+      } else {
+        await sleep(delayMs);
+      }
     }
   }
 

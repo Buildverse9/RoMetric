@@ -26,6 +26,10 @@ import {
   supabaseRest,
 } from './supabase-server';
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 interface DbCodeSourceRow {
   id: string;
   name: string;
@@ -891,9 +895,14 @@ export async function runCodesCollectionCycle(options: {
       continue;
     }
 
-    // Process games in fast concurrent chunks of 4 so Vercel never times out
-    const CHUNK_SIZE = 4;
+    // For rate-limited external APIs like BloxArchive, process sequentially with 2s pacing (30 RPM);
+    // for other providers, use small concurrent batches of 4.
+    const isRateLimitedProvider = adapter.id === 'bloxarchive_api';
+    const CHUNK_SIZE = isRateLimitedProvider ? 1 : 4;
     for (let i = 0; i < targetGames.length; i += CHUNK_SIZE) {
+      if (isRateLimitedProvider && i > 0) {
+        await sleep(2000);
+      }
       const chunk = targetGames.slice(i, i + CHUNK_SIZE);
       await Promise.all(
         chunk.map(async (game) => {
