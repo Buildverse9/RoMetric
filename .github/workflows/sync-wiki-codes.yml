@@ -33,7 +33,7 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Sync Codes from Fandom & Wiki.gg MediaWiki APIs
+      - name: Sync Codes from Fandom MediaWiki APIs (v3.0)
         env:
           CI: 'true'
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -45,4 +45,4 @@ jobs:
           if [ "${{ github.event.inputs.only_missing }}" = "true" ]; then
             EXTRA_FLAGS="--only-missing"
           fi
-          node scripts/sync-wiki-codes.mjs --ci --limit="$LIMIT" --concurrency=8 $EXTRA_FLAGS
+          node scripts/sync-wiki-codes.mjs --ci --limit="$LIMIT" --concurrency=6 --rps=10 $EXTRA_FLAGS
