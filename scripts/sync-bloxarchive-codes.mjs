@@ -268,15 +268,45 @@ BLOXARCHIVE_API_KEY="${bloxApiKey}"
   const rootPlaceMap = new Map();
   const universeIdMap = new Map();
   const slugMap = new Map();
+  const nameMap = new Map();
+  let existingWithCodesCount = 0;
 
   for (const g of existingGames) {
     const uid = String(g.universe_id);
     const rid = String(g.root_place_id);
     rootPlaceMap.set(rid, uid);
     universeIdMap.set(uid, g);
-    if (g.slug) slugMap.set(g.slug.toLowerCase(), uid);
+    if (g.slug) {
+      const s = g.slug.toLowerCase().trim();
+      slugMap.set(s, uid);
+      slugMap.set(s.replace(/-codes$/, ''), uid);
+      slugMap.set(`${s}-codes`, uid);
+    }
+    if (g.name) {
+      nameMap.set(g.name.toLowerCase().trim(), uid);
+    }
+    if ((g.total_code_count || 0) > 0) {
+      existingWithCodesCount++;
+    }
   }
-  console.log(`✓ Loaded ${existingGames.length} existing games from Supabase.\n`);
+
+  function findExistingGame(bg) {
+    if (bg.root_place_id && rootPlaceMap.has(String(bg.root_place_id))) {
+      return universeIdMap.get(rootPlaceMap.get(String(bg.root_place_id)));
+    }
+    const rawSlug = (bg.slug || '').toLowerCase().trim();
+    if (rawSlug) {
+      if (slugMap.has(rawSlug)) return universeIdMap.get(slugMap.get(rawSlug));
+      if (slugMap.has(rawSlug.replace(/-codes$/, ''))) return universeIdMap.get(slugMap.get(rawSlug.replace(/-codes$/, '')));
+      if (slugMap.has(`${rawSlug}-codes`)) return universeIdMap.get(slugMap.get(`${rawSlug}-codes`));
+    }
+    const cleanName = (bg.name || '').toLowerCase().trim();
+    if (cleanName && nameMap.has(cleanName)) {
+      return universeIdMap.get(nameMap.get(cleanName));
+    }
+    return null;
+  }
+  console.log(`✓ Loaded ${existingGames.length} existing games from Supabase (${existingWithCodesCount} already have codes).\n`);
 
   // 3. Fetch directory of games from BloxArchive
   console.log('Fetching games directory from BloxArchive API...');
@@ -436,9 +466,57 @@ BLOXARCHIVE_API_KEY="${bloxApiKey}"
   let skippedCount = 0;
   const startTime = Date.now();
 
-  const gamesToProcess = targetUniverse
-    ? bloxGames.filter((g) => String(g.root_place_id) === targetUniverse || g.slug?.includes(targetUniverse))
-    : bloxGames;
+  const newOnly = !hasFlag('all') && !hasFlag('force');
+  const isListMode = hasFlag('list');
+  let gamesToProcess = [];
+
+  if (targetUniverse) {
+    gamesToProcess = bloxGames.filter(
+      (g) => String(g.root_place_id) === targetUniverse || g.slug?.includes(targetUniverse)
+    );
+  } else if (newOnly) {
+    const existingInDb = [];
+    for (const bg of bloxGames) {
+      const match = findExistingGame(bg);
+      if (match && (match.total_code_count > 0 || match.codes_last_checked_at)) {
+        existingInDb.push({ bg, match });
+      } else {
+        gamesToProcess.push(bg);
+      }
+    }
+
+    console.log(`========================================================`);
+    console.log(`   Catalog Analysis (New Games vs Existing in DB)      `);
+    console.log(`========================================================`);
+    console.log(`   ✓ Already in your Database:  ${existingInDb.length} games (SKIPPED upfront to save quota)`);
+    console.log(`   ★ Brand NEW games to sync:   ${gamesToProcess.length} games`);
+    console.log(`========================================================\n`);
+
+    if (isListMode) {
+      console.log('List of Brand NEW Games waiting to be synced:');
+      if (gamesToProcess.length === 0) {
+        console.log('  (None! All BloxArchive games already exist in your database)');
+      } else {
+        gamesToProcess.slice(0, 30).forEach((g, i) => {
+          console.log(`  ${String(i + 1).padStart(2)}. ${g.name || g.slug} (Place ID: ${g.root_place_id})`);
+        });
+        if (gamesToProcess.length > 30) {
+          console.log(`  ... and ${gamesToProcess.length - 30} more new games.`);
+        }
+      }
+      console.log('\nExiting (--list mode). To sync these new games, run without --list.\n');
+      process.exit(0);
+    }
+
+    if (gamesToProcess.length === 0) {
+      console.log('✓ All available BloxArchive games already have codes in your database!');
+      console.log('  Zero API calls needed. Your database is completely up to date.');
+      console.log('  (To re-sync existing games anyway, pass: npm run sync:codes -- --all)\n');
+      process.exit(0);
+    }
+  } else {
+    gamesToProcess = bloxGames;
+  }
 
   async function processGame(bg) {
     const slug = bg.slug;
