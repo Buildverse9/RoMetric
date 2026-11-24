@@ -18,7 +18,6 @@ import fs from 'fs';
 import path from 'path';
 import readline from 'readline';
 
-const DEFAULT_BLOXARCHIVE_KEY = 'ba_d80fa5f67344e799b7ea6efa0eda253e5f00073e';
 const BLOXARCHIVE_BASE = 'https://bloxarchive.com/api/partner/v1';
 
 // Load .env.local or .env if present
@@ -124,7 +123,7 @@ Options:
   --universe=<id>          Sync codes for a single universe ID
   --supabase-url=<url>     Supabase project URL (e.g. https://xyz.supabase.co)
   --supabase-key=<key>     Supabase service_role secret key
-  --bloxarchive-key=<key>  BloxArchive API key (defaults to your registered key)
+  --bloxarchive-key=<key>  BloxArchive API key (or set BLOXARCHIVE_API_KEY in .env.local)
   --force                  Re-sync games even if already checked recently
   --dry-run                Fetch and parse codes without writing to database
   --help, -h               Show this help message
@@ -151,7 +150,7 @@ Options:
     getArg('bloxarchive-key') ||
     process.env.BLOXARCHIVE_API_KEY ||
     fileEnv.BLOXARCHIVE_API_KEY ||
-    DEFAULT_BLOXARCHIVE_KEY;
+    '';
 
   if (!supabaseUrl) {
     supabaseUrl = await promptInput('Enter your Supabase URL (e.g. https://xxx.supabase.co): ');
@@ -162,8 +161,12 @@ Options:
     serviceRoleKey = await promptInput('Enter your Supabase service_role key: ');
   }
 
-  if (!supabaseUrl || !serviceRoleKey) {
-    console.error('Error: Supabase URL and service_role key are required to write to database.');
+  if (!bloxApiKey) {
+    bloxApiKey = await promptInput('Enter your BloxArchive Partner API key: ');
+  }
+
+  if (!supabaseUrl || !serviceRoleKey || !bloxApiKey) {
+    console.error('Error: Supabase URL, service_role key, and BloxArchive API key are required.');
     process.exit(1);
   }
 
