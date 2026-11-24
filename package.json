@@ -9,7 +9,8 @@
     "lint": "eslint .",
     "clean": "next clean",
     "sync:codes": "node scripts/sync-bloxarchive-codes.mjs",
-    "list:codes": "node scripts/list-codes.mjs"
+    "list:codes": "node scripts/list-codes.mjs",
+    "import:codes": "node scripts/import-local-codes.mjs"
   },
   "dependencies": {
     "@firebase/eslint-plugin-security-rules": "^0.0.2",

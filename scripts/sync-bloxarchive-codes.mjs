@@ -254,17 +254,53 @@ BLOXARCHIVE_API_KEY="${bloxApiKey}"
     console.warn(`Warning checking code_sources: ${err.message}`);
   }
 
-  // 2. Fetch existing games from Supabase to build fast ID lookup maps
-  console.log('Loading existing games catalog from Supabase...');
-  const gamesRes = await fetch(
-    `${supabaseUrl}/rest/v1/games?select=universe_id,root_place_id,slug,name,codes_last_checked_at,active_code_count,total_code_count&limit=5000`,
-    { headers: sbHeaders }
-  );
-  if (!gamesRes.ok) {
-    console.error(`Failed to load games from Supabase (HTTP ${gamesRes.status}):`, await gamesRes.text());
-    process.exit(1);
+  // 1b. Load exclusion set from local datastore files if present
+  const datastoreDir = getArg('datastore') || 'D:\\Users Profiles\\Yesh\\Downloads\\datbase';
+  const datastoreUniverseIds = new Set();
+  const datastoreSlugs = new Set();
+  let datastoreCodesCount = 0;
+
+  if (fs.existsSync(datastoreDir)) {
+    const dsFiles = fs.readdirSync(datastoreDir).filter((f) => f.endsWith('.json'));
+    for (const f of dsFiles) {
+      try {
+        const rows = JSON.parse(fs.readFileSync(path.join(datastoreDir, f), 'utf8'));
+        datastoreCodesCount += rows.length;
+        for (const r of rows) {
+          if (r.universe_id) datastoreUniverseIds.add(String(r.universe_id));
+          if (r.source_url) {
+            const slug = r.source_url.split('/').pop();
+            if (slug) {
+              const s = slug.toLowerCase().trim();
+              datastoreSlugs.add(s);
+              datastoreSlugs.add(s.replace(/-codes$/, ''));
+              datastoreSlugs.add(`${s}-codes`);
+            }
+          }
+        }
+      } catch {}
+    }
+    console.log(`📁 Local Datastore: Loaded ${datastoreCodesCount} codes across ${datastoreUniverseIds.size} games from "${datastoreDir}".`);
+    console.log(`   (All ${datastoreUniverseIds.size} games are protected and will NOT be queried or re-added)\n`);
   }
-  const existingGames = await gamesRes.json();
+
+  // 2. Fetch existing games from Supabase (paginated to load entire catalog)
+  console.log('Loading existing games catalog from Supabase (paginated)...');
+  let existingGames = [];
+  let page = 0;
+  while (true) {
+    const gamesRes = await fetch(
+      `${supabaseUrl}/rest/v1/games?select=universe_id,root_place_id,slug,name,codes_last_checked_at,active_code_count,total_code_count&limit=1000&offset=${page * 1000}`,
+      { headers: sbHeaders }
+    );
+    if (!gamesRes.ok) break;
+    const rows = await gamesRes.json();
+    if (!rows || rows.length === 0) break;
+    existingGames = existingGames.concat(rows);
+    if (rows.length < 1000) break;
+    page++;
+  }
+
   const rootPlaceMap = new Map();
   const universeIdMap = new Map();
   const slugMap = new Map();
@@ -285,7 +321,7 @@ BLOXARCHIVE_API_KEY="${bloxApiKey}"
     if (g.name) {
       nameMap.set(g.name.toLowerCase().trim(), uid);
     }
-    if ((g.total_code_count || 0) > 0) {
+    if ((g.total_code_count || 0) > 0 || datastoreUniverseIds.has(uid)) {
       existingWithCodesCount++;
     }
   }
@@ -293,6 +329,9 @@ BLOXARCHIVE_API_KEY="${bloxApiKey}"
   function findExistingGame(bg) {
     if (bg.root_place_id && rootPlaceMap.has(String(bg.root_place_id))) {
       return universeIdMap.get(rootPlaceMap.get(String(bg.root_place_id)));
+    }
+    if (bg.universe_id && universeIdMap.has(String(bg.universe_id))) {
+      return universeIdMap.get(String(bg.universe_id));
     }
     const rawSlug = (bg.slug || '').toLowerCase().trim();
     if (rawSlug) {
@@ -305,6 +344,26 @@ BLOXARCHIVE_API_KEY="${bloxApiKey}"
       return universeIdMap.get(nameMap.get(cleanName));
     }
     return null;
+  }
+
+  function isGameAlreadyInDb(bg) {
+    // 1. Direct match with local datastore files (309 games)
+    if (bg.universe_id && datastoreUniverseIds.has(String(bg.universe_id))) return true;
+    const rawSlug = (bg.slug || '').toLowerCase().trim();
+    if (rawSlug) {
+      if (datastoreSlugs.has(rawSlug)) return true;
+      if (datastoreSlugs.has(rawSlug.replace(/-codes$/, ''))) return true;
+      if (datastoreSlugs.has(`${rawSlug}-codes`)) return true;
+    }
+
+    // 2. Match with Supabase existing catalog
+    const match = findExistingGame(bg);
+    if (match) {
+      if (datastoreUniverseIds.has(String(match.universe_id))) return true;
+      if ((match.total_code_count || 0) > 0) return true;
+      if (match.codes_last_checked_at) return true;
+    }
+    return false;
   }
   console.log(`✓ Loaded ${existingGames.length} existing games from Supabase (${existingWithCodesCount} already have codes).\n`);
 
@@ -521,23 +580,18 @@ BLOXARCHIVE_API_KEY="${bloxApiKey}"
   async function processGame(bg) {
     const slug = bg.slug;
     const isForce = hasFlag('force');
-    const existingEntry = slugMap.has(slug.toLowerCase())
-      ? universeIdMap.get(slugMap.get(slug.toLowerCase()))
-      : null;
+    const existingEntry = findExistingGame(bg);
 
-    if (!isForce && existingEntry?.codes_last_checked_at) {
-      const checkedMs = Date.parse(existingEntry.codes_last_checked_at);
-      if (Date.now() - checkedMs < maxAgeMs) {
-        return {
-          ok: true,
-          alreadySynced: true,
-          name: existingEntry.name || bg.name,
-          active: existingEntry.active_code_count || 0,
-          expired: 0,
-          pending: 0,
-          total: existingEntry.total_code_count || 0,
-        };
-      }
+    if (!isForce && (isGameAlreadyInDb(bg) || existingEntry?.codes_last_checked_at)) {
+      return {
+        ok: true,
+        alreadySynced: true,
+        name: existingEntry?.name || bg.name,
+        active: existingEntry?.active_code_count || 0,
+        expired: 0,
+        pending: 0,
+        total: existingEntry?.total_code_count || 0,
+      };
     }
 
     const detailUrl = `${BLOXARCHIVE_BASE}/games/${encodeURIComponent(slug)}?locale=en`;

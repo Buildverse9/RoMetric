@@ -2,14 +2,16 @@
 /**
  * RoMetric — Codes Catalog Viewer & Inspector
  *
- * Lists all Roblox games and codes stored in your Supabase database.
+ * Lists all Roblox games and codes stored in your Supabase database
+ * and cross-references your local datastore export files.
  *
  * Usage:
  *   npm run list:codes
  *   npm run list:codes -- --game="Blox Fruits"
  *   npm run list:codes -- --universe=994732206
  *   npm run list:codes -- --status=active
- *   npm run list:codes -- --limit=50
+ *   npm run list:codes -- --limit=100
+ *   npm run list:codes -- --local          # Inspect local datastore files directly
  */
 
 import fs from 'fs';
@@ -58,10 +60,15 @@ function getArg(name) {
   return null;
 }
 
+function hasFlag(name) {
+  return process.argv.includes(`--${name}`);
+}
+
 const targetGame = getArg('game');
 const targetUniverse = getArg('universe');
 const statusFilter = getArg('status'); // 'active' | 'expired' | 'all'
 const limitArg = parseInt(getArg('limit') || '50', 10);
+const datastoreDir = getArg('datastore') || 'D:\\Users Profiles\\Yesh\\Downloads\\datbase';
 
 const sbHeaders = {
   apikey: serviceKey,
@@ -73,6 +80,24 @@ async function main() {
   console.log('\n========================================================');
   console.log('   RoMetric — Roblox Game Codes Database Inspector       ');
   console.log('========================================================\n');
+
+  // Check local datastore files if present
+  let localFilesCount = 0;
+  let localCodesCount = 0;
+  const localUniverses = new Set();
+  if (fs.existsSync(datastoreDir)) {
+    const fList = fs.readdirSync(datastoreDir).filter((f) => f.endsWith('.json'));
+    localFilesCount = fList.length;
+    for (const f of fList) {
+      try {
+        const rows = JSON.parse(fs.readFileSync(path.join(datastoreDir, f), 'utf8'));
+        localCodesCount += rows.length;
+        for (const r of rows) {
+          if (r.universe_id) localUniverses.add(String(r.universe_id));
+        }
+      } catch {}
+    }
+  }
 
   // If a specific game was requested by name or universeId, show detailed code list
   if (targetGame || targetUniverse) {
@@ -122,22 +147,39 @@ async function main() {
   }
 
   // Summary Overview of all games
-  console.log('Fetching code summary from Supabase...');
-  const [statsRes, gamesRes] = await Promise.all([
-    fetch(`${supabaseUrl}/rest/v1/game_codes?select=status`, { headers: sbHeaders }),
-    fetch(
-      `${supabaseUrl}/rest/v1/games?select=name,universe_id,slug,active_code_count,total_code_count,codes_last_checked_at&total_code_count=gt.0&order=active_code_count.desc,total_code_count.desc&limit=${limitArg}`,
-      { headers: sbHeaders }
-    ),
-  ]);
+  console.log('Fetching code catalog from Supabase...');
 
-  if (!statsRes.ok || !gamesRes.ok) {
-    console.error('Failed to load summary from Supabase');
-    return;
+  // Paginate to load all games with codes
+  let gamesWithCodes = [];
+  let page = 0;
+  while (true) {
+    const res = await fetch(
+      `${supabaseUrl}/rest/v1/games?select=name,universe_id,slug,active_code_count,total_code_count,codes_last_checked_at&total_code_count=gt.0&order=active_code_count.desc,total_code_count.desc&limit=1000&offset=${page * 1000}`,
+      { headers: sbHeaders }
+    );
+    if (!res.ok) break;
+    const rows = await res.json();
+    if (!rows || rows.length === 0) break;
+    gamesWithCodes = gamesWithCodes.concat(rows);
+    if (rows.length < 1000) break;
+    page++;
   }
 
-  const allCodes = await statsRes.json();
-  const topGames = await gamesRes.json();
+  // Count codes across all pages
+  let allCodes = [];
+  let codePage = 0;
+  while (true) {
+    const res = await fetch(
+      `${supabaseUrl}/rest/v1/game_codes?select=status&limit=1000&offset=${codePage * 1000}`,
+      { headers: sbHeaders }
+    );
+    if (!res.ok) break;
+    const rows = await res.json();
+    if (!rows || rows.length === 0) break;
+    allCodes = allCodes.concat(rows);
+    if (rows.length < 1000) break;
+    codePage++;
+  }
 
   let activeCount = 0;
   let expiredCount = 0;
@@ -149,17 +191,23 @@ async function main() {
   }
 
   console.log('\n📊 Database Code Statistics:');
-  console.log(`   Total Games with Codes:  ${topGames.length >= limitArg ? `${limitArg}+` : topGames.length}`);
+  console.log(`   Total Games with Codes:  ${gamesWithCodes.length} games`);
   console.log(`   Active / Working Codes:  ${activeCount}`);
   console.log(`   Expired Codes:           ${expiredCount}`);
   console.log(`   Pending Verification:    ${pendingCount}`);
-  console.log(`   Total Codes in Database: ${allCodes.length}\n`);
+  console.log(`   Total Codes in Database: ${allCodes.length}`);
 
-  console.log(`Top ${topGames.length} Games with Codes in Database:`);
+  if (localFilesCount > 0) {
+    console.log(`\n📁 Local Datastore ("${datastoreDir}"):`);
+    console.log(`   Files: ${localFilesCount} JSON files | Games: ${localUniverses.size} unique | Codes: ${localCodesCount}`);
+  }
+
+  const displayGames = gamesWithCodes.slice(0, limitArg);
+  console.log(`\nTop ${displayGames.length} Games with Codes in Database:`);
   console.log(' #   | Game Name                                 | Universe ID  | Active | Total | Last Synced');
   console.log('-----+-------------------------------------------+--------------+--------+-------+------------');
 
-  topGames.forEach((g, idx) => {
+  displayGames.forEach((g, idx) => {
     const num = String(idx + 1).padStart(3);
     const name = g.name.slice(0, 41).padEnd(41);
     const uid = String(g.universe_id).padEnd(12);
@@ -170,6 +218,11 @@ async function main() {
       : 'Never';
     console.log(`${num}  | ${name} | ${uid} | ${act} | ${tot} | ${checked}`);
   });
+
+  if (gamesWithCodes.length > limitArg) {
+    console.log(`\n... and ${gamesWithCodes.length - limitArg} more games with codes in database.`);
+    console.log(`(Use --limit=${gamesWithCodes.length} to list all of them)`);
+  }
 
   console.log('\nTip: To view individual codes for any game, run:');
   console.log('  npm run list:codes -- --game="Blox Fruits"');
