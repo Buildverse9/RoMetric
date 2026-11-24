@@ -1,0 +1,62 @@
+import type { Metadata } from 'next';
+import { notFound } from 'next/navigation';
+import { fetchGameCodesBySlugOrId } from '@/lib/codes-server';
+import { GameCodesDetailClient } from '@/components/GameCodesDetailClient';
+
+export const dynamic = 'force-dynamic';
+
+interface PageProps {
+  params: Promise<{ slug: string }>;
+}
+
+export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
+  const { slug } = await params;
+  const payload = await fetchGameCodesBySlugOrId(slug);
+  const game = payload.game;
+
+  if (!game) {
+    return {
+      title: 'Roblox Game Codes Not Found | RoMetric',
+      description: 'We could not find codes for this Roblox experience.',
+    };
+  }
+
+  const activeCount = payload.codes.filter((c) => c.status === 'active').length;
+  const title = `${game.name} Codes (${activeCount} Active & Working) — RoMetric`;
+  const description = `Find all active and working Roblox promo codes for ${game.name}. Verified codes, reward descriptions, and one-tap copy on RoMetric.`;
+  const pageUrl = `https://rometrics.vercel.app/codes/${encodeURIComponent(game.slug || slug)}`;
+
+  const ogCardUrl = `https://rometrics.vercel.app/api/og/social?t=codes&slug=${encodeURIComponent(game.slug || slug)}`;
+
+  return {
+    title,
+    description,
+    alternates: {
+      canonical: pageUrl,
+    },
+    openGraph: {
+      title,
+      description,
+      url: pageUrl,
+      type: 'website',
+      images: [{ url: ogCardUrl, width: 1200, height: 630, alt: title }],
+    },
+    twitter: {
+      card: 'summary_large_image',
+      title,
+      description,
+      images: [ogCardUrl],
+    },
+  };
+}
+
+export default async function GameCodesDetailPage({ params }: PageProps) {
+  const { slug } = await params;
+  const payload = await fetchGameCodesBySlugOrId(slug);
+
+  if (!payload.game) {
+    notFound();
+  }
+
+  return <GameCodesDetailClient initialPayload={payload} />;
+}

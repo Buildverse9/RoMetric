@@ -10,12 +10,14 @@ import {
 } from '@/lib/format';
 import { estimateGameRevenue, formatCurrencyCompact } from '@/lib/revenue';
 import {
+  computeGameRevenueSurge,
   computeNet24hGain,
   formatSnapshotDate,
   formatSnapshotTimeUtc,
   getProxiedArtworkUrl,
   SOCIAL_STAGE_DIMENSIONS,
   type MilestoneSummary,
+  type RevenueSurgeSummary,
   type SocialAspectRatio,
   type SocialTemplateId,
 } from '@/lib/social-studio';
@@ -28,10 +30,13 @@ export interface SocialCardCanvasProps {
   showTimestamp: boolean;
   showFooterUrl: boolean;
   leaderboardGames: GameRecordData[];
+  topEarningGames: GameRecordData[];
   surgeRunnersUp: GameRecordData[];
+  revenueRunnersUp: GameRecordData[];
   primaryGame: GameRecordData | null;
   secondaryGame: GameRecordData | null;
   milestone: MilestoneSummary | null;
+  revenueSurge: RevenueSurgeSummary | null;
   codeGame: GameCodeDirectoryItem | null;
   selectedCodes: GameCodeRecord[];
   snapshotDate: Date;
@@ -218,10 +223,13 @@ export function SocialCardCanvas({
   showTimestamp,
   showFooterUrl,
   leaderboardGames,
+  topEarningGames,
   surgeRunnersUp,
+  revenueRunnersUp,
   primaryGame,
   secondaryGame,
   milestone,
+  revenueSurge,
   codeGame,
   selectedCodes,
   snapshotDate,
@@ -248,6 +256,503 @@ export function SocialCardCanvas({
       }}
       className="flex flex-col justify-between overflow-hidden select-none"
     >
+      {/* NEW: TOP EARNING ROBLOX GAMES */}
+      {template === 'top_earning' && (() => {
+        const rows = topEarningGames;
+        const maxRev = Math.max(
+          1,
+          rows[0] ? estimateGameRevenue(rows[0]).monthlyUsd : 1
+        );
+        const totalMonthly = rows.reduce(
+          (sum, g) => sum + estimateGameRevenue(g).monthlyUsd,
+          0
+        );
+        const isTen = rows.length > 5;
+        const headline =
+          customHeadline.trim() ||
+          `Top ${rows.length} Earning Roblox Games (Est. Monthly)`;
+
+        return (
+          <>
+            <CardHeader
+              kicker="Top Earning Leaderboard"
+              showTimestamp={showTimestamp}
+              snapshotDate={snapshotDate}
+            />
+
+            <div className="flex items-end justify-between pt-4 pb-3 shrink-0">
+              <div>
+                <h2
+                  style={{
+                    color: '#0F172A',
+                    letterSpacing: '-0.03em',
+                    textWrap: 'balance',
+                  }}
+                  className={`${isSquare ? 'text-[34px]' : 'text-[30px]'} font-bold leading-tight`}
+                >
+                  {headline}
+                </h2>
+              </div>
+              <div className="text-right shrink-0 pl-4">
+                <div
+                  style={{ color: '#64748B' }}
+                  className="text-[12px] font-medium"
+                >
+                  Combined Top {rows.length} Est.
+                </div>
+                <div
+                  style={{ color: '#16A34A' }}
+                  className="text-[22px] font-bold font-mono tabular-nums leading-tight"
+                >
+                  {formatCurrencyCompact(totalMonthly)}/mo
+                </div>
+              </div>
+            </div>
+
+            <div className="flex-1 flex flex-col justify-between py-1">
+              {rows.length === 0 ? (
+                <div
+                  style={{ color: '#64748B' }}
+                  className="flex-1 flex items-center justify-center text-[16px]"
+                >
+                  No tracked games loaded yet.
+                </div>
+              ) : (
+                rows.map((game, idx) => {
+                  const rev = estimateGameRevenue(game);
+                  const pctWidth = Math.max(
+                    5,
+                    Math.round((rev.monthlyUsd / maxRev) * 100)
+                  );
+                  const rowBg = idx % 2 === 0 ? '#F8FAFC' : '#FFFFFF';
+                  const thumbSize = isTen
+                    ? isSquare
+                      ? 44
+                      : 30
+                    : isSquare
+                      ? 64
+                      : 48;
+
+                  return (
+                    <div
+                      key={game.universeId}
+                      style={{
+                        backgroundColor: rowBg,
+                        borderBottom: '1px solid #F1F5F9',
+                        paddingTop: isTen ? (isSquare ? 10 : 5) : isSquare ? 16 : 11,
+                        paddingBottom: isTen ? (isSquare ? 10 : 5) : isSquare ? 16 : 11,
+                      }}
+                      className="flex items-center gap-3.5 px-3 rounded-lg"
+                    >
+                      <span
+                        style={{
+                          color: idx < 3 ? '#0F172A' : '#64748B',
+                          width: 28,
+                        }}
+                        className="font-mono text-[14px] font-bold tabular-nums shrink-0"
+                      >
+                        {String(idx + 1).padStart(2, '0')}
+                      </span>
+
+                      <CardThumb
+                        src={game.iconUrl || game.thumbnailUrl}
+                        alt={game.name}
+                        size={thumbSize}
+                        radius={isTen && !isSquare ? 7 : 10}
+                      />
+
+                      <div className="min-w-0 w-[290px] shrink-0">
+                        <div
+                          style={{ color: '#0F172A' }}
+                          className={`${isTen && !isSquare ? 'text-[14px]' : 'text-[16px]'} font-bold truncate leading-snug`}
+                        >
+                          {game.name}
+                        </div>
+                        {(!isTen || isSquare) && (
+                          <div
+                            style={{ color: '#64748B' }}
+                            className="text-[12px] font-medium truncate"
+                          >
+                            {game.creatorName} · {formatCompactNumber(game.currentCcu)} CCU
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Proportional Monthly Revenue bar */}
+                      <div className="flex-1 px-2">
+                        <div
+                          style={{
+                            height: isTen && !isSquare ? 8 : 11,
+                            backgroundColor: '#E2E8F0',
+                            borderRadius: 999,
+                            overflow: 'hidden',
+                          }}
+                        >
+                          <div
+                            style={{
+                              width: `${pctWidth}%`,
+                              height: '100%',
+                              backgroundColor: idx === 0 ? '#16A34A' : '#0F172A',
+                              borderRadius: 999,
+                            }}
+                          />
+                        </div>
+                      </div>
+
+                      {/* Tabular Monthly USD */}
+                      <div className="text-right shrink-0 w-[124px]">
+                        <div
+                          style={{ color: '#0F172A' }}
+                          className={`${isTen && !isSquare ? 'text-[14px]' : 'text-[16px]'} font-mono font-bold tabular-nums`}
+                        >
+                          {formatCurrencyCompact(rev.monthlyUsd)}/mo
+                        </div>
+                      </div>
+
+                      {/* Daily USD */}
+                      <div className="text-right shrink-0 w-[94px]">
+                        <span
+                          style={{ color: '#16A34A' }}
+                          className="font-mono text-[13px] font-bold tabular-nums"
+                        >
+                          {formatCurrencyCompact(rev.dailyUsd)}/d
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            <CardFooter
+              leftNote="Estimated DevEx monthly revenue from live CCU, genre & rating telemetry"
+              rightLink="rometrics.vercel.app/rankings"
+              showFooterUrl={showFooterUrl}
+            />
+          </>
+        );
+      })()}
+
+      {/* NEW: 24H REVENUE INCREASE / JUMP ALERT */}
+      {template === 'revenue_surge' && (() => {
+        const game = primaryGame;
+        const stats = revenueSurge || (game ? computeGameRevenueSurge(game) : null);
+        if (!game || !stats) {
+          return (
+            <div className="flex-1 flex items-center justify-center text-slate-500">
+              Select a game to preview the Revenue Jump card.
+            </div>
+          );
+        }
+
+        const isGain = stats.deltaMonthlyUsd > 0;
+        const maxBar = Math.max(
+          1,
+          stats.currentMonthlyUsd,
+          stats.previousMonthlyUsd
+        );
+        const prevW = Math.max(
+          8,
+          Math.round((stats.previousMonthlyUsd / maxBar) * 100)
+        );
+        const currW = Math.max(
+          8,
+          Math.round((stats.currentMonthlyUsd / maxBar) * 100)
+        );
+        const headline =
+          customHeadline.trim() ||
+          (isGain
+            ? `${game.name} est. monthly revenue jumps ${formatCurrencyCompact(stats.deltaMonthlyUsd)}`
+            : `${game.name} — Estimated Roblox DevEx Earnings`);
+
+        return (
+          <>
+            <CardHeader
+              kicker="24h Revenue Jump Alert"
+              showTimestamp={showTimestamp}
+              snapshotDate={snapshotDate}
+            />
+
+            <div className="flex-1 flex flex-col justify-center gap-5 py-4">
+              {/* Top hero split */}
+              <div className="flex items-center justify-between gap-7">
+                <div className="flex items-center gap-5 min-w-0 flex-1">
+                  <CardThumb
+                    src={game.iconUrl || game.thumbnailUrl}
+                    alt={game.name}
+                    size={isSquare ? 128 : 110}
+                    radius={18}
+                  />
+                  <div className="min-w-0 space-y-2">
+                    <div
+                      style={{ color: '#16A34A' }}
+                      className="text-[14px] font-bold tracking-tight"
+                    >
+                      Estimated DevEx Revenue · {game.genre || 'Experience'}
+                    </div>
+                    <h2
+                      style={{
+                        color: '#0F172A',
+                        letterSpacing: '-0.03em',
+                        textWrap: 'balance',
+                      }}
+                      className={`${isSquare ? 'text-[36px]' : 'text-[32px]'} font-bold leading-[1.12]`}
+                    >
+                      {headline}
+                    </h2>
+                    <div
+                      style={{ color: '#475569' }}
+                      className="text-[15px] font-medium"
+                    >
+                      Developed by {game.creatorName}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Giant semantic revenue jump readout */}
+                <div
+                  style={{
+                    backgroundColor: isGain ? '#F0FDF4' : '#F8FAFC',
+                    border: isGain ? '1px solid #BBF7D0' : '1px solid #E2E8F0',
+                  }}
+                  className="shrink-0 rounded-2xl px-7 py-5 text-right min-w-[260px]"
+                >
+                  <div
+                    style={{ color: isGain ? '#15803D' : '#475569' }}
+                    className="text-[13px] font-semibold"
+                  >
+                    {isGain ? '24h Monthly Run-Rate Jump' : 'Est. Monthly DevEx'}
+                  </div>
+                  <div
+                    style={{
+                      color: isGain ? '#16A34A' : '#0F172A',
+                      letterSpacing: '-0.03em',
+                    }}
+                    className={`${isSquare ? 'text-[50px]' : 'text-[46px]'} font-mono font-extrabold tabular-nums leading-none mt-1.5`}
+                  >
+                    {isGain
+                      ? `+${formatCurrencyCompact(stats.deltaMonthlyUsd)}`
+                      : formatCurrencyCompact(stats.currentMonthlyUsd)}
+                  </div>
+                  <div
+                    style={{ color: isGain ? '#166534' : '#64748B' }}
+                    className="text-[14px] font-mono font-semibold tabular-nums mt-2"
+                  >
+                    {isGain
+                      ? `▲ ${formatPercent(stats.revenueGrowthPct)} · +${formatCurrencyCompact(stats.deltaDailyUsd)}/day`
+                      : `${formatCurrencyCompact(stats.currentDailyUsd)}/day pacing`}
+                  </div>
+                </div>
+              </div>
+
+              {/* 24h Baseline vs Current Run-Rate Bar */}
+              <div
+                style={{
+                  backgroundColor: '#F8FAFC',
+                  border: '1px solid #E2E8F0',
+                }}
+                className="rounded-xl px-6 py-4 space-y-3"
+              >
+                <div className="flex items-center gap-4">
+                  <span
+                    style={{ color: '#64748B' }}
+                    className="w-[140px] text-[13px] font-semibold shrink-0"
+                  >
+                    24h Baseline Est.
+                  </span>
+                  <div
+                    style={{
+                      height: 11,
+                      backgroundColor: '#E2E8F0',
+                      borderRadius: 999,
+                      overflow: 'hidden',
+                    }}
+                    className="flex-1"
+                  >
+                    <div
+                      style={{
+                        width: `${prevW}%`,
+                        height: '100%',
+                        backgroundColor: '#94A3B8',
+                        borderRadius: 999,
+                      }}
+                    />
+                  </div>
+                  <span
+                    style={{ color: '#475569' }}
+                    className="w-[120px] text-right font-mono text-[14px] font-bold tabular-nums shrink-0"
+                  >
+                    {formatCurrencyCompact(stats.previousMonthlyUsd)}/mo
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-4">
+                  <span
+                    style={{ color: '#0F172A' }}
+                    className="w-[140px] text-[13px] font-bold shrink-0"
+                  >
+                    Current Pace
+                  </span>
+                  <div
+                    style={{
+                      height: 11,
+                      backgroundColor: '#E2E8F0',
+                      borderRadius: 999,
+                      overflow: 'hidden',
+                    }}
+                    className="flex-1"
+                  >
+                    <div
+                      style={{
+                        width: `${currW}%`,
+                        height: '100%',
+                        backgroundColor: '#16A34A',
+                        borderRadius: 999,
+                      }}
+                    />
+                  </div>
+                  <span
+                    style={{ color: '#0F172A' }}
+                    className="w-[120px] text-right font-mono text-[15px] font-extrabold tabular-nums shrink-0"
+                  >
+                    {formatCurrencyCompact(stats.currentMonthlyUsd)}/mo
+                  </span>
+                </div>
+              </div>
+
+              {/* 4-column structured revenue KPI strip */}
+              <div
+                style={{
+                  backgroundColor: '#FFFFFF',
+                  border: '1px solid #E2E8F0',
+                }}
+                className="grid grid-cols-4 divide-x divide-[#E2E8F0] rounded-xl"
+              >
+                <div className="px-5 py-3.5">
+                  <div style={{ color: '#64748B' }} className="text-[12px] font-medium">
+                    Est. Monthly USD
+                  </div>
+                  <div
+                    style={{ color: '#0F172A' }}
+                    className="text-[25px] font-mono font-bold tabular-nums mt-1"
+                  >
+                    {formatCurrencyCompact(stats.currentMonthlyUsd)}
+                  </div>
+                  <div style={{ color: '#64748B' }} className="text-[11px] font-mono tabular-nums mt-0.5">
+                    {formatCurrencyCompact(stats.yearlyUsd)}/yr pace
+                  </div>
+                </div>
+
+                <div className="px-5 py-3.5">
+                  <div style={{ color: '#64748B' }} className="text-[12px] font-medium">
+                    Est. Daily USD
+                  </div>
+                  <div
+                    style={{ color: '#0F172A' }}
+                    className="text-[25px] font-mono font-bold tabular-nums mt-1"
+                  >
+                    {formatCurrencyCompact(stats.currentDailyUsd)}
+                  </div>
+                  <div style={{ color: '#16A34A' }} className="text-[11px] font-mono font-semibold tabular-nums mt-0.5">
+                    {stats.deltaDailyUsd > 0
+                      ? `+${formatCurrencyCompact(stats.deltaDailyUsd)}/d`
+                      : 'DevEx equivalent'}
+                  </div>
+                </div>
+
+                <div className="px-5 py-3.5">
+                  <div style={{ color: '#64748B' }} className="text-[12px] font-medium">
+                    Est. Monthly Robux
+                  </div>
+                  <div
+                    style={{ color: '#0F172A' }}
+                    className="text-[25px] font-mono font-bold tabular-nums mt-1"
+                  >
+                    {formatCompactNumber(stats.currentMonthlyRobux)}
+                  </div>
+                  <div style={{ color: '#64748B' }} className="text-[11px] font-mono tabular-nums mt-0.5">
+                    R$ at DevEx rate
+                  </div>
+                </div>
+
+                <div className="px-5 py-3.5">
+                  <div style={{ color: '#64748B' }} className="text-[12px] font-medium">
+                    Live Players (CCU)
+                  </div>
+                  <div
+                    style={{ color: '#0F172A' }}
+                    className="text-[25px] font-mono font-bold tabular-nums mt-1"
+                  >
+                    {formatCompactNumber(game.currentCcu)}
+                  </div>
+                  <div style={{ color: '#64748B' }} className="text-[11px] font-mono tabular-nums mt-0.5">
+                    {formatExactNumber(game.currentCcu)} active
+                  </div>
+                </div>
+              </div>
+
+              {/* Also Rising in Revenue strip */}
+              {revenueRunnersUp.length > 0 && (
+                <div className="space-y-2">
+                  <div
+                    style={{ color: '#64748B' }}
+                    className="text-[12px] font-semibold"
+                  >
+                    Other Fast-Rising Earners (24h)
+                  </div>
+                  <div className="grid grid-cols-3 gap-3">
+                    {revenueRunnersUp.slice(0, 3).map((r) => {
+                      const rs = computeGameRevenueSurge(r);
+                      return (
+                        <div
+                          key={r.universeId}
+                          style={{
+                            border: '1px solid #E2E8F0',
+                            backgroundColor: '#FFFFFF',
+                          }}
+                          className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl"
+                        >
+                          <CardThumb
+                            src={r.iconUrl || r.thumbnailUrl}
+                            alt={r.name}
+                            size={36}
+                            radius={8}
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div
+                              style={{ color: '#0F172A' }}
+                              className="text-[13px] font-bold truncate"
+                            >
+                              {r.name}
+                            </div>
+                            <div className="flex items-center gap-2 text-[12px] font-mono tabular-nums">
+                              <span style={{ color: '#475569' }}>
+                                {formatCurrencyCompact(rs.currentMonthlyUsd)}/mo
+                              </span>
+                              {rs.deltaMonthlyUsd > 0 && (
+                                <span style={{ color: '#16A34A' }} className="font-bold">
+                                  +{formatCurrencyCompact(rs.deltaMonthlyUsd)}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <CardFooter
+              leftNote="Estimated DevEx revenue calculated from live CCU, genre & rating telemetry"
+              rightLink={`rometrics.vercel.app/games/${game.universeId}`}
+              showFooterUrl={showFooterUrl}
+            />
+          </>
+        );
+      })()}
+
       {/* 1. DAILY TOP 10 LIVE CCU LEADERBOARD */}
       {template === 'leaderboard' && (() => {
         const rows = leaderboardGames;
