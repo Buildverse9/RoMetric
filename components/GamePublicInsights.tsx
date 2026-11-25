@@ -31,6 +31,7 @@ import type {
   RobloxSimilarGameItem,
   RobloxSocialLinkItem,
 } from '@/app/api/roblox/game-details/route';
+import { buildGameUrlPath } from '@/lib/seo';
 import {
   formatCompactNumber,
   formatExactNumber,
@@ -1372,7 +1373,7 @@ export function GamePublicInsights({
                 {competitors.slice(0, 8).map((comp) => (
                   <Link
                     key={comp.universeId}
-                    href={`/games/${comp.universeId}`}
+                    href={buildGameUrlPath(comp)}
                     className="p-3.5 rounded-2xl bg-black/[0.025] dark:bg-white/[0.035] hover:bg-emerald-500/[0.08] border border-transparent hover:border-emerald-500/30 transition-all flex items-center gap-3 min-w-0"
                   >
                     <GameArtwork src={comp.iconUrl} alt={comp.name} size="sm" />

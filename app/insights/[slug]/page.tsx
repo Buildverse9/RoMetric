@@ -12,6 +12,7 @@ import { formatCompactNumber, formatExactNumber } from '@/lib/format';
 import { estimateGameRevenue, formatCurrencyCompact } from '@/lib/revenue';
 import {
   SITE_URL,
+  buildGameUrlPath,
   cleanSeoGameName,
   getCurrentMonthYear,
   safeJsonLd,
@@ -214,7 +215,7 @@ export default async function InsightDetailPage({
 
           <div className="flex flex-wrap items-center gap-2.5 pt-2">
             <Link
-              href={`/games/${revenueGame.universeId}`}
+              href={buildGameUrlPath(revenueGame)}
               className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-full bg-emerald-600 dark:bg-[#10E89A] text-white dark:text-[#04130D] hover:opacity-90 transition-opacity"
             >
               <BarChart2 className="w-3.5 h-3.5" />
@@ -247,7 +248,7 @@ export default async function InsightDetailPage({
               return (
                 <Link
                   key={p.game.universeId}
-                  href={`/games/${p.game.universeId}`}
+                  href={buildGameUrlPath(p.game)}
                   className="py-3 flex items-center justify-between gap-3 group"
                 >
                   <div className="flex items-center gap-3 min-w-0">
@@ -374,7 +375,7 @@ export default async function InsightDetailPage({
                     </td>
                     <td className="py-3 px-3">
                       <Link
-                        href={`/games/${g.universeId}`}
+                        href={buildGameUrlPath(g)}
                         className="flex items-center gap-3 min-w-0 group"
                       >
                         <GameArtwork src={g.iconUrl} alt={g.name} size="sm" />

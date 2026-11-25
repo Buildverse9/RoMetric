@@ -14,7 +14,12 @@ import {
   estimatePortfolioMonthlyRevenue,
   formatCurrencyCompact,
 } from '@/lib/revenue';
-import { SITE_URL, getCurrentMonthYear, safeJsonLd } from '@/lib/seo';
+import {
+  SITE_URL,
+  buildGameUrlPath,
+  getCurrentMonthYear,
+  safeJsonLd,
+} from '@/lib/seo';
 import {
   fetchSupabaseGamesList,
   isSupabaseConfigured,
@@ -114,7 +119,7 @@ export default async function GenreDetailPage({
         '@type': 'ListItem',
         position: idx + 1,
         name: g.name,
-        url: `${SITE_URL}/games/${g.universeId}`,
+        url: `${SITE_URL}${buildGameUrlPath(g)}`,
       })),
     },
   ];
@@ -194,7 +199,7 @@ export default async function GenreDetailPage({
             {risers.map((g) => (
               <Link
                 key={g.universeId}
-                href={`/games/${g.universeId}`}
+                href={buildGameUrlPath(g)}
                 className="group block rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
               >
                 <LiquidGlassCard className="rounded-2xl p-4 flex items-center justify-between gap-3 group-hover:border-emerald-500/40 transition-colors">
@@ -250,7 +255,7 @@ export default async function GenreDetailPage({
                     </td>
                     <td className="py-3 px-3">
                       <Link
-                        href={`/games/${game.universeId}`}
+                        href={buildGameUrlPath(game)}
                         className="flex items-center gap-3 min-w-0"
                       >
                         <GameArtwork src={game.iconUrl} alt={game.name} size="sm" />

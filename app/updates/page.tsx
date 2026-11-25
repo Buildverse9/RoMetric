@@ -3,7 +3,12 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { getGamesSortedByRecentUpdate } from '@/lib/market-intelligence';
 import { formatExactNumber } from '@/lib/format';
-import { SITE_URL, getCurrentMonthYear, safeJsonLd } from '@/lib/seo';
+import {
+  SITE_URL,
+  buildGameUpdatesUrlPath,
+  getCurrentMonthYear,
+  safeJsonLd,
+} from '@/lib/seo';
 import {
   fetchSupabaseGamesList,
   isSupabaseConfigured,
@@ -74,7 +79,7 @@ export default async function UpdatesDirectoryPage() {
         '@type': 'ListItem',
         position: idx + 1,
         name: `${g.name} Updates`,
-        url: `${SITE_URL}/games/${g.universeId}/updates`,
+        url: `${SITE_URL}${buildGameUpdatesUrlPath(g)}`,
       })),
     },
   };

@@ -32,6 +32,7 @@ import {
 import { SubmitCodeModal } from './SubmitCodeModal';
 import {
   buildCodeFaqItems,
+  buildGameUrlPath,
   cleanSeoGameName,
   getCurrentMonthYear,
 } from '@/lib/seo';
@@ -251,7 +252,7 @@ export function GameCodesDetailClient({
               </motion.a>
 
               <Link
-                href={`/games/${game.universeId}`}
+                href={buildGameUrlPath(game)}
                 className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-full text-xs font-semibold liquid-glass-pill text-slate-800 dark:text-[#F1F7FA] hover:border-emerald-500/45 transition-colors whitespace-nowrap"
               >
                 <BarChart2 className="w-3.5 h-3.5" />

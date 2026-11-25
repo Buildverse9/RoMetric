@@ -52,6 +52,64 @@ export function cleanSeoGameName(rawName: string): string {
 }
 
 /**
+ * Safely extracts the leading numeric Universe ID from either a bare ID
+ * ("10563114921") or a slugged param ("10563114921-steal-an-egg", "10778568998-gta-6").
+ */
+export function extractUniverseIdFromParam(rawParam: string): string {
+  const match = String(rawParam || '').trim().match(/^(\d+)(?:-|$)/);
+  return match?.[1] ?? '';
+}
+
+function slugifyGameTitle(input: string): string {
+  return String(input || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 72);
+}
+
+/**
+ * Builds the canonical "{universeId}-{clean-slug}" URL segment
+ * e.g. "10563114921-steal-an-egg" or "994732206-blox-fruits".
+ */
+export function buildGameSlugParam(game: {
+  universeId: string | number;
+  name?: string | null;
+  slug?: string | null;
+}): string {
+  const id = String(game.universeId || '').replace(/[^0-9]/g, '');
+  if (!id) return '';
+  const cleanedName = game.name ? cleanSeoGameName(game.name) : '';
+  const titleSlug =
+    slugifyGameTitle(cleanedName) || slugifyGameTitle(game.slug || '');
+  return titleSlug ? `${id}-${titleSlug}` : id;
+}
+
+/**
+ * Builds the canonical game page path: "/g/{universeId}-{clean-slug}".
+ */
+export function buildGameUrlPath(game: {
+  universeId: string | number;
+  name?: string | null;
+  slug?: string | null;
+}): string {
+  const segment = buildGameSlugParam(game);
+  return `/g/${segment}`;
+}
+
+/**
+ * Builds the canonical game updates path: "/g/{universeId}-{clean-slug}/updates".
+ */
+export function buildGameUpdatesUrlPath(game: {
+  universeId: string | number;
+  name?: string | null;
+  slug?: string | null;
+}): string {
+  const segment = buildGameSlugParam(game);
+  return `/g/${segment}/updates`;
+}
+
+/**
  * Serializes JSON-LD safely for inline <script type="application/ld+json">.
  */
 export function safeJsonLd(data: unknown): string {

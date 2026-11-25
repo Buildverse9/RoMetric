@@ -32,6 +32,7 @@ import {
 import { useApp } from './AppProvider';
 import { formatCompactNumber } from '@/lib/format';
 import { estimateGameRevenue, formatCurrencyCompact } from '@/lib/revenue';
+import { buildGameUrlPath } from '@/lib/seo';
 import { GameArtwork } from './GameArtwork';
 import { APPLE_EASE, APPLE_SPRING } from './MotionPrimitives';
 
@@ -204,7 +205,7 @@ export function Navbar() {
       }
       setSearchOpen(false);
       setQueryText('');
-      router.push(`/games/${data.game.universeId}`);
+      router.push(buildGameUrlPath(data.game));
     } catch {
       setLookupError('Unable to reach search service.');
     } finally {
@@ -574,7 +575,7 @@ export function Navbar() {
                     ) {
                       setSearchOpen(false);
                       setQueryText('');
-                      router.push(`/games/${matchedGames[0].universeId}`);
+                      router.push(buildGameUrlPath(matchedGames[0]));
                     } else if (e.key === 'Enter' && canLookupLive) {
                       void handleDirectLookup();
                     }
@@ -677,7 +678,7 @@ export function Navbar() {
                           onClick={() => {
                             setSearchOpen(false);
                             setQueryText('');
-                            router.push(`/games/${game.universeId}`);
+                            router.push(buildGameUrlPath(game));
                           }}
                           className="w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-2xl hover:bg-black/[0.04] dark:hover:bg-white/[0.07] transition-colors text-left cursor-pointer group"
                         >

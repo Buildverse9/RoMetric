@@ -12,7 +12,7 @@ import {
 } from '@/lib/market-intelligence';
 import { formatCompactNumber, formatExactNumber } from '@/lib/format';
 import { estimateGameRevenue, formatCurrencyCompact } from '@/lib/revenue';
-import { SITE_URL, safeJsonLd } from '@/lib/seo';
+import { SITE_URL, buildGameUrlPath, safeJsonLd } from '@/lib/seo';
 import {
   fetchSupabaseGamesList,
   isSupabaseConfigured,
@@ -152,7 +152,7 @@ export default async function WeeklyRecapDetailPage({
                     </td>
                     <td className="py-3 px-3">
                       <Link
-                        href={`/games/${g.universeId}`}
+                        href={buildGameUrlPath(g)}
                         className="flex items-center gap-3 min-w-0 group"
                       >
                         <GameArtwork src={g.iconUrl} alt={g.name} size="sm" />
@@ -196,7 +196,7 @@ export default async function WeeklyRecapDetailPage({
             {breakouts.map((g) => (
               <Link
                 key={g.universeId}
-                href={`/games/${g.universeId}`}
+                href={buildGameUrlPath(g)}
                 className="py-2.5 flex items-center justify-between gap-3 group"
               >
                 <div className="flex items-center gap-3 min-w-0">

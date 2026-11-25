@@ -8,6 +8,8 @@ import { formatCompactNumber, formatExactNumber } from '@/lib/format';
 import { estimateGameRevenue, formatCurrencyCompact } from '@/lib/revenue';
 import {
   SITE_URL,
+  buildGameUpdatesUrlPath,
+  buildGameUrlPath,
   cleanSeoGameName,
   getCurrentMonthYear,
   safeJsonLd,
@@ -129,7 +131,7 @@ export default async function SimilarGameDetailPage({
         '@type': 'ListItem',
         position: idx + 1,
         name: s.game.name,
-        url: `${SITE_URL}/games/${s.game.universeId}`,
+        url: `${SITE_URL}${buildGameUrlPath(s.game)}`,
       })),
     },
     {
@@ -152,7 +154,7 @@ export default async function SimilarGameDetailPage({
 
       <div className="space-y-4">
         <Link
-          href={`/games/${targetGame.universeId}`}
+          href={buildGameUrlPath(targetGame)}
           className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 dark:text-[#7893A3] hover:text-emerald-600 dark:hover:text-[#10E89A] transition-colors"
         >
           <ArrowLeft className="w-3.5 h-3.5" />
@@ -185,14 +187,14 @@ export default async function SimilarGameDetailPage({
 
           <div className="flex flex-wrap items-center gap-2.5 shrink-0">
             <Link
-              href={`/games/${targetGame.universeId}`}
+              href={buildGameUrlPath(targetGame)}
               className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-full bg-emerald-600 dark:bg-[#10E89A] text-white dark:text-[#04130D] hover:opacity-90 transition-opacity whitespace-nowrap"
             >
               <BarChart2 className="w-3.5 h-3.5" />
               Live Analytics
             </Link>
             <Link
-              href={`/games/${targetGame.universeId}/updates`}
+              href={buildGameUpdatesUrlPath(targetGame)}
               className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium rounded-full liquid-glass-pill text-slate-700 dark:text-[#C5D8E2] hover:text-emerald-600 dark:hover:text-[#10E89A] transition-colors whitespace-nowrap"
             >
               <History className="w-3.5 h-3.5" />
@@ -221,7 +223,7 @@ export default async function SimilarGameDetailPage({
               <div className="space-y-3">
                 <div className="flex items-start justify-between gap-3">
                   <Link
-                    href={`/games/${item.game.universeId}`}
+                    href={buildGameUrlPath(item.game)}
                     className="flex items-center gap-3 min-w-0 group"
                   >
                     <GameArtwork

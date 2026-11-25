@@ -33,6 +33,10 @@ import {
 } from '@/lib/format';
 import { estimateGameRevenue, formatCurrencyCompact } from '@/lib/revenue';
 import { buildGameRevenueInsightSlug } from '@/lib/market-intelligence';
+import {
+  buildGameUpdatesUrlPath,
+  extractUniverseIdFromParam,
+} from '@/lib/seo';
 import type {
   GamePeakRecord,
   GameRecordData,
@@ -71,10 +75,11 @@ export function GameDetailClient({
   initialGame?: GameRecordData | null;
   initialTracked?: boolean;
 }) {
-  const params = useParams<{ universeId: string }>();
-  const universeId = String(
-    params?.universeId ?? initialGame?.universeId ?? ''
-  ).replace(/[^0-9]/g, '');
+  const params = useParams<{ slug?: string; universeId?: string }>();
+  const rawRouteParam = params?.slug ?? params?.universeId ?? '';
+  const universeId =
+    extractUniverseIdFromParam(String(rawRouteParam)) ||
+    String(initialGame?.universeId ?? '').replace(/[^0-9]/g, '');
   const { theme, games } = useApp();
   const isDark = theme === 'dark';
 
@@ -517,7 +522,7 @@ export function GameDetailClient({
                 transition={APPLE_SPRING}
               >
                 <Link
-                  href={`/games/${game.universeId}/updates`}
+                  href={buildGameUpdatesUrlPath(game)}
                   className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold liquid-glass-pill text-slate-700 dark:text-[#F1F7FA] hover:border-emerald-500/50 rounded-full transition-all whitespace-nowrap"
                 >
                   <History className="w-3.5 h-3.5 text-emerald-600 dark:text-[#10E89A]" />

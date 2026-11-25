@@ -18,7 +18,7 @@ import {
   getArticleBySlug,
 } from '@/lib/articles';
 import { formatCompactNumber, formatExactNumber } from '@/lib/format';
-import { SITE_URL, safeJsonLd } from '@/lib/seo';
+import { SITE_URL, buildGameUrlPath, safeJsonLd } from '@/lib/seo';
 import { GameArtwork } from '@/components/GameArtwork';
 import { LiquidGlassCard } from '@/components/MotionPrimitives';
 import { XVideoEmbedSection } from '@/components/XVideoEmbed';
@@ -287,7 +287,10 @@ export default async function ArticleDetailPage({ params }: PageProps) {
                   <ExternalLink className="w-3.5 h-3.5" />
                 </a>
                 <Link
-                  href={`/games/${snapshot?.universeId || featuredGame.universeId}`}
+                  href={buildGameUrlPath({
+                    universeId: snapshot?.universeId || featuredGame.universeId,
+                    name: snapshot?.name || featuredGame.name,
+                  })}
                   className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold liquid-glass-pill text-slate-800 dark:text-[#F1F7FA] hover:border-emerald-500/50 rounded-full transition-colors"
                 >
                   <BarChart2 className="w-3.5 h-3.5 text-emerald-600 dark:text-[#10E89A]" />

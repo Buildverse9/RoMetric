@@ -9,6 +9,7 @@ import {
   formatRelativeTime,
 } from '@/lib/format';
 import { extractUpdateBadgeText } from '@/lib/market-intelligence';
+import { buildGameUpdatesUrlPath } from '@/lib/seo';
 import { GameArtwork } from '@/components/GameArtwork';
 import { GrowthValue } from '@/components/GameTable';
 import { LiquidGlassCard } from '@/components/MotionPrimitives';
@@ -131,7 +132,7 @@ export function UpdatesFeedClient({
                   >
                     <td className="py-3 pl-5 pr-3">
                       <Link
-                        href={`/games/${game.universeId}/updates`}
+                        href={buildGameUpdatesUrlPath(game)}
                         className="flex items-center gap-3 min-w-0"
                       >
                         <GameArtwork src={game.iconUrl} alt={game.name} size="sm" />
@@ -165,7 +166,7 @@ export function UpdatesFeedClient({
                     </td>
                     <td className="py-3 pl-3 pr-5 text-right text-xs font-medium whitespace-nowrap">
                       <Link
-                        href={`/games/${game.universeId}/updates`}
+                        href={buildGameUpdatesUrlPath(game)}
                         className="text-emerald-600 dark:text-[#10E89A] hover:underline"
                       >
                         View Log

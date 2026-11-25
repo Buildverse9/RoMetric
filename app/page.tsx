@@ -1,6 +1,6 @@
 import { fetchSupabaseGamesList, isSupabaseConfigured } from '@/lib/supabase-server';
 import { HomeDashboard } from '@/components/HomeDashboard';
-import { SITE_URL, safeJsonLd } from '@/lib/seo';
+import { SITE_URL, buildGameUrlPath, safeJsonLd } from '@/lib/seo';
 import type { GameRecordData } from '@/lib/types';
 
 export const revalidate = 120;
@@ -38,7 +38,7 @@ export default async function HomePage() {
             '@type': 'ListItem',
             position: idx + 1,
             name: g.name,
-            url: `${SITE_URL}/games/${g.universeId}`,
+            url: `${SITE_URL}${buildGameUrlPath(g)}`,
           })),
         }
       : null;

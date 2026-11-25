@@ -9,7 +9,12 @@ import {
 } from '@/lib/market-intelligence';
 import { formatCompactNumber, formatExactNumber } from '@/lib/format';
 import { estimateGameRevenue, formatCurrencyCompact } from '@/lib/revenue';
-import { SITE_URL, getCurrentMonthYear, safeJsonLd } from '@/lib/seo';
+import {
+  SITE_URL,
+  buildGameUrlPath,
+  getCurrentMonthYear,
+  safeJsonLd,
+} from '@/lib/seo';
 import {
   fetchSupabaseGamesList,
   isSupabaseConfigured,
@@ -103,7 +108,7 @@ export default async function KeywordTrendDetailPage({
         '@type': 'ListItem',
         position: idx + 1,
         name: g.name,
-        url: `${SITE_URL}/games/${g.universeId}`,
+        url: `${SITE_URL}${buildGameUrlPath(g)}`,
       })),
     },
   ];
@@ -198,7 +203,7 @@ export default async function KeywordTrendDetailPage({
                     </td>
                     <td className="py-3 px-3">
                       <Link
-                        href={`/games/${game.universeId}`}
+                        href={buildGameUrlPath(game)}
                         className="flex items-center gap-3 min-w-0"
                       >
                         <GameArtwork src={game.iconUrl} alt={game.name} size="sm" />

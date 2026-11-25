@@ -32,6 +32,7 @@ import {
   estimatePortfolioMonthlyRevenue,
   formatCurrencyCompact,
 } from '@/lib/revenue';
+import { buildGameUrlPath } from '@/lib/seo';
 import type { GameRecordData, TimeRange } from '@/lib/types';
 import { GameArtwork } from './GameArtwork';
 import { GrowthValue } from './GameTable';
@@ -550,11 +551,11 @@ export function HomeDashboard({
       return;
     }
     if (heroSuggestions.length > 0) {
-      router.push(`/games/${heroSuggestions[0].universeId}`);
+      router.push(buildGameUrlPath(heroSuggestions[0]));
       return;
     }
     if (/^[0-9]{4,20}$/.test(trimmed)) {
-      router.push(`/games/${trimmed}`);
+      router.push(`/g/${trimmed}`);
       return;
     }
     router.push(`/rankings?q=${encodeURIComponent(trimmed)}`);
@@ -616,7 +617,7 @@ export function HomeDashboard({
                 return (
                   <Link
                     key={g.universeId}
-                    href={`/games/${g.universeId}`}
+                    href={buildGameUrlPath(g)}
                     className="flex items-center justify-between px-4 py-3 hover:bg-black/[0.04] dark:hover:bg-white/[0.06] transition-colors group"
                   >
                     <div className="flex items-center gap-3 min-w-0">
@@ -890,7 +891,7 @@ export function HomeDashboard({
                           }}
                         >
                           <Link
-                            href={`/games/${game.universeId}`}
+                            href={buildGameUrlPath(game)}
                             className="py-2.5 -mx-2 px-2 rounded-2xl flex items-center justify-between gap-3 hover:bg-black/[0.03] dark:hover:bg-white/[0.05] transition-colors group"
                           >
                             <div className="flex items-center gap-3 min-w-0">
@@ -974,7 +975,7 @@ export function HomeDashboard({
                   : breakoutList.map(({ game, growthPct, tag }) => (
                       <Link
                         key={game.universeId}
-                        href={`/games/${game.universeId}`}
+                        href={buildGameUrlPath(game)}
                         className="p-2.5 rounded-2xl bg-black/[0.025] dark:bg-white/[0.035] hover:bg-emerald-500/[0.08] dark:hover:bg-[#10E89A]/[0.09] border border-slate-900/6 dark:border-white/8 hover:border-emerald-500/30 dark:hover:border-[#10E89A]/35 transition-all flex items-center gap-2.5 group min-w-0"
                       >
                         <div className="group-hover:scale-105 transition-transform duration-200 shrink-0">
@@ -1059,7 +1060,7 @@ export function HomeDashboard({
                 return (
                   <Link
                     key={game.universeId}
-                    href={`/games/${game.universeId}`}
+                    href={buildGameUrlPath(game)}
                     className={`px-5 py-3.5 flex items-center justify-between gap-4 hover:bg-black/[0.03] dark:hover:bg-white/[0.04] transition-colors group ${
                       index === 0 ? 'pr-12' : ''
                     }`}
@@ -1178,7 +1179,7 @@ export function HomeDashboard({
               return (
                 <Link
                   key={game.universeId}
-                  href={`/games/${game.universeId}`}
+                  href={buildGameUrlPath(game)}
                   className="p-3 rounded-2xl hover:bg-black/[0.04] dark:hover:bg-white/[0.05] transition-colors flex items-center justify-between gap-3 group"
                 >
                   <div className="flex items-center gap-3 min-w-0">

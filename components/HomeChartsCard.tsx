@@ -19,6 +19,7 @@ import type {
 } from '@/app/api/roblox/charts/route';
 import { evaluateBreakoutGames, formatCompactNumber } from '@/lib/format';
 import { estimateGameRevenue } from '@/lib/revenue';
+import { buildGameUrlPath } from '@/lib/seo';
 import type { GameRecordData } from '@/lib/types';
 import { GameArtwork } from './GameArtwork';
 import { APPLE_EASE, FadeInSection, LiquidGlassCard } from './MotionPrimitives';
@@ -311,7 +312,7 @@ export function HomeChartsCard({
                             }}
                           >
                             <Link
-                              href={`/games/${item.universeId}`}
+                              href={buildGameUrlPath(item)}
                               className="py-2 -mx-2 px-2 rounded-2xl flex items-center justify-between gap-2.5 hover:bg-black/[0.035] dark:hover:bg-white/[0.05] transition-colors group"
                             >
                               <div className="flex items-center gap-2.5 min-w-0">

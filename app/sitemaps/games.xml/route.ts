@@ -1,4 +1,4 @@
-import { SITE_URL } from '@/lib/seo';
+import { SITE_URL, buildGameUrlPath } from '@/lib/seo';
 import { buildUrlSetXml, type SitemapUrlItem, xmlResponse } from '@/lib/sitemap-xml';
 import { fetchSupabaseGamesList, isSupabaseConfigured } from '@/lib/supabase-server';
 
@@ -13,7 +13,7 @@ export async function GET() {
       const games = await fetchSupabaseGamesList();
       for (const g of games.filter((item) => item.active).slice(0, 3000)) {
         urls.push({
-          loc: `${SITE_URL}/games/${g.universeId}`,
+          loc: `${SITE_URL}${buildGameUrlPath(g)}`,
           lastmod: g.lastCollectedAt || nowIso,
           changefreq: 'hourly',
           priority: g.currentCcu >= 10000 ? 0.85 : 0.75,

@@ -10,6 +10,7 @@ import { useApp } from '@/components/AppProvider';
 import { fetchGameHistory } from '@/lib/analytics-store';
 import { formatCompactNumber, formatExactNumber } from '@/lib/format';
 import { estimateGameRevenue, formatCurrencyCompact } from '@/lib/revenue';
+import { buildGameUrlPath } from '@/lib/seo';
 import type { GameRecordData, TimeRange } from '@/lib/types';
 import { GameArtwork } from '@/components/GameArtwork';
 import { GrowthValue } from '@/components/GameTable';
@@ -278,7 +279,7 @@ function CompareContent() {
                   <GameArtwork src={game.iconUrl} alt={game.name} size="sm" />
                   <div className="min-w-0">
                     <Link
-                      href={`/games/${game.universeId}`}
+                      href={buildGameUrlPath(game)}
                       className="text-sm font-semibold text-slate-900 dark:text-[#F1F7FA] hover:text-emerald-600 dark:hover:text-[#10E89A] truncate block"
                     >
                       {game.name}
@@ -442,7 +443,7 @@ function CompareContent() {
                               }}
                             />
                             <Link
-                              href={`/games/${g.universeId}`}
+                              href={buildGameUrlPath(g)}
                               className="hover:text-emerald-600 dark:hover:text-[#10E89A] truncate max-w-[180px]"
                             >
                               {g.name}

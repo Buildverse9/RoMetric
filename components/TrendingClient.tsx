@@ -12,6 +12,7 @@ import {
   formatRelativeTime,
 } from '@/lib/format';
 import { estimateGameRevenue, formatCurrencyCompact } from '@/lib/revenue';
+import { buildGameUrlPath } from '@/lib/seo';
 import { GameArtwork } from '@/components/GameArtwork';
 import { GrowthValue } from '@/components/GameTable';
 import { APPLE_EASE, LiquidGlassCard } from '@/components/MotionPrimitives';
@@ -106,7 +107,7 @@ export function TrendingClient({
                       </td>
                       <td className="py-3.5 px-3">
                         <Link
-                          href={`/games/${game.universeId}`}
+                          href={buildGameUrlPath(game)}
                           className="flex items-center gap-3 min-w-0"
                         >
                           <div className="group-hover:scale-105 transition-transform duration-200 shrink-0">

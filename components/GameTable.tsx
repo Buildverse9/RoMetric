@@ -18,6 +18,7 @@ import {
   formatRelativeTime,
 } from '@/lib/format';
 import { estimateGameRevenue, formatCurrencyCompact } from '@/lib/revenue';
+import { buildGameUrlPath } from '@/lib/seo';
 import { GameArtwork } from './GameArtwork';
 import { APPLE_EASE, APPLE_SPRING, LiquidGlassCard } from './MotionPrimitives';
 
@@ -249,7 +250,7 @@ export function GameTable({
                   <td className="py-3.5 px-3">
                     <div className="flex items-center gap-3 min-w-0">
                       <Link
-                        href={`/games/${game.universeId}`}
+                        href={buildGameUrlPath(game)}
                         className="shrink-0 group-hover:scale-105 transition-transform duration-200"
                       >
                         <GameArtwork
@@ -261,7 +262,7 @@ export function GameTable({
                       <div className="min-w-0">
                         <div className="flex items-center gap-2">
                           <Link
-                            href={`/games/${game.universeId}`}
+                            href={buildGameUrlPath(game)}
                             className="text-sm font-semibold text-slate-900 dark:text-[#F1F7FA] hover:text-emerald-600 dark:hover:text-[#10E89A] transition-colors truncate max-w-[200px] sm:max-w-[260px]"
                           >
                             {game.name}

@@ -6,6 +6,7 @@ import {
 import { fetchGameCodesBySlugOrId } from '@/lib/codes-server';
 import { formatCompactNumber, formatPercent } from '@/lib/format';
 import { estimateGameRevenue, formatCurrencyCompact } from '@/lib/revenue';
+import { buildGameUrlPath } from '@/lib/seo';
 import {
   buildCardQueryString,
   computeGameRevenueSurge,
@@ -108,9 +109,10 @@ async function resolveCardContext(sp: RawSearchParams) {
         parsed.template === 'milestone') &&
       parsed.primaryId
     ) {
-      destPath = `/games/${parsed.primaryId}`;
+      destPath = `/g/${parsed.primaryId}`;
       const game = await fetchSupabaseGameById(parsed.primaryId);
       if (game) {
+        destPath = buildGameUrlPath(game);
         if (parsed.template === 'revenue_surge') {
           const rev = computeGameRevenueSurge(game);
           title =

@@ -1,5 +1,5 @@
 import { getGamesSortedByRecentUpdate } from '@/lib/market-intelligence';
-import { SITE_URL } from '@/lib/seo';
+import { SITE_URL, buildGameUpdatesUrlPath } from '@/lib/seo';
 import { buildUrlSetXml, type SitemapUrlItem, xmlResponse } from '@/lib/sitemap-xml';
 import { fetchSupabaseGamesList, isSupabaseConfigured } from '@/lib/supabase-server';
 
@@ -15,7 +15,7 @@ export async function GET() {
       const updatedGames = getGamesSortedByRecentUpdate(games);
       for (const g of updatedGames.slice(0, 1000)) {
         urls.push({
-          loc: `${SITE_URL}/games/${g.universeId}/updates`,
+          loc: `${SITE_URL}${buildGameUpdatesUrlPath(g)}`,
           lastmod: g.robloxUpdatedAt || g.lastCollectedAt || nowIso,
           changefreq: 'daily',
           priority: 0.72,

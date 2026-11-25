@@ -10,6 +10,7 @@ import {
   estimatePortfolioMonthlyRevenue,
   formatCurrencyCompact,
 } from '@/lib/revenue';
+import { buildGameUrlPath } from '@/lib/seo';
 import type { DeveloperSummary } from '@/lib/types';
 import { GameArtwork } from '@/components/GameArtwork';
 import {
@@ -198,7 +199,7 @@ export function DevelopersDirectoryClient({
                       </td>
                       <td className="py-3.5 pl-3 pr-5 hidden md:table-cell">
                         <Link
-                          href={`/games/${dev.topGame.universeId}`}
+                          href={buildGameUrlPath(dev.topGame)}
                           className="inline-flex items-center gap-2 hover:text-emerald-600 dark:hover:text-[#10E89A] transition-colors"
                         >
                           <GameArtwork

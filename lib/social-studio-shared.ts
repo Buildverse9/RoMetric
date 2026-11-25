@@ -7,6 +7,7 @@ import {
   evaluateBreakoutGames,
 } from './format';
 import { estimateGameRevenue, formatCurrencyCompact } from './revenue';
+import { buildGameUrlPath } from './seo';
 
 export type SocialTemplateId =
   | 'leaderboard'
@@ -650,7 +651,7 @@ export function generateSocialCaptions(
     }
     replyPrompt = `Explore live Roblox revenue estimates & game earnings on RoMetric:`;
   } else if (template === 'revenue_surge' && primaryGame && revenueSurge) {
-    path = `/games/${primaryGame.universeId}`;
+    path = buildGameUrlPath(primaryGame);
     const isGain = revenueSurge.deltaMonthlyUsd > 0;
     const deltaStr = `${isGain ? '+' : ''}${formatCurrencyCompact(revenueSurge.deltaMonthlyUsd)}/mo`;
     const pctStr = formatPercent(revenueSurge.revenueGrowthPct);
@@ -668,7 +669,7 @@ export function generateSocialCaptions(
     }
     replyPrompt = `Check ${primaryGame.name}'s live revenue estimator, CCU & charts on RoMetric:`;
   } else if (template === 'surge' && primaryGame) {
-    path = `/games/${primaryGame.universeId}`;
+    path = buildGameUrlPath(primaryGame);
     const pct = primaryGame.growth24h ?? primaryGame.growth1h ?? null;
     const pctStr = pct !== null ? formatPercent(pct) : 'surging';
     const netGain = computeNet24hGain(primaryGame);
@@ -686,7 +687,7 @@ export function generateSocialCaptions(
     }
     replyPrompt = `Track ${primaryGame.name}'s live chart, peak CCU & revenue estimate:`;
   } else if (template === 'milestone' && primaryGame && milestone) {
-    path = `/games/${primaryGame.universeId}`;
+    path = buildGameUrlPath(primaryGame);
     if (tone === 'news') {
       mainBody = `MILESTONE: ${milestone.headline}.\n\n• ${milestone.heroUnit}: ${milestone.heroValue}\n• Lifetime Visits: ${formatCompactNumber(primaryGame.totalVisits)}\n• Creator: ${primaryGame.creatorName}\n\n#Roblox #RobloxDev`;
     } else if (tone === 'analyst') {
