@@ -6,6 +6,7 @@ import {
   extractKeywordTrends,
   getRecentWeekDates,
 } from '@/lib/market-intelligence';
+import { ARTICLES } from '@/lib/articles';
 import { SITE_URL } from '@/lib/seo';
 import { buildUrlSetXml, type SitemapUrlItem, xmlResponse } from '@/lib/sitemap-xml';
 import { fetchSupabaseGamesList, isSupabaseConfigured } from '@/lib/supabase-server';
@@ -24,6 +25,7 @@ export async function GET() {
     { loc: `${SITE_URL}/trends`, lastmod: nowIso, changefreq: 'daily', priority: 0.85 },
     { loc: `${SITE_URL}/similar`, lastmod: nowIso, changefreq: 'daily', priority: 0.85 },
     { loc: `${SITE_URL}/developers`, lastmod: nowIso, changefreq: 'daily', priority: 0.85 },
+    { loc: `${SITE_URL}/articles`, lastmod: nowIso, changefreq: 'daily', priority: 0.85 },
     { loc: `${SITE_URL}/weekly`, lastmod: nowIso, changefreq: 'weekly', priority: 0.8 },
     { loc: `${SITE_URL}/insights`, lastmod: nowIso, changefreq: 'daily', priority: 0.8 },
     { loc: `${SITE_URL}/status`, lastmod: nowIso, changefreq: 'hourly', priority: 0.75 },
@@ -55,6 +57,15 @@ export async function GET() {
       lastmod: nowIso,
       changefreq: 'daily',
       priority: 0.78,
+    });
+  }
+
+  for (const article of ARTICLES) {
+    urls.push({
+      loc: `${SITE_URL}/articles/${article.slug}`,
+      lastmod: article.updatedAt,
+      changefreq: 'daily',
+      priority: 0.82,
     });
   }
 

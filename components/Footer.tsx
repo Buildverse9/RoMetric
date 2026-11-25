@@ -26,6 +26,7 @@ const FOOTER_COLUMNS = [
   {
     title: 'Intelligence',
     links: [
+      { href: '/articles', label: 'Articles & Stories' },
       { href: '/developers', label: 'Studios & Developers' },
       { href: '/weekly', label: 'Weekly Recaps' },
       { href: '/insights', label: 'Revenue & Insights' },

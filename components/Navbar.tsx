@@ -21,6 +21,7 @@ import {
   Layers,
   Lightbulb,
   Moon,
+  Newspaper,
   Search,
   Sparkles,
   Sun,
@@ -71,6 +72,12 @@ const EXPLORE_ITEMS = [
     label: 'Weekly Recaps',
     desc: 'Market digests & genre leaders',
     icon: Calendar,
+  },
+  {
+    href: '/articles',
+    label: 'Articles & Stories',
+    desc: 'Viral Roblox games & deep dives',
+    icon: Newspaper,
   },
   {
     href: '/insights',
