@@ -34,8 +34,11 @@ import {
 import { estimateGameRevenue, formatCurrencyCompact } from '@/lib/revenue';
 import { buildGameRevenueInsightSlug } from '@/lib/market-intelligence';
 import {
+  buildGameFaqItems,
   buildGameUpdatesUrlPath,
+  cleanSeoGameName,
   extractUniverseIdFromParam,
+  getCurrentMonthYear,
 } from '@/lib/seo';
 import type {
   GamePeakRecord,
@@ -71,10 +74,13 @@ const TIME_RANGES: Array<{ id: TimeRange; label: string }> = [
 export function GameDetailClient({
   initialGame = null,
   initialTracked = false,
+  monthYear,
 }: {
   initialGame?: GameRecordData | null;
   initialTracked?: boolean;
+  monthYear?: string;
 }) {
+  const effectiveMonthYear = monthYear || getCurrentMonthYear();
   const params = useParams<{ slug?: string; universeId?: string }>();
   const rawRouteParam = params?.slug ?? params?.universeId ?? '';
   const universeId =
@@ -440,6 +446,23 @@ export function GameDetailClient({
     peakRecord?.highestObservedCcu ?? game.peakCcuObserved ?? game.currentCcu;
   const highestPeakAt = peakRecord?.highestObservedAt ?? game.peakCcuAt;
   const estRev = estimateGameRevenue(game);
+  const cleanName = cleanSeoGameName(game.name);
+  const hasDifferentRawTitle = cleanName !== game.name.trim();
+  const gameFaqItems = buildGameFaqItems({
+    gameName: game.name,
+    creatorName: game.creatorName,
+    genre: game.genre || 'Roblox',
+    currentCcu: game.currentCcu,
+    peakCcu: highestPeak,
+    totalVisitsFormatted: formatCompactNumber(game.totalVisits),
+    monthlyUsdFormatted: formatCurrencyCompact(estRev.monthlyUsd),
+    monthlyLowFormatted: formatCurrencyCompact(estRev.monthlyLowUsd),
+    monthlyHighFormatted: formatCurrencyCompact(estRev.monthlyHighUsd),
+    dailyUsdFormatted: formatCurrencyCompact(estRev.dailyUsd),
+    yearlyUsdFormatted: formatCurrencyCompact(estRev.yearlyUsd),
+    monthlyRobuxFormatted: formatCompactNumber(estRev.monthlyRobux),
+    monthYear: effectiveMonthYear,
+  });
 
   return (
     <div className="max-w-[1280px] mx-auto px-4 sm:px-6 pt-6 sm:pt-8 pb-6 space-y-6">
@@ -454,7 +477,7 @@ export function GameDetailClient({
           </Link>
           <span>/</span>
           <span className="text-slate-700 dark:text-[#9CB3C0] truncate">
-            {game.name}
+            {cleanName}
           </span>
         </div>
         <div className="flex items-center gap-1.5 tabular-nums shrink-0">
@@ -473,7 +496,7 @@ export function GameDetailClient({
         >
           <GameArtwork
             src={game.thumbnailUrl || game.iconUrl}
-            alt={game.name}
+            alt={cleanName}
             variant="banner"
           />
         </motion.div>
@@ -481,11 +504,16 @@ export function GameDetailClient({
         <div className="lg:col-span-7 space-y-5">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="flex items-start gap-4 min-w-0">
-              <GameArtwork src={game.iconUrl} alt={game.name} size="lg" />
+              <GameArtwork src={game.iconUrl} alt={cleanName} size="lg" />
               <div className="min-w-0 space-y-1">
                 <h1 className="font-display text-2xl sm:text-3xl font-bold text-slate-950 dark:text-white leading-tight">
-                  {game.name}
+                  {cleanName}
                 </h1>
+                {hasDifferentRawTitle && (
+                  <p className="text-xs text-slate-500 dark:text-[#7893A3] truncate">
+                    Roblox title: {game.name}
+                  </p>
+                )}
                 <p className="text-sm text-slate-600 dark:text-[#9CB3C0] flex flex-wrap items-center gap-x-2 gap-y-1">
                   <Link
                     href={`/developers/${game.creatorId}`}
@@ -673,14 +701,14 @@ export function GameDetailClient({
       {/* Estimated Revenue Card */}
       <FadeInSection>
         <LiquidGlassCard
-          exportTitle={`${game.name} — Estimated Revenue`}
+          exportTitle={`${cleanName} — Estimated Revenue`}
           className="rounded-[28px] p-5 sm:p-6 space-y-4"
         >
           <div className="flex flex-wrap items-center justify-between gap-2 pr-9">
             <div className="flex items-center gap-2">
               <DollarSign className="w-5 h-5 text-emerald-600 dark:text-[#10E89A]" />
               <h2 className="font-display text-lg font-bold text-slate-900 dark:text-[#F1F7FA]">
-                Estimated Revenue
+                How Much Does {cleanName} Make? ({effectiveMonthYear})
               </h2>
             </div>
             <div className="flex flex-wrap items-center gap-3 text-xs">
@@ -698,10 +726,10 @@ export function GameDetailClient({
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-1">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 pt-1">
             <div className="p-4 rounded-2xl bg-black/[0.025] dark:bg-white/[0.035]">
               <p className="text-xs text-slate-500 dark:text-[#6F8796]">
-                Est. Daily
+                Est. Daily USD
               </p>
               <p className="mt-1 font-display text-2xl font-bold text-slate-900 dark:text-[#F1F7FA] tabular-nums">
                 <AnimatedNumber
@@ -712,7 +740,7 @@ export function GameDetailClient({
             </div>
             <div className="p-4 rounded-2xl bg-emerald-500/[0.08] dark:bg-[#10E89A]/[0.08] border border-emerald-500/20 dark:border-[#10E89A]/25">
               <p className="text-xs text-emerald-700 dark:text-[#10E89A] font-medium">
-                Est. Monthly
+                Est. Monthly USD
               </p>
               <p className="mt-1 font-display text-2xl font-bold text-emerald-600 dark:text-[#10E89A] tabular-nums">
                 <AnimatedNumber
@@ -723,13 +751,21 @@ export function GameDetailClient({
             </div>
             <div className="p-4 rounded-2xl bg-black/[0.025] dark:bg-white/[0.035]">
               <p className="text-xs text-slate-500 dark:text-[#6F8796]">
-                Est. Annual
+                Est. Annual USD
               </p>
               <p className="mt-1 font-display text-2xl font-bold text-slate-900 dark:text-[#F1F7FA] tabular-nums">
                 <AnimatedNumber
                   value={estRev.yearlyUsd}
                   formatter={(v) => formatCurrencyCompact(v)}
                 />
+              </p>
+            </div>
+            <div className="p-4 rounded-2xl bg-black/[0.025] dark:bg-white/[0.035]">
+              <p className="text-xs text-slate-500 dark:text-[#6F8796]">
+                Est. Monthly Robux
+              </p>
+              <p className="mt-1 font-display text-2xl font-bold text-slate-900 dark:text-[#F1F7FA] tabular-nums">
+                {formatCompactNumber(estRev.monthlyRobux)} R$
               </p>
             </div>
           </div>
@@ -829,11 +865,11 @@ export function GameDetailClient({
       {game.description?.trim() && (
         <FadeInSection>
           <LiquidGlassCard
-            exportTitle={`${game.name} — About`}
+            exportTitle={`${cleanName} — About`}
             className="rounded-[28px] p-6 space-y-3"
           >
             <h2 className="font-display text-lg font-bold text-slate-900 dark:text-[#F1F7FA] pr-9">
-              About
+              About {cleanName}
             </h2>
             <p className="text-sm text-slate-600 dark:text-[#9CB3C0] leading-relaxed whitespace-pre-line">
               {game.description}
@@ -846,6 +882,30 @@ export function GameDetailClient({
           </LiquidGlassCard>
         </FadeInSection>
       )}
+
+      {/* Revenue & Live Stats FAQ (Matches FAQPage JSON-LD) */}
+      <FadeInSection>
+        <LiquidGlassCard
+          hideCardActions
+          className="rounded-[28px] p-6 space-y-4"
+        >
+          <h2 className="font-display text-lg font-bold text-slate-900 dark:text-[#F1F7FA]">
+            {cleanName} Revenue &amp; Player Stats FAQ ({effectiveMonthYear})
+          </h2>
+          <div className="divide-y divide-slate-900/6 dark:divide-white/8 space-y-3.5">
+            {gameFaqItems.map((faq, idx) => (
+              <div key={faq.question} className={idx > 0 ? 'pt-3.5' : ''}>
+                <h3 className="text-sm font-semibold text-slate-900 dark:text-[#F1F7FA]">
+                  {faq.question}
+                </h3>
+                <p className="mt-1 text-xs sm:text-sm text-slate-600 dark:text-[#9CB3C0] leading-relaxed">
+                  {faq.answer}
+                </p>
+              </div>
+            ))}
+          </div>
+        </LiquidGlassCard>
+      </FadeInSection>
     </div>
   );
 }

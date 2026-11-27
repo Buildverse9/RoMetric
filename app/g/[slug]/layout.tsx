@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { fetchSupabaseGameById } from '@/lib/supabase-server';
-import { formatCompactNumber } from '@/lib/format';
+import { formatCompactNumber, formatExactNumber } from '@/lib/format';
+import { estimateGameRevenue, formatCurrencyCompact } from '@/lib/revenue';
 import {
   SITE_URL,
   buildGameUrlPath,
@@ -30,8 +31,16 @@ export async function generateMetadata({
       const seoName = cleanSeoGameName(game.name);
       const monthYear = getCurrentMonthYear();
       const canonicalPath = buildGameUrlPath(game);
-      const title = `${seoName} Live Player Count, Stats & Revenue (${monthYear})`;
-      const description = `${seoName} by ${game.creatorName} has ${formatCompactNumber(game.currentCcu)} live players and ${formatCompactNumber(game.totalVisits)} total visits. Track live CCU charts, peak records, estimated revenue, and active codes on RoMetric.`;
+      const rev = estimateGameRevenue(game);
+      const hasLiveCcu = (game.currentCcu ?? 0) > 0;
+      const title =
+        hasLiveCcu && rev.monthlyUsd > 0
+          ? `${seoName} Live Players (${formatCompactNumber(game.currentCcu)}) & Est. Revenue (${monthYear})`
+          : `${seoName} Live Player Count, Stats & Revenue (${monthYear})`;
+      const description =
+        rev.monthlyUsd > 0
+          ? `${seoName} has ${formatExactNumber(game.currentCcu)} live players right now and makes an est. ${formatCurrencyCompact(rev.monthlyUsd)}/month (${formatCurrencyCompact(rev.dailyUsd)}/day). View live CCU charts, peak records & working codes.`
+          : `${seoName} by ${game.creatorName} has ${formatExactNumber(game.currentCcu)} live players and ${formatCompactNumber(game.totalVisits)} total visits. View live CCU charts, peak records, estimated revenue & working codes.`;
       const ogCardUrl = `${SITE_URL}/og/social?t=surge&g=${game.universeId}`;
 
       return {
@@ -50,7 +59,7 @@ export async function generateMetadata({
               url: ogCardUrl,
               width: 1200,
               height: 630,
-              alt: `${seoName} live stats on RoMetric`,
+              alt: `${seoName} live player count & revenue estimate on RoMetric`,
             },
           ],
         },

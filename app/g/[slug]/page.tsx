@@ -2,12 +2,15 @@ import { permanentRedirect } from 'next/navigation';
 import { fetchSupabaseGameById, isSupabaseConfigured } from '@/lib/supabase-server';
 import { GameDetailClient } from '@/components/GameDetailClient';
 import { formatCompactNumber } from '@/lib/format';
+import { estimateGameRevenue, formatCurrencyCompact } from '@/lib/revenue';
 import {
   SITE_URL,
+  buildGameFaqItems,
   buildGameSlugParam,
   buildGameUrlPath,
   cleanSeoGameName,
   extractUniverseIdFromParam,
+  getCurrentMonthYear,
   safeJsonLd,
 } from '@/lib/seo';
 import type { GameRecordData } from '@/lib/types';
@@ -21,6 +24,7 @@ export default async function CanonicalGameDetailPage({
 }) {
   const { slug } = await params;
   const cleanId = extractUniverseIdFromParam(slug);
+  const monthYear = getCurrentMonthYear();
 
   let initialGame: GameRecordData | null = null;
   if (cleanId && isSupabaseConfigured()) {
@@ -42,6 +46,26 @@ export default async function CanonicalGameDetailPage({
   const canonicalUrl = initialGame
     ? `${SITE_URL}${buildGameUrlPath(initialGame)}`
     : `${SITE_URL}/g/${cleanId}`;
+
+  const initialRev = initialGame ? estimateGameRevenue(initialGame) : null;
+  const gameFaqItems =
+    initialGame && initialRev
+      ? buildGameFaqItems({
+          gameName: initialGame.name,
+          creatorName: initialGame.creatorName,
+          genre: initialGame.genre || 'Roblox',
+          currentCcu: initialGame.currentCcu,
+          peakCcu: initialGame.peakCcuObserved ?? initialGame.currentCcu,
+          totalVisitsFormatted: formatCompactNumber(initialGame.totalVisits),
+          monthlyUsdFormatted: formatCurrencyCompact(initialRev.monthlyUsd),
+          monthlyLowFormatted: formatCurrencyCompact(initialRev.monthlyLowUsd),
+          monthlyHighFormatted: formatCurrencyCompact(initialRev.monthlyHighUsd),
+          dailyUsdFormatted: formatCurrencyCompact(initialRev.dailyUsd),
+          yearlyUsdFormatted: formatCurrencyCompact(initialRev.yearlyUsd),
+          monthlyRobuxFormatted: formatCompactNumber(initialRev.monthlyRobux),
+          monthYear,
+        })
+      : [];
 
   const jsonLd = initialGame
     ? {
@@ -81,7 +105,7 @@ export default async function CanonicalGameDetailPage({
               '@type': 'Organization',
               name: initialGame.creatorName,
             },
-            description: `${cleanSeoGameName(initialGame.name)} by ${initialGame.creatorName} has ${formatCompactNumber(initialGame.currentCcu)} live concurrent players and ${formatCompactNumber(initialGame.totalVisits)} total visits on Roblox.`,
+            description: `${cleanSeoGameName(initialGame.name)} by ${initialGame.creatorName} has ${formatCompactNumber(initialGame.currentCcu)} live concurrent players, ${formatCompactNumber(initialGame.totalVisits)} total visits, and estimated monthly revenue of ${formatCurrencyCompact(initialRev?.monthlyUsd)} on Roblox.`,
             ...((initialGame.upVotes ?? 0) + (initialGame.downVotes ?? 0) > 10
               ? {
                   aggregateRating: {
@@ -106,6 +130,21 @@ export default async function CanonicalGameDetailPage({
                 }
               : {}),
           },
+          ...(gameFaqItems.length > 0
+            ? [
+                {
+                  '@type': 'FAQPage',
+                  mainEntity: gameFaqItems.map((item) => ({
+                    '@type': 'Question',
+                    name: item.question,
+                    acceptedAnswer: {
+                      '@type': 'Answer',
+                      text: item.answer,
+                    },
+                  })),
+                },
+              ]
+            : []),
         ],
       }
     : null;
@@ -121,6 +160,7 @@ export default async function CanonicalGameDetailPage({
       <GameDetailClient
         initialGame={initialGame}
         initialTracked={Boolean(initialGame)}
+        monthYear={monthYear}
       />
     </>
   );

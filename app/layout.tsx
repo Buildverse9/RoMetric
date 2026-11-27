@@ -15,18 +15,21 @@ const GOOGLE_VERIFICATION = (
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: {
-    default: 'RoMetric — Live Roblox Game Analytics, Rankings & Codes',
+    default: 'RoMetric — Live Roblox Player Counts, Revenue & Codes',
     template: '%s | RoMetric',
   },
   description:
-    'Track live Roblox player counts (CCU), game rankings, breakout hits, estimated Robux revenue, historical charts, and verified Roblox game codes on RoMetric.',
+    'Check live Roblox player counts, top game rankings, estimated monthly Robux revenue, and working game codes—updated in real time on RoMetric.',
   keywords: [
+    'RoMetric',
+    'RoMetrics',
     'Roblox analytics',
     'Roblox live player count',
     'Roblox CCU tracker',
     'Roblox game rankings',
     'Roblox game codes',
     'Roblox active codes',
+    'how much do Roblox games make',
     'Roblox game revenue estimator',
   ],
   alternates: {
@@ -51,9 +54,9 @@ export const metadata: Metadata = {
     apple: '/assets/aistudio/logoofrometric_7c92ca67.png',
   },
   openGraph: {
-    title: 'RoMetric — Live Roblox Game Analytics, Rankings & Codes',
+    title: 'RoMetric — Live Roblox Player Counts, Revenue & Codes',
     description:
-      'Track live Roblox player counts, breakout games, estimated revenue, rankings, historical trends, and verified game codes.',
+      'Check live Roblox player counts, top game rankings, estimated monthly Robux revenue, and verified working game codes on RoMetric.',
     url: SITE_URL,
     siteName: 'RoMetric',
     type: 'website',
@@ -61,9 +64,9 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'RoMetric — Live Roblox Game Analytics, Rankings & Codes',
+    title: 'RoMetric — Live Roblox Player Counts, Revenue & Codes',
     description:
-      'Live Roblox game analytics, player rankings, breakout games, estimated revenue, historical charts, and active Roblox game codes.',
+      'Live Roblox player counts, monthly revenue estimates, breakout rankings, and verified working Roblox game codes.',
     images: ['/assets/aistudio/logowithName_50295ff0.png'],
   },
 };
@@ -72,11 +75,20 @@ const SITE_STRUCTURED_DATA = {
   '@context': 'https://schema.org',
   '@graph': [
     {
+      '@type': 'Organization',
+      name: 'RoMetric',
+      alternateName: ['RoMetrics', 'RoMetricHQ'],
+      url: SITE_URL,
+      logo: `${SITE_URL}/assets/aistudio/logoofrometric_7c92ca67.png`,
+      sameAs: ['https://x.com/RoMetricHQ'],
+    },
+    {
       '@type': 'WebSite',
       name: 'RoMetric',
+      alternateName: ['RoMetrics', 'RoMetric Roblox Analytics'],
       url: SITE_URL,
       description:
-        'Live Roblox game analytics, CCU rankings, breakout games, and automated Roblox game codes database.',
+        'Live Roblox game analytics, CCU rankings, monthly revenue estimates, breakout games, and automated Roblox game codes database.',
       potentialAction: {
         '@type': 'SearchAction',
         target: `${SITE_URL}/codes?q={search_term_string}`,
@@ -86,6 +98,7 @@ const SITE_STRUCTURED_DATA = {
     {
       '@type': 'WebApplication',
       name: 'RoMetric',
+      alternateName: 'RoMetrics',
       url: SITE_URL,
       applicationCategory: 'GameApplication',
       operatingSystem: 'All',

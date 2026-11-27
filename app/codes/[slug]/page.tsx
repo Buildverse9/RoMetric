@@ -31,15 +31,17 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 
   const seoName = cleanSeoGameName(game.name);
   const monthYear = getCurrentMonthYear();
-  const activeCount = payload.codes.filter((c) => c.status === 'active').length;
+  const activeCodes = payload.codes.filter((c) => c.status === 'active');
+  const activeCount = activeCodes.length;
+  const newestCode = activeCodes[0]?.code ?? null;
   const title =
     activeCount > 0
-      ? `${seoName} Codes (${monthYear}) — ${activeCount} Active & Working`
-      : `${seoName} Codes (${monthYear}) — Working & Expired List`;
+      ? `${seoName} Codes (${monthYear}) — ${activeCount} Working [Updated]`
+      : `${seoName} Codes (${monthYear}) — Active & Expired List`;
   const description =
     activeCount > 0
-      ? `All ${activeCount} active and working ${seoName} codes for ${monthYear}. Verified rewards, expired code archive, how-to-redeem guide, and one-tap copy on RoMetric.`
-      : `Check all verified ${seoName} Roblox codes for ${monthYear}, including how to redeem codes and live player stats on RoMetric.`;
+      ? `${activeCount} working ${seoName} codes verified for ${monthYear}${newestCode ? ` (New: ${newestCode})` : ''}. Claim free rewards with one-tap copy, redeem steps & expired list on RoMetric.`
+      : `Check the latest verified ${seoName} Roblox codes for ${monthYear}. Automatically updated with new working codes, how-to-redeem steps & expired archive on RoMetric.`;
   const pageUrl = `${SITE_URL}/codes/${encodeURIComponent(game.slug || slug)}`;
   const ogCardUrl = `${SITE_URL}/og/social?t=codes&slug=${encodeURIComponent(game.slug || slug)}`;
 

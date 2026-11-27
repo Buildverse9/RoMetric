@@ -24,20 +24,23 @@ export function getCurrentMonthYear(date: Date = new Date()): string {
 }
 
 /**
- * Strips decorative emojis and noisy Roblox event prefixes (e.g. "[UPD 24]", "(EVENT)")
- * from a game name for cleaner, higher-CTR search result titles.
+ * Strips decorative emojis, stray symbols, and noisy Roblox event prefixes
+ * (e.g. "[💗UPD 21.5⛩️]", "(EVENT)", "【NEW】") from a game name for cleaner,
+ * higher-CTR search result titles and H1 headings.
  */
 export function cleanSeoGameName(rawName: string): string {
   const original = String(rawName || '').trim();
   if (!original) return 'Roblox Game';
 
   let cleaned = original
-    // Strip leading bracketed/parenthesized update tags like "[UPD 12]" or "(Halloween)"
-    .replace(/^(?:\s*[\[\(\{][^\]\)\}]{1,36}[\]\)\}]\s*)+/g, '')
-    // Strip trailing bracketed update tags like "[EVENT]"
-    .replace(/(?:\s*[\[\(\{][^\]\)\}]{1,36}[\]\)\}]\s*)+$/g, '')
-    // Strip emojis & pictographs while keeping alphanumeric + standard punctuation
-    .replace(/[\p{Extended_Pictographic}\p{Emoji_Presentation}\uFE0F\u200D]/gu, ' ')
+    // Strip leading bracketed/parenthesized update tags including CJK brackets
+    .replace(/^(?:\s*[\[\(\{【『][^\]\)\}】』]{1,42}[\]\)\}】』]\s*)+/g, '')
+    // Strip trailing bracketed update tags like "[EVENT]" or "(UPD 12)"
+    .replace(/(?:\s*[\[\(\{【『][^\]\)\}】』]{1,42}[\]\)\}】』]\s*)+$/g, '')
+    // Strip emojis, pictographs, and decorative stars/symbols
+    .replace(/[\p{Extended_Pictographic}\p{Emoji_Presentation}\uFE0F\u200D★☆✦✧⚡✨🔥💎👑]/gu, ' ')
+    // Strip leftover leading/trailing separators like "|", "-", ":", "•"
+    .replace(/^[\s|\-:•·/]+|[\s|\-:•·/]+$/g, '')
     .replace(/\s+/g, ' ')
     .trim();
 
@@ -119,6 +122,48 @@ export function safeJsonLd(data: unknown): string {
 export interface CodeFaqItem {
   question: string;
   answer: string;
+}
+
+/**
+ * Generates visible + Schema.org FAQPage entries for a Roblox game's analytics & revenue page.
+ */
+export function buildGameFaqItems(params: {
+  gameName: string;
+  creatorName: string;
+  genre: string;
+  currentCcu: number;
+  peakCcu: number;
+  totalVisitsFormatted: string;
+  monthlyUsdFormatted: string;
+  monthlyLowFormatted: string;
+  monthlyHighFormatted: string;
+  dailyUsdFormatted: string;
+  yearlyUsdFormatted: string;
+  monthlyRobuxFormatted: string;
+  monthYear: string;
+}): CodeFaqItem[] {
+  const cleanName = cleanSeoGameName(params.gameName);
+  const ccuText = Math.round(params.currentCcu).toLocaleString('en-US');
+  const peakText = Math.round(params.peakCcu).toLocaleString('en-US');
+
+  return [
+    {
+      question: `How much money does ${cleanName} make a month?`,
+      answer: `As of ${params.monthYear}, RoMetric estimates ${cleanName} makes roughly ${params.monthlyUsdFormatted} per month (range ${params.monthlyLowFormatted} to ${params.monthlyHighFormatted}/mo, or about ${params.dailyUsdFormatted}/day and ${params.monthlyRobuxFormatted} Robux/month at DevEx rates) based on ${ccuText} live concurrent players and ${params.genre} monetization benchmarks.`,
+    },
+    {
+      question: `How many people are playing ${cleanName} right now?`,
+      answer: `${cleanName} currently has ${ccuText} live concurrent players (CCU) on Roblox, with a tracked peak of ${peakText} concurrent players and ${params.totalVisitsFormatted} lifetime visits.`,
+    },
+    {
+      question: `How much does ${cleanName} make in a year?`,
+      answer: `At its current player run-rate, ${cleanName} is estimated to generate approximately ${params.yearlyUsdFormatted} per year in developer DevEx-equivalent revenue before studio expenses and team splits.`,
+    },
+    {
+      question: `Who created ${cleanName} on Roblox?`,
+      answer: `${cleanName} is developed and published by ${params.creatorName} in the ${params.genre} category on Roblox.`,
+    },
+  ];
 }
 
 /**

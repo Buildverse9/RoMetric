@@ -52,10 +52,41 @@ export async function generateMetadata({
     if (matchedGame) {
       const cleanName = cleanSeoGameName(matchedGame.name);
       const rev = estimateGameRevenue(matchedGame);
+      const pageUrl = `${SITE_URL}/insights/${encodeURIComponent(decoded)}`;
+      const ogImage = `${SITE_URL}/og/social?t=surge&g=${matchedGame.universeId}`;
+      const title =
+        rev.monthlyUsd > 0
+          ? `How Much Does ${cleanName} Make? (${formatCurrencyCompact(rev.monthlyUsd)}/Mo · ${monthYear})`
+          : `How Much Does ${cleanName} Make a Month? (${monthYear} Estimate)`;
+      const description =
+        rev.monthlyUsd > 0
+          ? `${cleanName} makes an est. ${formatCurrencyCompact(rev.monthlyUsd)}/month (${formatCurrencyCompact(rev.dailyUsd)}/day, ${formatCurrencyCompact(rev.yearlyUsd)}/yr) with ${formatExactNumber(matchedGame.currentCcu)} live players. See full DevEx & Robux breakdown.`
+          : `Based on ${formatExactNumber(matchedGame.currentCcu)} live concurrent players, see ${cleanName}'s estimated daily, monthly, and yearly Roblox DevEx revenue on RoMetric.`;
+
       return {
-        title: `How Much Does ${cleanName} Make a Month? (${monthYear} Estimate)`,
-        description: `Based on ${formatExactNumber(matchedGame.currentCcu)} live concurrent players, ${cleanName} is estimated to generate around ${formatCurrencyCompact(rev.monthlyUsd)} per month on Roblox.`,
-        alternates: { canonical: `${SITE_URL}/insights/${encodeURIComponent(decoded)}` },
+        title,
+        description,
+        alternates: { canonical: pageUrl },
+        openGraph: {
+          title: `${title} | RoMetric`,
+          description,
+          url: pageUrl,
+          type: 'article',
+          images: [
+            {
+              url: ogImage,
+              width: 1200,
+              height: 630,
+              alt: `${cleanName} estimated monthly Roblox revenue on RoMetric`,
+            },
+          ],
+        },
+        twitter: {
+          card: 'summary_large_image',
+          title: `${title} | RoMetric`,
+          description,
+          images: [ogImage],
+        },
       };
     }
   }
@@ -94,7 +125,11 @@ export default async function InsightDetailPage({
     const faqItems = [
       {
         question: `How much money does ${cleanName} make per month?`,
-        answer: `Based on ${formatExactNumber(revenueGame.currentCcu)} live concurrent players and ${revenueGame.genre} monetization benchmarks, RoMetric estimates ${cleanName} generates roughly ${formatCurrencyCompact(rev.monthlyUsd)} per month (directional range ${formatCurrencyCompact(lowMonthly)} to ${formatCurrencyCompact(highMonthly)}).`,
+        answer: `As of ${monthYear}, RoMetric estimates ${cleanName} generates roughly ${formatCurrencyCompact(rev.monthlyUsd)} per month (directional range ${formatCurrencyCompact(lowMonthly)} to ${formatCurrencyCompact(highMonthly)}, or about ${formatCurrencyCompact(rev.dailyUsd)}/day and ${formatCompactNumber(rev.monthlyRobux)} Robux/month at DevEx rates) based on ${formatExactNumber(revenueGame.currentCcu)} live concurrent players and ${revenueGame.genre} monetization benchmarks.`,
+      },
+      {
+        question: `How much does ${cleanName} make per day on Roblox?`,
+        answer: `At ${formatExactNumber(revenueGame.currentCcu)} live players, ${cleanName} makes an estimated ${formatCurrencyCompact(rev.dailyUsd)} per day in developer DevEx-equivalent earnings.`,
       },
       {
         question: `How much does ${cleanName} make per year on Roblox?`,
@@ -106,13 +141,35 @@ export default async function InsightDetailPage({
       },
     ];
 
+    const pageUrl = `${SITE_URL}/insights/${encodeURIComponent(decoded)}`;
     const jsonLd = [
+      {
+        '@context': 'https://schema.org',
+        '@type': 'BreadcrumbList',
+        itemListElement: [
+          { '@type': 'ListItem', position: 1, name: 'Home', item: SITE_URL },
+          {
+            '@type': 'ListItem',
+            position: 2,
+            name: 'Market Insights',
+            item: `${SITE_URL}/insights`,
+          },
+          {
+            '@type': 'ListItem',
+            position: 3,
+            name: `How Much Does ${cleanName} Make?`,
+            item: pageUrl,
+          },
+        ],
+      },
       {
         '@context': 'https://schema.org',
         '@type': 'Article',
         headline: `How Much Does ${cleanName} Make a Month on Roblox? (${monthYear})`,
-        url: `${SITE_URL}/insights/${encodeURIComponent(decoded)}`,
+        url: pageUrl,
         dateModified: revenueGame.lastCollectedAt,
+        author: { '@type': 'Organization', name: 'RoMetric', url: SITE_URL },
+        publisher: { '@type': 'Organization', name: 'RoMetric', url: SITE_URL },
       },
       {
         '@context': 'https://schema.org',
@@ -178,7 +235,15 @@ export default async function InsightDetailPage({
             {formatCurrencyCompact(highMonthly)}).
           </p>
 
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-2 border-t border-slate-900/8 dark:border-white/8">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 pt-2 border-t border-slate-900/8 dark:border-white/8">
+            <div>
+              <p className="text-xs text-slate-500 dark:text-[#7893A3]">
+                Est. Daily USD
+              </p>
+              <p className="text-xl font-bold text-slate-950 dark:text-white tabular-nums">
+                {formatCurrencyCompact(rev.dailyUsd)}
+              </p>
+            </div>
             <div>
               <p className="text-xs text-slate-500 dark:text-[#7893A3]">
                 Est. Monthly USD
@@ -197,18 +262,18 @@ export default async function InsightDetailPage({
             </div>
             <div>
               <p className="text-xs text-slate-500 dark:text-[#7893A3]">
-                Live Players
+                Est. Monthly Robux
               </p>
               <p className="text-xl font-bold text-slate-950 dark:text-white tabular-nums">
-                {formatExactNumber(revenueGame.currentCcu)}
+                {formatCompactNumber(rev.monthlyRobux)} R$
               </p>
             </div>
             <div>
               <p className="text-xs text-slate-500 dark:text-[#7893A3]">
-                Approval Rating
+                Live Players
               </p>
               <p className="text-xl font-bold text-slate-950 dark:text-white tabular-nums">
-                {revenueGame.likeRatio !== null ? `${revenueGame.likeRatio}%` : '—'}
+                {formatExactNumber(revenueGame.currentCcu)}
               </p>
             </div>
           </div>
@@ -252,10 +317,14 @@ export default async function InsightDetailPage({
                   className="py-3 flex items-center justify-between gap-3 group"
                 >
                   <div className="flex items-center gap-3 min-w-0">
-                    <GameArtwork src={p.game.iconUrl} alt={p.game.name} size="sm" />
+                    <GameArtwork
+                      src={p.game.iconUrl}
+                      alt={cleanSeoGameName(p.game.name)}
+                      size="sm"
+                    />
                     <div className="min-w-0">
                       <p className="text-sm font-semibold text-slate-900 dark:text-[#F1F7FA] group-hover:text-emerald-600 dark:group-hover:text-[#10E89A] truncate">
-                        {p.game.name}
+                        {cleanSeoGameName(p.game.name)}
                       </p>
                       <p className="text-xs text-slate-500 dark:text-[#7893A3] tabular-nums">
                         {formatCompactNumber(p.game.currentCcu)} CCU · {p.game.genre}

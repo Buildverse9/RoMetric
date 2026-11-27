@@ -126,6 +126,8 @@ export function GameCodesDetailClient({
     payload.codes[0]?.lastVerifiedAt ||
     payload.codes[0]?.updatedAt ||
     game.codesLastCheckedAt;
+  const cleanName = cleanSeoGameName(game.name);
+  const hasDifferentRawTitle = cleanName !== game.name.trim();
 
   return (
     <div className="max-w-[1280px] mx-auto px-4 sm:px-6 pt-6 sm:pt-8 pb-10 space-y-7">
@@ -140,13 +142,13 @@ export function GameCodesDetailClient({
           </Link>
           <span>/</span>
           <span className="text-slate-700 dark:text-[#9CB3C0] truncate">
-            {game.name}
+            {cleanName}
           </span>
         </div>
         {latestCheck && (
           <div className="flex items-center gap-1.5 tabular-nums shrink-0">
             <Clock className="w-3.5 h-3.5 text-emerald-600 dark:text-[#10E89A]" />
-            <span>Updated {formatRelativeTime(latestCheck)}</span>
+            <span>Verified {formatRelativeTime(latestCheck)}</span>
           </div>
         )}
       </div>
@@ -154,7 +156,7 @@ export function GameCodesDetailClient({
       {/* Hero Header */}
       <LiquidGlassCard
         variant="hero"
-        exportTitle={`${game.name} — Roblox Codes`}
+        exportTitle={`${cleanName} — Roblox Codes`}
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.36, ease: APPLE_EASE }}
@@ -164,7 +166,7 @@ export function GameCodesDetailClient({
           <div className="lg:col-span-4">
             <GameArtwork
               src={game.thumbnailUrl || game.iconUrl}
-              alt={game.name}
+              alt={`${cleanName} Roblox codes`}
               variant="banner"
             />
           </div>
@@ -172,12 +174,17 @@ export function GameCodesDetailClient({
           <div className="lg:col-span-8 space-y-4 pr-0 lg:pr-8">
             <div className="flex items-start gap-3.5">
               <div className="shrink-0 hidden sm:block">
-                <GameArtwork src={game.iconUrl} alt={game.name} size="md" />
+                <GameArtwork src={game.iconUrl} alt={cleanName} size="md" />
               </div>
               <div className="min-w-0 space-y-1">
                 <h1 className="font-display text-2xl sm:text-3xl font-extrabold text-slate-950 dark:text-white tracking-tight text-balance">
-                  {game.name} Codes ({effectiveMonthYear})
+                  {cleanName} Codes ({effectiveMonthYear})
                 </h1>
+                {hasDifferentRawTitle && (
+                  <p className="text-xs text-slate-500 dark:text-[#7893A3] truncate">
+                    Official Roblox title: {game.name}
+                  </p>
+                )}
                 <p className="text-sm text-slate-600 dark:text-[#9CB3C0] flex flex-wrap items-center gap-x-2 gap-y-1">
                   <Link
                     href={`/developers/${game.creatorId}`}
@@ -275,16 +282,19 @@ export function GameCodesDetailClient({
       {/* Active Codes Section */}
       <FadeInSection>
         <LiquidGlassCard
-          exportTitle={`${game.name} — Active Codes`}
+          exportTitle={`${cleanName} — Active Codes`}
           className="rounded-[28px] p-5 sm:p-6 space-y-4"
         >
-          <div className="flex items-center justify-between gap-3 pr-9">
+          <div className="flex flex-wrap items-center justify-between gap-3 pr-9">
             <div className="flex items-center gap-2">
               <Ticket className="w-5 h-5 text-emerald-600 dark:text-[#10E89A]" />
               <h2 className="font-display text-lg font-bold text-slate-950 dark:text-white">
-                Active Codes ({activeCodes.length})
+                Active {cleanName} Codes ({activeCodes.length})
               </h2>
             </div>
+            <span className="text-xs font-medium text-emerald-700 dark:text-[#10E89A]">
+              Checked for {effectiveMonthYear}
+            </span>
           </div>
 
           {activeCodes.length > 0 ? (
@@ -302,8 +312,8 @@ export function GameCodesDetailClient({
               </p>
               <p className="text-xs text-slate-600 dark:text-[#9CB3C0] leading-relaxed max-w-2xl">
                 {payload.codes.length === 0
-                  ? `Our automated providers have not detected an official code feed for ${game.name} yet. This does not necessarily mean the game has no codes—developers or players can submit verified codes below.`
-                  : `All previously tracked codes for ${game.name} are listed below in Pending/Unverified or Expired history.`}
+                  ? `Our automated providers have not detected an official code feed for ${cleanName} yet. This does not necessarily mean the game has no codes—developers or players can submit verified codes below.`
+                  : `All previously tracked codes for ${cleanName} are listed below in Pending/Unverified or Expired history.`}
               </p>
               <button
                 type="button"
@@ -311,7 +321,7 @@ export function GameCodesDetailClient({
                 className="mt-2 inline-flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-semibold bg-emerald-600 dark:bg-[#10E89A] text-white dark:text-[#04130D] hover:opacity-90 transition-opacity cursor-pointer"
               >
                 <Plus className="w-3.5 h-3.5" />
-                <span>Submit a Code for {game.name}</span>
+                <span>Submit a Code for {cleanName}</span>
               </button>
             </div>
           )}
@@ -531,10 +541,14 @@ export function GameCodesDetailClient({
                   className="rounded-2xl p-3.5 flex items-center justify-between gap-3 hover:border-emerald-500/35 dark:hover:border-[#10E89A]/35"
                 >
                   <div className="flex items-center gap-3 min-w-0">
-                    <GameArtwork src={rel.iconUrl} alt={rel.name} size="sm" />
+                    <GameArtwork
+                      src={rel.iconUrl}
+                      alt={cleanSeoGameName(rel.name)}
+                      size="sm"
+                    />
                     <div className="min-w-0">
                       <p className="text-sm font-semibold text-slate-900 dark:text-[#F1F7FA] group-hover:text-emerald-600 dark:group-hover:text-[#10E89A] transition-colors truncate">
-                        {rel.name}
+                        {cleanSeoGameName(rel.name)}
                       </p>
                       <p className="text-xs text-slate-500 dark:text-[#7893A3] truncate tabular-nums">
                         {rel.genre} · {formatCompactNumber(rel.currentCcu)} CCU

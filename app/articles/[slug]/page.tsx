@@ -330,11 +330,13 @@ export default async function ArticleDetailPage({ params }: PageProps) {
       </LiquidGlassCard>
 
       {/* X (Twitter) Video Embed Section */}
-      <XVideoEmbedSection
-        urls={article.xVideoUrls}
-        xSearchUrl={article.xVideoUrls[0] || article.xSearchUrl}
-        xSearchLabel="Open post on X"
-      />
+      {article.xVideoUrls.length > 0 && (
+        <XVideoEmbedSection
+          urls={article.xVideoUrls}
+          xSearchUrl={article.xVideoUrls[0] || article.xSearchUrl}
+          xSearchLabel="Open post on X"
+        />
+      )}
 
       {/* Editorial Body */}
       <LiquidGlassCard className="rounded-[28px] p-6 sm:p-8 space-y-8">

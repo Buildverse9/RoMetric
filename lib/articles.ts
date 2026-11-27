@@ -143,6 +143,88 @@ export const ARTICLES: ArticleItem[] = [
       },
     ],
   },
+  {
+    slug: 'how-much-do-top-roblox-games-make-a-month',
+    title:
+      'How Much Do Top Roblox Games Make a Month? (2026 Earnings & DevEx Breakdown)',
+    shortTitle: 'How Much Do Top Roblox Games Make a Month?',
+    excerpt:
+      'From 1,000-CCU breakout hits to 200,000-CCU mega-experiences like Brookhaven RP, see how much Roblox games actually earn per month in USD and Robux after DevEx.',
+    category: 'Revenue & Economy',
+    publishedAt: '2026-11-27T12:00:00Z',
+    updatedAt: '2026-11-27T12:00:00Z',
+    readTimeMinutes: 5,
+    author: 'RoMetric Research',
+    keywords: [
+      'how much do Roblox games make',
+      'how much does Brookhaven make a month',
+      'highest earning Roblox games 2026',
+      'Roblox DevEx calculator',
+      'Roblox game revenue per player',
+      'how much money do Roblox developers make',
+    ],
+    disclaimerTitle: 'How RoMetric Estimates Developer Earnings',
+    disclaimerBody:
+      'Roblox does not publish exact private payouts for individual experiences. All dollar figures are transparent DevEx-equivalent estimates modeled from live concurrent players (CCU), observed peak resilience, genre monetization depth, and approval ratings.',
+    featuredGame: {
+      placeId: '4924922222',
+      universeId: '1686885941',
+      name: 'Brookhaven RP',
+      creatorName: 'Wolfpaq',
+      creatorId: '4924922222',
+      robloxUrl: 'https://www.roblox.com/games/4924922222/Brookhaven-RP',
+    },
+    xVideoUrls: [],
+    xSearchUrl:
+      'https://x.com/search?q=Roblox%20game%20revenue%20DevEx&f=top',
+    xSearchLabel: 'Explore Roblox developer revenue discussions on X',
+    sections: [
+      {
+        heading: 'How Much Does a Roblox Game Make per 1,000 Live Players?',
+        paragraphs: [
+          'The single fastest benchmark used by Roblox studios and analysts is monthly DevEx revenue per sustained concurrent player (CCU). Across the Roblox economy, an average game with steady retention and standard gamepass monetization generates roughly $15 to $25 USD per month for every 1 sustained CCU at official Developer Exchange (DevEx) rates ($0.0035 per Robux).',
+          'That means a breakout game holding 1,000 average live players typically earns around $15,000 to $25,000 per month before team splits and ad spend. A top-50 hit averaging 25,000 live players often lands between $450,000 and $650,000 per month—while flagship mega-hits sustaining 150,000+ CCU can cross $2M to $4M+ per month.',
+        ],
+        bullets: [
+          '100 avg CCU: ~$1,500 – $2,500 / month (strong indie side income).',
+          '1,000 avg CCU: ~$15,000 – $25,000 / month (full-time solo or small team).',
+          '10,000 avg CCU: ~$160,000 – $260,000 / month (mid-sized Roblox studio).',
+          '100,000+ avg CCU: ~$2.0M+ / month (flagship front-page franchises).',
+        ],
+      },
+      {
+        heading: 'Why Two Games With the Same Player Count Earn Very Different Money',
+        paragraphs: [
+          'Player count alone never tells the whole story. Genre monetization depth can easily double or halve a game’s earnings per player. RPGs, anime simulators, tycoons, and roleplay experiences with recurring passes, VIP bundles, and gacha/boost loops consistently outperform casual obbies or short-session meme experiences.',
+          'Approval rating and session length matter just as much: games with 90%+ like ratios keep players coming back across weekends and updates, turning casual visitors into repeat Premium Payouts and gamepass buyers.',
+        ],
+      },
+      {
+        heading: 'How Roblox DevEx Converts Robux Into Real USD',
+        paragraphs: [
+          'When players spend Robux inside an experience, Roblox retains its marketplace fee before crediting net Robux to the creator. Eligible developers then convert earned Robux into USD via the Developer Exchange (DevEx) program at $0.0035 per Robux (so 1,000,000 earned Robux cashes out to $3,500 USD).',
+          'On RoMetric, every game page and revenue insight report automatically tracks live CCU alongside estimated daily, monthly, and annual USD and Robux run-rates so you can compare any two Roblox experiences side by side in real time.',
+        ],
+      },
+    ],
+    faqs: [
+      {
+        question: 'How much does a top Roblox game make per month?',
+        answer:
+          'Top front-page Roblox experiences averaging 50,000 to 250,000+ concurrent players are estimated to generate between $1M and $5M+ per month in gross DevEx-equivalent developer revenue.',
+      },
+      {
+        question: 'How much is 1,000,000 Robux worth in real money via DevEx?',
+        answer:
+          'At the standard Roblox DevEx payout rate of $0.0035 per Robux, 1,000,000 earned Robux converts to $3,500 USD.',
+      },
+      {
+        question: 'Can I check how much a specific Roblox game makes?',
+        answer:
+          'Yes — open any game page on RoMetric or search our Market Insights hub to see live player counts alongside estimated daily, monthly, and yearly USD and Robux revenue.',
+      },
+    ],
+  },
 ];
 
 export function getArticleBySlug(slug: string): ArticleItem | undefined {

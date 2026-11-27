@@ -91,9 +91,9 @@ export async function GET() {
         });
       }
 
-      // Top 150 game revenue Q&A insight pages
+      // Top 350 game revenue Q&A insight pages
       const seenInsightSlugs = new Set(STATIC_INSIGHTS.map((s) => s.slug));
-      for (const g of games.slice(0, 150)) {
+      for (const g of games.slice(0, 350)) {
         const revSlug = buildGameRevenueInsightSlug(g);
         if (seenInsightSlugs.has(revSlug)) continue;
         seenInsightSlugs.add(revSlug);
