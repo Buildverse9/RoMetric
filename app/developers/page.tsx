@@ -8,7 +8,7 @@ import {
 } from '@/lib/supabase-server';
 import type { GameRecordData } from '@/lib/types';
 
-export const revalidate = 120;
+export const revalidate = 1800;
 
 export const metadata: Metadata = {
   title: 'Top Roblox Developers & Studios — Live Player & Revenue Rankings',

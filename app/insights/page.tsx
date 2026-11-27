@@ -22,7 +22,7 @@ import { GameArtwork } from '@/components/GameArtwork';
 import { LiquidGlassCard } from '@/components/MotionPrimitives';
 import type { GameRecordData } from '@/lib/types';
 
-export const revalidate = 180;
+export const revalidate = 1800;
 
 export function generateMetadata(): Metadata {
   const monthYear = getCurrentMonthYear();

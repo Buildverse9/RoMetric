@@ -36,7 +36,7 @@ export async function GET(req: NextRequest) {
       headers: {
         'Cache-Control': fresh
           ? 'no-store'
-          : 'public, s-maxage=60, stale-while-revalidate=120',
+          : 'public, s-maxage=300, stale-while-revalidate=900',
       },
     });
   } catch (error) {

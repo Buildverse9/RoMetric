@@ -11,7 +11,7 @@ export async function GET() {
   if (isSupabaseConfigured()) {
     try {
       const games = await fetchSupabaseGamesList();
-      for (const g of games.filter((item) => item.active).slice(0, 3000)) {
+      for (const g of games.filter((item) => item.active).slice(0, 25000)) {
         urls.push({
           loc: `${SITE_URL}${buildGameUrlPath(g)}`,
           lastmod: g.lastCollectedAt || nowIso,

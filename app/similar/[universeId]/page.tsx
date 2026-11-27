@@ -25,7 +25,7 @@ import { GrowthValue } from '@/components/GameTable';
 import { LiquidGlassCard } from '@/components/MotionPrimitives';
 import type { GameRecordData } from '@/lib/types';
 
-export const revalidate = 120;
+export const revalidate = 1800;
 
 export async function generateMetadata({
   params,

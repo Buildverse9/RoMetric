@@ -3,7 +3,7 @@ import { RankingsClient } from '@/components/RankingsClient';
 import { SITE_URL, buildGameUrlPath, safeJsonLd } from '@/lib/seo';
 import type { GameRecordData } from '@/lib/types';
 
-export const revalidate = 120;
+export const revalidate = 900;
 
 export default async function RankingsPage() {
   let initialGames: GameRecordData[] = [];

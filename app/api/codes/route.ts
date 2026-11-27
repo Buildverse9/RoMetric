@@ -9,6 +9,12 @@ export async function GET(req: NextRequest) {
   const rawStatus = searchParams.get('status') || 'all';
   const rawSort = searchParams.get('sort') || 'popular';
   const onlyWithCodes = searchParams.get('covered') === '1';
+  const rawPage = Number.parseInt(searchParams.get('page') || '1', 10);
+  const rawPageSize = Number.parseInt(searchParams.get('pageSize') || '48', 10);
+  const page = Number.isFinite(rawPage) ? Math.min(Math.max(rawPage, 1), 1000) : 1;
+  const pageSize = Number.isFinite(rawPageSize)
+    ? Math.min(Math.max(rawPageSize, 12), 100)
+    : 48;
 
   const status =
     rawStatus === 'active' ||
@@ -24,11 +30,18 @@ export async function GET(req: NextRequest) {
       : 'popular';
 
   try {
-    const data = await fetchCodesDirectory({ q, status, sort, onlyWithCodes });
+    const data = await fetchCodesDirectory({
+      q,
+      status,
+      sort,
+      onlyWithCodes,
+      page,
+      pageSize,
+    });
     return NextResponse.json(data, {
       status: 200,
       headers: {
-        'Cache-Control': 'public, s-maxage=90, stale-while-revalidate=180',
+        'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=900',
       },
     });
   } catch (error) {

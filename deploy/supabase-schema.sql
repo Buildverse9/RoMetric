@@ -226,14 +226,15 @@ BEGIN
     sample_count = EXCLUDED.sample_count,
     updated_at = NOW();
 
-  -- 3. Prune expired windows to fit 3,000 games @ 30-min cadence inside 500 MB Free Tier
-  --    (Full lossless history is archived nightly to Google Drive via Apps Script at 02:30 UTC)
-  DELETE FROM public.game_snapshots WHERE captured_at < NOW() - INTERVAL '30 hours';
-  DELETE FROM public.game_hourly_stats WHERE hour_bucket < NOW() - INTERVAL '7 days';
-  DELETE FROM public.collection_jobs WHERE started_at < NOW() - INTERVAL '30 days';
-  DELETE FROM public.game_daily_stats WHERE day_bucket < (CURRENT_DATE - INTERVAL '365 days');
+  -- 3. Tier 1 (Hot) retention windows — keeps 10,000-15,000+ games well under 500 MB Free Tier
+  --    Tier 2 (Warm): Cloudflare R2 holds 14d hourly + multi-year daily charts at $0 egress
+  --    Tier 3 (Cold): Google Drive 5 TB archives full lossless daily snapshots at 02:30 UTC
+  DELETE FROM public.game_snapshots WHERE captured_at < NOW() - INTERVAL '12 hours';
+  DELETE FROM public.game_hourly_stats WHERE hour_bucket < NOW() - INTERVAL '3 days';
+  DELETE FROM public.collection_jobs WHERE started_at < NOW() - INTERVAL '7 days';
+  DELETE FROM public.game_daily_stats WHERE day_bucket < (CURRENT_DATE - INTERVAL '90 days');
   IF to_regclass('public.code_collection_logs') IS NOT NULL THEN
-    DELETE FROM public.code_collection_logs WHERE started_at < NOW() - INTERVAL '90 days';
+    DELETE FROM public.code_collection_logs WHERE started_at < NOW() - INTERVAL '30 days';
   END IF;
 END;
 $$;
@@ -434,6 +435,18 @@ VALUES
     NULL,
     'User-submitted codes strictly enter Pending Verification until Admin review',
     10,
+    'healthy'
+  ),
+  (
+    'rometric_verified_catalog',
+    'RoMetric Verified Catalog',
+    'roblox_official',
+    TRUE,
+    FALSE,
+    'RoMetric Automated Codes Index',
+    NULL,
+    'Bulk-verified Roblox game codes catalog continuously refreshed by automated providers',
+    60,
     'healthy'
   )
 ON CONFLICT (id) DO NOTHING;

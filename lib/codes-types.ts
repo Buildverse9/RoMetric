@@ -79,6 +79,11 @@ export interface GameCodeDirectoryItem {
     rewardDescription: string | null;
     status: CodeStatus;
   }>;
+  activeCodesPreview?: Array<{
+    id: number;
+    code: string;
+    rewardDescription: string | null;
+  }>;
 }
 
 export interface GameCodesDetailPayload {

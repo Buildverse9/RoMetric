@@ -10,7 +10,7 @@ import {
   safeJsonLd,
 } from '@/lib/seo';
 
-export const revalidate = 180;
+export const revalidate = 900;
 
 interface PageProps {
   params: Promise<{ slug: string }>;

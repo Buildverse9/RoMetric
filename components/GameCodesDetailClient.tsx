@@ -11,7 +11,6 @@ import {
   Clock,
   ExternalLink,
   Info,
-  Plus,
   ShieldCheck,
   Ticket,
 } from 'lucide-react';
@@ -29,7 +28,6 @@ import {
   FadeInSection,
   LiquidGlassCard,
 } from './MotionPrimitives';
-import { SubmitCodeModal } from './SubmitCodeModal';
 import {
   buildCodeFaqItems,
   buildGameUrlPath,
@@ -44,9 +42,8 @@ export function GameCodesDetailClient({
   initialPayload: GameCodesDetailPayload;
   monthYear?: string;
 }) {
-  const [payload, setPayload] = useState<GameCodesDetailPayload>(initialPayload);
+  const payload = initialPayload;
   const [showExpired, setShowExpired] = useState(false);
-  const [submitOpen, setSubmitOpen] = useState(false);
   const effectiveMonthYear = monthYear || getCurrentMonthYear();
 
   const game = payload.game;
@@ -70,21 +67,6 @@ export function GameCodesDetailClient({
       };
     }, [payload]);
 
-  const refreshDetail = async () => {
-    if (!game) return;
-    try {
-      const res = await fetch(
-        `/api/codes/${encodeURIComponent(game.slug || game.universeId)}`
-      );
-      if (res.ok) {
-        const next = (await res.json()) as GameCodesDetailPayload;
-        setPayload(next);
-      }
-    } catch {
-      // Keep current payload
-    }
-  };
-
   if (!game) {
     return (
       <div className="max-w-[1280px] mx-auto px-4 sm:px-6 py-16">
@@ -93,31 +75,20 @@ export function GameCodesDetailClient({
             Game Codes Not Found
           </h1>
           <p className="text-sm text-slate-600 dark:text-[#9CB3C0]">
-            We could not find this Roblox experience in our directory yet. You
-            can still submit a code using its Roblox URL or Universe ID.
+            We could not find this Roblox experience in our codes directory yet.
+            Our automated tracker continuously adds every active game and scans
+            official sources for promo codes.
           </p>
           <div className="flex items-center justify-center gap-3 pt-1">
             <Link
               href="/codes"
-              className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold liquid-glass-pill text-slate-800 dark:text-[#F1F7FA] rounded-full"
+              className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold bg-emerald-600 dark:bg-[#10E89A] text-white dark:text-[#04130D] rounded-full"
             >
               <ArrowLeft className="w-3.5 h-3.5" />
-              All Codes
+              Browse All Codes
             </Link>
-            <button
-              type="button"
-              onClick={() => setSubmitOpen(true)}
-              className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold bg-emerald-600 dark:bg-[#10E89A] text-white dark:text-[#04130D] rounded-full cursor-pointer"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              Submit a Code
-            </button>
           </div>
         </LiquidGlassCard>
-        <SubmitCodeModal
-          open={submitOpen}
-          onClose={() => setSubmitOpen(false)}
-        />
       </div>
     );
   }
@@ -265,15 +236,6 @@ export function GameCodesDetailClient({
                 <BarChart2 className="w-3.5 h-3.5" />
                 <span>Live Analytics</span>
               </Link>
-
-              <button
-                type="button"
-                onClick={() => setSubmitOpen(true)}
-                className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-full text-xs font-semibold liquid-glass-pill text-slate-800 dark:text-[#F1F7FA] hover:border-emerald-500/45 transition-colors cursor-pointer whitespace-nowrap"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Submit Code</span>
-              </button>
             </div>
           </div>
         </div>
@@ -307,22 +269,14 @@ export function GameCodesDetailClient({
             <div className="rounded-2xl border border-dashed border-slate-900/15 dark:border-white/15 p-6 space-y-2">
               <p className="text-sm font-semibold text-slate-900 dark:text-[#F1F7FA]">
                 {payload.codes.length === 0
-                  ? 'No available provider data for this game yet'
+                  ? 'No active codes detected yet'
                   : 'No active codes currently reported'}
               </p>
               <p className="text-xs text-slate-600 dark:text-[#9CB3C0] leading-relaxed max-w-2xl">
                 {payload.codes.length === 0
-                  ? `Our automated providers have not detected an official code feed for ${cleanName} yet. This does not necessarily mean the game has no codes—developers or players can submit verified codes below.`
-                  : `All previously tracked codes for ${cleanName} are listed below in Pending/Unverified or Expired history.`}
+                  ? `RoMetric's automated discovery engine continuously checks ${cleanName}'s official Roblox description, developer group announcements, official Trello boards, Fandom & Wiki.gg databases, and partner feeds. New codes will appear here automatically as soon as they drop.`
+                  : `All previously tracked codes for ${cleanName} are listed below in the Expired archive, and our automated engine keeps checking for new drops.`}
               </p>
-              <button
-                type="button"
-                onClick={() => setSubmitOpen(true)}
-                className="mt-2 inline-flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-semibold bg-emerald-600 dark:bg-[#10E89A] text-white dark:text-[#04130D] hover:opacity-90 transition-opacity cursor-pointer"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Submit a Code for {cleanName}</span>
-              </button>
             </div>
           )}
         </LiquidGlassCard>
@@ -565,13 +519,6 @@ export function GameCodesDetailClient({
         </FadeInSection>
       )}
 
-      <SubmitCodeModal
-        open={submitOpen}
-        onClose={() => setSubmitOpen(false)}
-        defaultGameInput={game.universeId}
-        defaultGameName={game.name}
-        onSubmitted={() => void refreshDetail()}
-      />
     </div>
   );
 }

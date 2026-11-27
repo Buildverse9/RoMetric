@@ -8,7 +8,7 @@ import {
   safeJsonLd,
 } from '@/lib/seo';
 
-export const revalidate = 180;
+export const revalidate = 900;
 
 export async function generateMetadata(): Promise<Metadata> {
   const monthYear = getCurrentMonthYear();

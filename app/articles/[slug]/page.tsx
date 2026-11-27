@@ -23,7 +23,7 @@ import { GameArtwork } from '@/components/GameArtwork';
 import { LiquidGlassCard } from '@/components/MotionPrimitives';
 import { XVideoEmbedSection } from '@/components/XVideoEmbed';
 
-export const revalidate = 120;
+export const revalidate = 1800;
 
 interface PageProps {
   params: Promise<{ slug: string }>;

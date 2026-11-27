@@ -131,13 +131,13 @@ export function HomeDashboard({
     return Number((weightedSum / weightTotal).toFixed(1));
   }, [activeGames]);
 
-  // Quiet 60-second background poll so RollingCcuNumber visibly animates live CCU increases
+  // Quiet 10-minute background poll (matches 15-min collector cadence while slashing serverless CPU)
   useEffect(() => {
     const timer = window.setInterval(() => {
       if (document.visibilityState === 'visible') {
         void refreshCatalog(false, true);
       }
-    }, 60_000);
+    }, 600_000);
     return () => window.clearInterval(timer);
   }, [refreshCatalog]);
 
@@ -148,8 +148,7 @@ export function HomeDashboard({
       setHeroLoadingChart(true);
       try {
         const res = await fetch(
-          `/api/supabase/platform-history?range=${encodeURIComponent(heroRange)}`,
-          { cache: 'no-store' }
+          `/api/supabase/platform-history?range=${encodeURIComponent(heroRange)}`
         );
         if (!res.ok) {
           if (!cancelled) setPlatformSeries([]);

@@ -1,13 +1,14 @@
 'use client';
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { motion } from 'motion/react';
 import {
   ArrowRight,
+  ChevronLeft,
+  ChevronRight,
   Clock,
   Database,
-  Plus,
   Search,
   Ticket,
   Users,
@@ -17,6 +18,7 @@ import {
   formatExactNumber,
   formatRelativeTime,
 } from '@/lib/format';
+import { cleanSeoGameName } from '@/lib/seo';
 import type {
   CodeSourceRecord,
   GameCodeDirectoryItem,
@@ -28,13 +30,20 @@ import {
   FadeInSection,
   LiquidGlassCard,
 } from './MotionPrimitives';
-import { SubmitCodeModal } from './SubmitCodeModal';
 
 export interface CodesDirectoryResponse {
   configured: boolean;
   schemaReady: boolean;
   games: GameCodeDirectoryItem[];
   sources: CodeSourceRecord[];
+  pagination: {
+    page: number;
+    pageSize: number;
+    totalMatchedGames: number;
+    totalPages: number;
+    hasNextPage: boolean;
+    hasPrevPage: boolean;
+  };
   stats: {
     totalGamesCovered: number;
     totalGamesTracked: number;
@@ -46,13 +55,12 @@ export interface CodesDirectoryResponse {
 }
 
 const STATUS_FILTERS: Array<{
-  id: 'all' | 'active' | 'pending_verification' | 'expired';
+  id: 'all' | 'active' | 'expired';
   label: string;
 }> = [
   { id: 'all', label: 'All Games' },
   { id: 'active', label: 'Active Codes' },
-  { id: 'pending_verification', label: 'Pending' },
-  { id: 'expired', label: 'Expired' },
+  { id: 'expired', label: 'Expired Archive' },
 ];
 
 const SORT_OPTIONS: Array<{
@@ -73,63 +81,45 @@ export function CodesDirectoryClient({
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<
-    'all' | 'active' | 'pending_verification' | 'expired'
+    'all' | 'active' | 'expired'
   >('all');
   const [sortBy, setSortBy] = useState<
     'popular' | 'recently_updated' | 'most_codes'
   >('popular');
+  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
-  const [submitOpen, setSubmitOpen] = useState(false);
 
   useEffect(() => {
-    const t = window.setTimeout(() => setDebouncedQuery(query.trim()), 260);
+    const t = window.setTimeout(() => {
+      setDebouncedQuery(query.trim());
+      setPage(1);
+    }, 260);
     return () => window.clearTimeout(t);
   }, [query]);
 
-  const fetchFiltered = useCallback(
-    async (
-      qVal: string,
-      statusVal: string,
-      sortVal: string
-    ) => {
-      setLoading(true);
-      try {
-        const params = new URLSearchParams();
-        if (qVal) params.set('q', qVal);
-        params.set('status', statusVal);
-        params.set('sort', sortVal);
-        const res = await fetch(`/api/codes?${params.toString()}`);
-        if (res.ok) {
-          const json = (await res.json()) as CodesDirectoryResponse;
-          setData(json);
-        }
-      } catch {
-        // Keep previous data on transient error
-      } finally {
-        setLoading(false);
-      }
-    },
-    []
-  );
+  const isDefaultView =
+    debouncedQuery === '' &&
+    statusFilter === 'all' &&
+    sortBy === 'popular' &&
+    page === 1 &&
+    initialData.schemaReady;
 
   useEffect(() => {
     // Skip redundant fetch on exact default state if SSR already loaded data
-    if (
-      debouncedQuery === '' &&
-      statusFilter === 'all' &&
-      sortBy === 'popular' &&
-      initialData.schemaReady
-    ) {
+    if (isDefaultView) {
       return;
     }
 
     const controller = new AbortController();
     async function syncDirectory() {
+      setLoading(true);
       try {
         const params = new URLSearchParams();
         if (debouncedQuery) params.set('q', debouncedQuery);
         params.set('status', statusFilter);
         params.set('sort', sortBy);
+        params.set('page', String(page));
+        params.set('pageSize', '48');
         const res = await fetch(`/api/codes?${params.toString()}`, {
           signal: controller.signal,
         });
@@ -139,13 +129,33 @@ export function CodesDirectoryClient({
         }
       } catch {
         // Ignore aborted or transient fetch errors
+      } finally {
+        if (!controller.signal.aborted) {
+          setLoading(false);
+        }
       }
     }
     void syncDirectory();
     return () => controller.abort();
-  }, [debouncedQuery, statusFilter, sortBy, initialData.schemaReady]);
+  }, [debouncedQuery, statusFilter, sortBy, page, isDefaultView]);
 
-  const { stats, games, schemaReady, configured } = data;
+  const activeData = isDefaultView ? initialData : data;
+  const { stats, games, schemaReady, configured, pagination } = activeData;
+  const rangeStart =
+    pagination.totalMatchedGames === 0
+      ? 0
+      : (pagination.page - 1) * pagination.pageSize + 1;
+  const rangeEnd = Math.min(
+    pagination.page * pagination.pageSize,
+    pagination.totalMatchedGames
+  );
+
+  const handlePageChange = (nextPage: number) => {
+    setPage(nextPage);
+    if (typeof window !== 'undefined') {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
 
   return (
     <div className="max-w-[1320px] mx-auto px-4 sm:px-6 pt-6 sm:pt-8 pb-10 space-y-7">
@@ -159,14 +169,15 @@ export function CodesDirectoryClient({
         <div className="space-y-2 max-w-2xl">
           <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-emerald-700 dark:text-[#10E89A]">
             <Ticket className="w-3.5 h-3.5" />
-            <span>Automated Roblox Codes Directory</span>
+            <span>100% Automated Roblox Codes Engine</span>
           </div>
           <h1 className="font-display text-3xl sm:text-4xl font-extrabold text-slate-950 dark:text-white tracking-tight text-balance">
             Roblox Game Codes
           </h1>
           <p className="text-sm text-slate-600 dark:text-[#9CB3C0] leading-relaxed">
-            Automatically collected from official Roblox experience
-            announcements, documented community wikis,{' '}
+            Automatically discovered and continuously updated from official
+            Roblox game descriptions, developer group announcements, official
+            Trello boards, Fandom &amp; Wiki.gg databases, and{' '}
             <a
               href="https://bloxarchive.com"
               target="_blank"
@@ -175,46 +186,29 @@ export function CodesDirectoryClient({
             >
               BloxArchive
             </a>
-            , and moderated developer submissions—always with clear verification
-            status and source attribution.
+            —with live verification timestamps and source attribution.
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-4 shrink-0">
-          <div className="flex items-center gap-5 text-xs tabular-nums">
-            <div>
-              <p className="text-slate-500 dark:text-[#6F8796]">Active Codes</p>
-              <p className="font-display text-lg font-bold text-emerald-600 dark:text-[#10E89A]">
-                {formatExactNumber(stats.totalActiveCodes)}
-              </p>
-            </div>
-            <div>
-              <p className="text-slate-500 dark:text-[#6F8796]">
-                Games Covered
-              </p>
-              <p className="font-display text-lg font-bold text-slate-900 dark:text-[#F1F7FA]">
-                {formatExactNumber(stats.totalGamesCovered)}
-              </p>
-            </div>
-            <div>
-              <p className="text-slate-500 dark:text-[#6F8796]">Pending</p>
-              <p className="font-display text-lg font-bold text-amber-600 dark:text-amber-400">
-                {formatExactNumber(stats.totalPendingCodes)}
-              </p>
-            </div>
+        <div className="flex flex-wrap items-center gap-6 shrink-0 text-xs tabular-nums">
+          <div>
+            <p className="text-slate-500 dark:text-[#6F8796]">Active Codes</p>
+            <p className="font-display text-xl font-bold text-emerald-600 dark:text-[#10E89A]">
+              {formatExactNumber(stats.totalActiveCodes)}
+            </p>
           </div>
-
-          <motion.button
-            type="button"
-            whileHover={{ scale: 1.03 }}
-            whileTap={{ scale: 0.96 }}
-            transition={APPLE_SPRING}
-            onClick={() => setSubmitOpen(true)}
-            className="min-h-[42px] inline-flex items-center gap-2 px-5 py-2.5 rounded-full text-xs font-semibold bg-emerald-600 dark:bg-[#10E89A] text-white dark:text-[#04130D] hover:opacity-90 transition-opacity cursor-pointer shadow-sm whitespace-nowrap"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Submit a Code</span>
-          </motion.button>
+          <div>
+            <p className="text-slate-500 dark:text-[#6F8796]">Games Listed</p>
+            <p className="font-display text-xl font-bold text-slate-900 dark:text-[#F1F7FA]">
+              {formatExactNumber(stats.totalGamesCovered)}
+            </p>
+          </div>
+          <div>
+            <p className="text-slate-500 dark:text-[#6F8796]">Total Codes</p>
+            <p className="font-display text-xl font-bold text-slate-700 dark:text-[#C8D9E2]">
+              {formatExactNumber(stats.totalCodes)}
+            </p>
+          </div>
         </div>
       </motion.section>
 
@@ -255,20 +249,24 @@ export function CodesDirectoryClient({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <label htmlFor="codes-sort" className="text-xs text-slate-500 dark:text-[#8BA3B2]">
+            <label
+              htmlFor="codes-sort"
+              className="text-xs text-slate-500 dark:text-[#8BA3B2]"
+            >
               Sort by
             </label>
             <select
               id="codes-sort"
               value={sortBy}
-              onChange={(e) =>
+              onChange={(e) => {
                 setSortBy(
                   e.target.value as
                     | 'popular'
                     | 'recently_updated'
                     | 'most_codes'
-                )
-              }
+                );
+                setPage(1);
+              }}
               className="px-3.5 py-2 text-xs font-semibold rounded-full bg-black/[0.04] dark:bg-white/[0.06] border border-slate-900/10 dark:border-white/10 text-slate-800 dark:text-[#F1F7FA] focus:outline-none focus:ring-2 focus:ring-emerald-500/40 cursor-pointer"
             >
               {SORT_OPTIONS.map((opt) => (
@@ -284,32 +282,42 @@ export function CodesDirectoryClient({
           </div>
         </div>
 
-        {/* Interactive Status Filter Buttons */}
-        <div className="flex flex-wrap items-center gap-1.5">
-          {STATUS_FILTERS.map((f) => {
-            const active = statusFilter === f.id;
-            return (
-              <button
-                key={f.id}
-                type="button"
-                onClick={() => setStatusFilter(f.id)}
-                className={`relative px-3.5 py-1.5 text-xs font-semibold rounded-full transition-colors cursor-pointer whitespace-nowrap ${
-                  active
-                    ? 'text-white dark:text-[#04130D]'
-                    : 'bg-black/[0.04] dark:bg-white/[0.06] text-slate-600 dark:text-[#9CB3C0] hover:text-slate-950 dark:hover:text-white'
-                }`}
-              >
-                {active && (
-                  <motion.span
-                    layoutId="codes-status-filter-pill"
-                    transition={APPLE_SPRING}
-                    className="absolute inset-0 rounded-full bg-emerald-600 dark:bg-[#10E89A] -z-10"
-                  />
-                )}
-                {f.label}
-              </button>
-            );
-          })}
+        {/* Interactive Status Filter Buttons + Result Count */}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-1.5">
+            {STATUS_FILTERS.map((f) => {
+              const active = statusFilter === f.id;
+              return (
+                <button
+                  key={f.id}
+                  type="button"
+                  onClick={() => {
+                    setStatusFilter(f.id);
+                    setPage(1);
+                  }}
+                  className={`relative px-3.5 py-1.5 text-xs font-semibold rounded-full transition-colors cursor-pointer whitespace-nowrap ${
+                    active
+                      ? 'text-white dark:text-[#04130D]'
+                      : 'bg-black/[0.04] dark:bg-white/[0.06] text-slate-600 dark:text-[#9CB3C0] hover:text-slate-950 dark:hover:text-white'
+                  }`}
+                >
+                  {active && (
+                    <motion.span
+                      layoutId="codes-status-filter-pill"
+                      transition={APPLE_SPRING}
+                      className="absolute inset-0 rounded-full bg-emerald-600 dark:bg-[#10E89A] -z-10"
+                    />
+                  )}
+                  {f.label}
+                </button>
+              );
+            })}
+          </div>
+
+          <p className="text-xs text-slate-500 dark:text-[#7893A3] tabular-nums">
+            Showing {formatExactNumber(rangeStart)}–{formatExactNumber(rangeEnd)}{' '}
+            of {formatExactNumber(pagination.totalMatchedGames)} games
+          </p>
         </div>
       </LiquidGlassCard>
 
@@ -342,136 +350,186 @@ export function CodesDirectoryClient({
               No matching Roblox games or codes found
             </p>
             <p className="text-xs text-slate-500 dark:text-[#8BA3B2] max-w-md mx-auto">
-              Try a broader search term, switch to All Games, or submit a new
-              code for a game directly into our verification queue.
+              Try a broader search term or switch to All Games. Our automated
+              crawler continuously discovers and updates codes across every
+              tracked Roblox experience.
             </p>
-            <div className="pt-2">
-              <button
-                type="button"
-                onClick={() => setSubmitOpen(true)}
-                className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-full text-xs font-semibold bg-emerald-600 dark:bg-[#10E89A] text-white dark:text-[#04130D] hover:opacity-90 transition-opacity cursor-pointer"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                Submit a Code
-              </button>
-            </div>
+            {(query || statusFilter !== 'all') && (
+              <div className="pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setQuery('');
+                    setDebouncedQuery('');
+                    setStatusFilter('all');
+                    setPage(1);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-full text-xs font-semibold bg-emerald-600 dark:bg-[#10E89A] text-white dark:text-[#04130D] hover:opacity-90 transition-opacity cursor-pointer"
+                >
+                  Reset Filters
+                </button>
+              </div>
+            )}
           </LiquidGlassCard>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {games.map((g) => (
-              <Link
-                key={g.universeId}
-                href={`/codes/${encodeURIComponent(g.slug || g.universeId)}`}
-                className="block group"
-              >
-                <LiquidGlassCard
-                  interactive
-                  exportTitle={`${g.name} — Roblox Codes`}
-                  className="rounded-[24px] p-4 sm:p-5 h-full flex flex-col justify-between gap-4 hover:border-emerald-500/35 dark:hover:border-[#10E89A]/35"
-                >
-                  <div className="flex items-start gap-3.5 pr-8 min-w-0">
-                    <div className="group-hover:scale-105 transition-transform duration-200 shrink-0">
-                      <GameArtwork
-                        src={g.iconUrl || g.thumbnailUrl}
-                        alt={g.name}
-                        size="md"
-                      />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <h2 className="font-display text-base font-bold text-slate-950 dark:text-white group-hover:text-emerald-600 dark:group-hover:text-[#10E89A] transition-colors truncate">
-                        {g.name}
-                      </h2>
-                      <p className="text-xs text-slate-500 dark:text-[#8BA3B2] truncate">
-                        {g.creatorName} · {g.genre}
-                      </p>
-                      <p className="mt-1 text-xs text-slate-500 dark:text-[#6F8796] inline-flex items-center gap-1 tabular-nums">
-                        <Users className="w-3 h-3" />
-                        <span>{formatCompactNumber(g.currentCcu)} playing</span>
-                      </p>
-                    </div>
-                  </div>
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {games.map((g) => {
+                const displayName = cleanSeoGameName(g.name);
+                const previewRows =
+                  g.matchingCodes && g.matchingCodes.length > 0
+                    ? g.matchingCodes.slice(0, 2).map((mc) => ({
+                        id: mc.id,
+                        code: mc.code,
+                        badge: mc.status.replace('_', ' '),
+                      }))
+                    : g.activeCodesPreview && g.activeCodesPreview.length > 0
+                      ? g.activeCodesPreview.slice(0, 2).map((ac) => ({
+                          id: ac.id,
+                          code: ac.code,
+                          badge: ac.rewardDescription || 'Active',
+                        }))
+                      : [];
 
-                  {/* Matching Code Preview when searching by code string */}
-                  {g.matchingCodes && g.matchingCodes.length > 0 && (
-                    <div className="space-y-1.5 pt-1">
-                      {g.matchingCodes.slice(0, 2).map((mc) => (
-                        <div
-                          key={mc.id}
-                          className="px-3 py-1.5 rounded-xl bg-emerald-500/[0.07] dark:bg-[#10E89A]/[0.08] border border-emerald-500/20 flex items-center justify-between gap-2 text-xs"
-                        >
-                          <code className="font-mono font-bold text-slate-900 dark:text-white truncate">
-                            {mc.code}
-                          </code>
-                          <span className="text-[11px] text-emerald-700 dark:text-[#10E89A] capitalize shrink-0">
-                            {mc.status.replace('_', ' ')}
-                          </span>
+                return (
+                  <Link
+                    key={g.universeId}
+                    href={`/codes/${encodeURIComponent(g.slug || g.universeId)}`}
+                    className="block group"
+                  >
+                    <LiquidGlassCard
+                      interactive
+                      exportTitle={`${displayName} — Roblox Codes`}
+                      className="rounded-[24px] p-4 sm:p-5 h-full flex flex-col justify-between gap-4 hover:border-emerald-500/35 dark:hover:border-[#10E89A]/35"
+                    >
+                      <div className="flex items-start gap-3.5 pr-8 min-w-0">
+                        <div className="group-hover:scale-105 transition-transform duration-200 shrink-0">
+                          <GameArtwork
+                            src={g.iconUrl || g.thumbnailUrl}
+                            alt={displayName}
+                            size="md"
+                          />
                         </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Honest Code Coverage & Counts Footer */}
-                  <div className="pt-3 border-t border-slate-900/6 dark:border-white/8 flex items-center justify-between gap-2 text-xs tabular-nums">
-                    {g.totalCodeCount > 0 ? (
-                      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                        <span className="font-bold text-emerald-600 dark:text-[#10E89A]">
-                          {g.activeCodeCount} Active
-                        </span>
-                        {g.pendingCodeCount > 0 && (
-                          <>
-                            <span className="text-slate-400" aria-hidden="true">
-                              ·
+                        <div className="min-w-0 flex-1">
+                          <h2 className="font-display text-base font-bold text-slate-950 dark:text-white group-hover:text-emerald-600 dark:group-hover:text-[#10E89A] transition-colors truncate">
+                            {displayName}
+                          </h2>
+                          <p className="text-xs text-slate-500 dark:text-[#8BA3B2] truncate">
+                            {g.creatorName} · {g.genre}
+                          </p>
+                          <p className="mt-1 text-xs text-slate-500 dark:text-[#6F8796] inline-flex items-center gap-1 tabular-nums">
+                            <Users className="w-3 h-3" />
+                            <span>
+                              {formatCompactNumber(g.currentCcu)} playing
                             </span>
-                            <span className="text-amber-600 dark:text-amber-400">
-                              {g.pendingCodeCount} Pending
-                            </span>
-                          </>
-                        )}
-                        {g.expiredCodeCount > 0 && (
-                          <>
-                            <span className="text-slate-400" aria-hidden="true">
-                              ·
-                            </span>
-                            <span className="text-slate-500 dark:text-[#7893A3]">
-                              {g.expiredCodeCount} Expired
-                            </span>
-                          </>
-                        )}
+                          </p>
+                        </div>
                       </div>
-                    ) : (
-                      <span className="text-slate-500 dark:text-[#7893A3]">
-                        {g.codeCoverageStatus === 'no_provider_data'
-                          ? 'No provider data yet'
-                          : 'Pending first check'}
-                      </span>
-                    )}
 
-                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-600 dark:text-[#9CB3C0] group-hover:text-emerald-600 dark:group-hover:text-[#10E89A] transition-colors shrink-0">
-                      {g.latestCodeUpdatedAt ? (
-                        <>
-                          <Clock className="w-3 h-3" />
-                          <span>{formatRelativeTime(g.latestCodeUpdatedAt)}</span>
-                        </>
-                      ) : (
-                        <>
-                          <span>View</span>
-                          <ArrowRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
-                        </>
+                      {/* Live Code Preview (Active or Search Match) */}
+                      {previewRows.length > 0 && (
+                        <div className="space-y-1.5 pt-1">
+                          {previewRows.map((row) => (
+                            <div
+                              key={row.id}
+                              className="px-3 py-1.5 rounded-xl bg-emerald-500/[0.07] dark:bg-[#10E89A]/[0.08] border border-emerald-500/20 flex items-center justify-between gap-2 text-xs"
+                            >
+                              <code className="font-mono font-bold text-slate-900 dark:text-white truncate">
+                                {row.code}
+                              </code>
+                              <span className="text-[11px] text-emerald-700 dark:text-[#10E89A] truncate max-w-[130px] shrink-0">
+                                {row.badge}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
                       )}
-                    </span>
-                  </div>
-                </LiquidGlassCard>
-              </Link>
-            ))}
+
+                      {/* Honest Code Coverage & Counts Footer */}
+                      <div className="pt-3 border-t border-slate-900/6 dark:border-white/8 flex items-center justify-between gap-2 text-xs tabular-nums">
+                        {g.totalCodeCount > 0 ? (
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                            <span className="font-bold text-emerald-600 dark:text-[#10E89A]">
+                              {g.activeCodeCount} Active
+                            </span>
+                            {g.expiredCodeCount > 0 && (
+                              <>
+                                <span
+                                  className="text-slate-400"
+                                  aria-hidden="true"
+                                >
+                                  ·
+                                </span>
+                                <span className="text-slate-500 dark:text-[#7893A3]">
+                                  {g.expiredCodeCount} Expired
+                                </span>
+                              </>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-slate-500 dark:text-[#7893A3]">
+                            {g.codeCoverageStatus === 'no_provider_data'
+                              ? 'Monitoring sources'
+                              : 'Queued for auto-scan'}
+                          </span>
+                        )}
+
+                        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-600 dark:text-[#9CB3C0] group-hover:text-emerald-600 dark:group-hover:text-[#10E89A] transition-colors shrink-0">
+                          {g.latestCodeUpdatedAt ? (
+                            <>
+                              <Clock className="w-3 h-3" />
+                              <span>
+                                {formatRelativeTime(g.latestCodeUpdatedAt)}
+                              </span>
+                            </>
+                          ) : (
+                            <>
+                              <span>View</span>
+                              <ArrowRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
+                            </>
+                          )}
+                        </span>
+                      </div>
+                    </LiquidGlassCard>
+                  </Link>
+                );
+              })}
+            </div>
+
+            {/* Full Directory Pagination */}
+            {pagination.totalPages > 1 && (
+              <div className="flex flex-wrap items-center justify-between gap-4 pt-2">
+                <p className="text-xs text-slate-500 dark:text-[#7893A3] tabular-nums">
+                  Page {pagination.page} of {pagination.totalPages} (
+                  {formatExactNumber(pagination.totalMatchedGames)} total games)
+                </p>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={!pagination.hasPrevPage}
+                    onClick={() => handlePageChange(pagination.page - 1)}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-semibold liquid-glass-pill text-slate-800 dark:text-[#F1F7FA] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer hover:border-emerald-500/45 transition-colors"
+                  >
+                    <ChevronLeft className="w-3.5 h-3.5" />
+                    <span>Previous</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={!pagination.hasNextPage}
+                    onClick={() => handlePageChange(pagination.page + 1)}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-semibold bg-emerald-600 dark:bg-[#10E89A] text-white dark:text-[#04130D] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer hover:opacity-90 transition-opacity"
+                  >
+                    <span>Next</span>
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </FadeInSection>
-
-      <SubmitCodeModal
-        open={submitOpen}
-        onClose={() => setSubmitOpen(false)}
-        onSubmitted={() => void fetchFiltered(debouncedQuery, statusFilter, sortBy)}
-      />
     </div>
   );
 }

@@ -5,6 +5,7 @@ import {
   discoverLiveRobloxCharts,
   fetchLiveRobloxGames,
 } from './roblox-api';
+import { fetchR2WarmHistory } from './r2-history';
 import type {
   CollectionJob,
   GamePeakRecord,
@@ -401,24 +402,8 @@ const GAMES_LIST_SELECT_COLUMNS =
   'universe_id,root_place_id,name,slug,creator_id,creator_name,creator_type,creator_verified,genre,icon_url,thumbnail_url,current_ccu,total_visits,favorites,up_votes,down_votes,like_ratio,growth_1h,growth_24h,growth_7d,growth_30d,peak_ccu_observed,peak_ccu_at,tracking_tier,active,data_source_id,collection_status,first_observed_at,last_collected_at,roblox_updated_at,updated_at';
 
 export async function fetchSupabaseGamesList(): Promise<GameRecordData[]> {
-  const base = `games?select=${GAMES_LIST_SELECT_COLUMNS}&active=eq.true&order=current_ccu.desc&limit=1000`;
-  const [page1Res, page2Res, page3Res] = await Promise.all([
-    supabaseRest(`${base}&offset=0`),
-    supabaseRest(`${base}&offset=1000`),
-    supabaseRest(`${base}&offset=2000`),
-  ]);
-  if (!page1Res.ok) {
-    throw new Error(`Supabase games query failed (HTTP ${page1Res.status})`);
-  }
-  const page1Rows = (await page1Res.json()) as SupabaseGameRow[];
-  const page2Rows = page2Res.ok
-    ? ((await page2Res.json()) as SupabaseGameRow[])
-    : [];
-  const page3Rows = page3Res.ok
-    ? ((await page3Res.json()) as SupabaseGameRow[])
-    : [];
-
-  const rows = [...page1Rows, ...page2Rows, ...page3Rows];
+  const base = `games?select=${GAMES_LIST_SELECT_COLUMNS}&active=eq.true&order=current_ccu.desc`;
+  const rows = await fetchPaginatedRows<SupabaseGameRow>(base, 25, 1000);
   return rows.map((row) => mapSupabaseRowToGame(row));
 }
 
@@ -526,28 +511,63 @@ export async function fetchSupabaseGameHistory(
   }
 
   if (range === '7d') {
-    const hourlyRes = await supabaseRest(
-      `game_hourly_stats?select=*&universe_id=eq.${idEnc}${
-        cutoffIso ? `&hour_bucket=gte.${encodeURIComponent(cutoffIso)}` : ''
-      }&order=hour_bucket.asc&limit=250`
-    );
+    const [hourlyRes, r2Points] = await Promise.all([
+      supabaseRest(
+        `game_hourly_stats?select=*&universe_id=eq.${idEnc}${
+          cutoffIso ? `&hour_bucket=gte.${encodeURIComponent(cutoffIso)}` : ''
+        }&order=hour_bucket.asc&limit=250`
+      ),
+      fetchR2WarmHistory(universeId, '7d'),
+    ]);
     const hourlyRows: SupabaseHourlyRow[] = hourlyRes.ok
       ? ((await hourlyRes.json()) as SupabaseHourlyRow[])
       : [];
 
-    if (hourlyRows.length >= 3) {
+    const mergedByHour = new Map<
+      number,
+      {
+        timestamp: string;
+        timestampMs: number;
+        ccu: number;
+        minCcu?: number;
+        maxCcu?: number;
+        visits: number;
+        favorites: number;
+        sourceTable: 'game_snapshots' | 'game_hourly_stats' | 'game_daily_stats';
+      }
+    >();
+
+    // Tier 2 (Warm R2) fills older hours up to 7d
+    if (r2Points) {
+      for (const p of r2Points) {
+        const hourKey = Math.floor(p.timestampMs / 3_600_000) * 3_600_000;
+        mergedByHour.set(hourKey, p);
+      }
+    }
+    // Tier 1 (Hot Supabase) overrides with freshest live hourly stats
+    for (const h of hourlyRows) {
+      const tsMs = new Date(h.hour_bucket).getTime();
+      const hourKey = Math.floor(tsMs / 3_600_000) * 3_600_000;
+      mergedByHour.set(hourKey, {
+        timestamp: h.hour_bucket,
+        timestampMs: tsMs,
+        ccu: Math.round(Number(h.avg_ccu)),
+        minCcu: Number(h.min_ccu),
+        maxCcu: Number(h.max_ccu),
+        visits: Number(h.latest_visits),
+        favorites: Number(h.latest_favorites),
+        sourceTable: 'game_hourly_stats',
+      });
+    }
+
+    const mergedHourly = Array.from(mergedByHour.values()).sort(
+      (a, b) => a.timestampMs - b.timestampMs
+    );
+
+    if (mergedHourly.length >= 3) {
       return {
         peakRecord,
-        points: hourlyRows.map((h) => ({
-          timestamp: h.hour_bucket,
-          timestampMs: new Date(h.hour_bucket).getTime(),
-          ccu: Math.round(Number(h.avg_ccu)),
-          minCcu: Number(h.min_ccu),
-          maxCcu: Number(h.max_ccu),
-          visits: Number(h.latest_visits),
-          favorites: Number(h.latest_favorites),
-          sourceTable: 'game_hourly_stats',
-        })),
+        points: mergedHourly,
       };
     }
 
@@ -564,30 +584,64 @@ export async function fetchSupabaseGameHistory(
     };
   }
 
-  const dailyRes = await supabaseRest(
-    `game_daily_stats?select=*&universe_id=eq.${idEnc}${
-      cutoffIso
-        ? `&day_bucket=gte.${encodeURIComponent(cutoffIso.slice(0, 10))}`
-        : ''
-    }&order=day_bucket.asc&limit=365`
-  );
+  const [dailyRes, r2DailyPoints] = await Promise.all([
+    supabaseRest(
+      `game_daily_stats?select=*&universe_id=eq.${idEnc}${
+        cutoffIso
+          ? `&day_bucket=gte.${encodeURIComponent(cutoffIso.slice(0, 10))}`
+          : ''
+      }&order=day_bucket.asc&limit=365`
+    ),
+    fetchR2WarmHistory(universeId, range),
+  ]);
   const dailyRows: SupabaseDailyRow[] = dailyRes.ok
     ? ((await dailyRes.json()) as SupabaseDailyRow[])
     : [];
 
-  if (dailyRows.length >= 2) {
+  const mergedByDay = new Map<
+    string,
+    {
+      timestamp: string;
+      timestampMs: number;
+      ccu: number;
+      minCcu?: number;
+      maxCcu?: number;
+      visits: number;
+      favorites: number;
+      sourceTable: 'game_snapshots' | 'game_hourly_stats' | 'game_daily_stats';
+    }
+  >();
+
+  // Tier 2 (Warm R2) provides multi-year daily history at $0 egress
+  if (r2DailyPoints) {
+    for (const p of r2DailyPoints) {
+      const dayKey = p.timestamp.slice(0, 10);
+      mergedByDay.set(dayKey, p);
+    }
+  }
+  // Tier 1 (Hot Supabase) overrides the last 90 days with freshest daily stats
+  for (const d of dailyRows) {
+    const dayKey = String(d.day_bucket).slice(0, 10);
+    mergedByDay.set(dayKey, {
+      timestamp: `${dayKey}T00:00:00Z`,
+      timestampMs: new Date(`${dayKey}T00:00:00Z`).getTime(),
+      ccu: Math.round(Number(d.avg_ccu)),
+      minCcu: Number(d.min_ccu),
+      maxCcu: Number(d.max_ccu),
+      visits: Number(d.visits_end),
+      favorites: Number(d.favorites_end),
+      sourceTable: 'game_daily_stats',
+    });
+  }
+
+  const mergedDaily = Array.from(mergedByDay.values()).sort(
+    (a, b) => a.timestampMs - b.timestampMs
+  );
+
+  if (mergedDaily.length >= 2) {
     return {
       peakRecord,
-      points: dailyRows.map((d) => ({
-        timestamp: `${d.day_bucket}T00:00:00Z`,
-        timestampMs: new Date(`${d.day_bucket}T00:00:00Z`).getTime(),
-        ccu: Math.round(Number(d.avg_ccu)),
-        minCcu: Number(d.min_ccu),
-        maxCcu: Number(d.max_ccu),
-        visits: Number(d.visits_end),
-        favorites: Number(d.favorites_end),
-        sourceTable: 'game_daily_stats',
-      })),
+      points: mergedDaily,
     };
   }
 
@@ -665,7 +719,7 @@ export async function fetchSupabasePlatformHistory(
   const activeGameRows = await fetchPaginatedRows<{
     universe_id: number;
     current_ccu: number;
-  }>('games?select=universe_id,current_ccu&active=eq.true&order=current_ccu.desc', 4, 1000);
+  }>('games?select=universe_id,current_ccu&active=eq.true&order=current_ccu.desc', 25, 1000);
 
   const trackedGames = activeGameRows.length;
   const liveTotalCcu = activeGameRows.reduce(

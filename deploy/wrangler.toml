@@ -2,13 +2,40 @@ name = "rometric-collector"
 main = "cloudflare-collector-worker.ts"
 compatibility_date = "2026-01-01"
 
-# Cloudflare Workers Free allows up to 3 Cron Triggers per Worker:
-# 1) Every 5 minutes  -> Top 100 Tier 1 + 550 stalest games (>25m old) = 3,300 games / 30 min (~17 subrequests)
-# 2) Offset 15 minutes (:07, :22, :37, :52) -> Safety sweep of 750 games without colliding with the 5m pulse
-# 3) Daily 03:00 UTC  -> Roll up raw -> hourly -> daily & prune expired rows (30h raw / 7d hourly / 365d daily)
+# Cloudflare Workers Free allows up to 3 Cron Triggers per Worker
+# (50 subrequests/run, 10ms active CPU/run, 100,000 requests/day):
+#
+# 1) Every 1 minute  (`* * * * *`, 1,440 runs/day):
+#      Adaptive CCU pulse for up to 900 stalest active games (>35 min old).
+#      Uses 18 Roblox v1/games calls (50 IDs/call, 2-wide waves, header-governed
+#      zero-429 brake) + ~5 Supabase calls = ~23/50 subrequests, ~4-6ms CPU.
+#      Scales automatically up to 27,000 games / 30 min (54,000 / 60 min) and
+#      exits in 1 subrequest (<1ms CPU) when all games are already fresh.
+#      Bonus: Passively extracts newly announced promo codes from the game
+#      descriptions already returned by v1/games for ZERO extra Roblox calls.
+#
+# 2) Every 15 minutes (`*/15 * * * *`, 96 runs/day):
+#      - Fast 25+ CCU Breakout Catcher scanning Roblox Explore Trending /
+#        Up-and-Coming / Top Playing sorts + passive description code extraction.
+#      - Tier 2 Warm History Sync: updates 2 of 64 deterministic R2 shards per tick
+#        (~5,760 Class A writes/month = <0.6% of R2's 1M free writes/month cap)
+#        storing 14 days of hourly + 5 years of daily history at $0 egress.
+#      - Every 6 hours (00:00, 06:00, 12:00, 18:00 UTC): runs Supabase
+#        `run_rometric_retention_rollup` so Tier 1 Hot storage stays compact.
+#
+# 3) Daily 03:00 UTC (`0 3 * * *`, 1 run/day):
+#      Deactivates long-dormant games (<15 CCU for 7+ days, peak <100) and
+#      executes `run_rometric_retention_rollup`.
 [triggers]
 crons = [
-  "*/5 * * * *",
-  "7,22,37,52 * * * *",
+  "* * * * *",
+  "*/15 * * * *",
   "0 3 * * *"
 ]
+
+# Tier 2 Warm History Storage (Cloudflare R2 Free: 10 GB, $0 Egress, 1M writes/mo)
+# One-time setup: `npx wrangler r2 bucket create rometric-history`
+[[r2_buckets]]
+binding = "HISTORY_BUCKET"
+bucket_name = "rometric-history"
+

@@ -31,7 +31,7 @@ import { GameArtwork } from '@/components/GameArtwork';
 import { GrowthValue } from '@/components/GameTable';
 import { LiquidGlassCard } from '@/components/MotionPrimitives';
 
-export const revalidate = 120;
+export const revalidate = 1800;
 
 export async function generateMetadata({
   params,

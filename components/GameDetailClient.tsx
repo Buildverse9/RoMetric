@@ -170,7 +170,7 @@ export function GameDetailClient({
     };
   }, [universeId, initialGame, initialTracked]);
 
-  // Subtle 60-second live CCU poll so RollingCcuNumber animates real-time player increases
+  // Subtle 5-minute live CCU poll to keep player counts fresh while saving Fluid CPU
   useEffect(() => {
     if (!universeId) return;
     let cancelled = false;
@@ -178,8 +178,7 @@ export function GameDetailClient({
       if (document.visibilityState !== 'visible') return;
       try {
         const res = await fetch(
-          `/api/roblox/fetch?ids=${encodeURIComponent(universeId)}`,
-          { cache: 'no-store' }
+          `/api/roblox/fetch?ids=${encodeURIComponent(universeId)}`
         );
         if (!res.ok) return;
         const data = (await res.json()) as RobloxFetchResponse;
@@ -199,7 +198,7 @@ export function GameDetailClient({
       } catch {
         // Ignore transient poll errors
       }
-    }, 60_000);
+    }, 300_000);
     return () => {
       cancelled = true;
       window.clearInterval(timer);

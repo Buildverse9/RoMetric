@@ -12,7 +12,7 @@ import { SITE_URL, safeJsonLd } from '@/lib/seo';
 import { GameArtwork } from '@/components/GameArtwork';
 import { LiquidGlassCard } from '@/components/MotionPrimitives';
 
-export const revalidate = 120;
+export const revalidate = 1800;
 
 export const metadata: Metadata = {
   title: 'Roblox Articles, Viral Stories & Deep Dives',

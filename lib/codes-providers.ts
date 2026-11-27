@@ -4,15 +4,17 @@ import type {
   ProviderFetchResult,
   ProviderGameTarget,
 } from './codes-types';
+import { cleanSeoGameName } from './seo';
 
 const USER_AGENT =
-  'RoMetricCodesBot/1.0 (+https://rometrics.vercel.app; legitimate public API consumer)';
+  'RoMetricCodesBot/2.0 (+https://rometrics.vercel.app; legitimate public API consumer)';
 
-// Curated verified MediaWiki (Fandom) subdomains for major Roblox experiences.
-// New games not in this map still attempt safe wiki discovery via MediaWiki API.
+// Curated verified MediaWiki (Fandom & Wiki.gg) subdomains for major & trending Roblox experiences.
+// New games not in this map still attempt safe wiki discovery via MediaWiki API + opensearch.
 const KNOWN_WIKI_SUBDOMAINS: Array<{
   keywords: string[];
   subdomain: string;
+  host?: 'fandom.com' | 'wiki.gg';
   pageTitles?: string[];
 }> = [
   { keywords: ['blox fruits'], subdomain: 'blox-fruits', pageTitles: ['Codes'] },
@@ -23,15 +25,22 @@ const KNOWN_WIKI_SUBDOMAINS: Array<{
   { keywords: ['dress to impress'], subdomain: 'dti-dress-to-impress', pageTitles: ['Codes'] },
   { keywords: ['anime defenders'], subdomain: 'animedefenders', pageTitles: ['Codes'] },
   { keywords: ['anime vanguards'], subdomain: 'animevanguards', pageTitles: ['Codes'] },
+  { keywords: ['anime last stand'], subdomain: 'animelaststand', pageTitles: ['Codes'] },
+  { keywords: ['anime reborn'], subdomain: 'animereborn', pageTitles: ['Codes'] },
+  { keywords: ['anime royale'], subdomain: 'animeroyale', pageTitles: ['Codes'] },
+  { keywords: ['anime rangers x', 'anime rangers'], subdomain: 'animerangersx', pageTitles: ['Codes'] },
+  { keywords: ['fisch'], subdomain: 'fisch', host: 'wiki.gg', pageTitles: ['Codes'] },
   { keywords: ['fisch'], subdomain: 'fisch', pageTitles: ['Codes'] },
   { keywords: ['beeswarm', 'bee swarm simulator'], subdomain: 'bee-swarm-simulator', pageTitles: ['Codes'] },
   { keywords: ['shindo life', 'shinobi life'], subdomain: 'shindo-life-rell', pageTitles: ['Codes'] },
   { keywords: ['king legacy'], subdomain: 'king-legacy', pageTitles: ['Codes'] },
   { keywords: ['all star tower defense'], subdomain: 'allstartowerdefense', pageTitles: ['Codes'] },
   { keywords: ['tower defense simulator'], subdomain: 'tds', pageTitles: ['Codes'] },
+  { keywords: ['tower defense x'], subdomain: 'tdx', pageTitles: ['Codes'] },
   { keywords: ['jailbreak'], subdomain: 'jailbreak', pageTitles: ['Codes'] },
   { keywords: ['murder mystery 2'], subdomain: 'murder-mystery-2', pageTitles: ['Codes'] },
   { keywords: ['toilet tower defense'], subdomain: 'toilet-tower-defense', pageTitles: ['Codes'] },
+  { keywords: ['five nights td'], subdomain: 'five-nights-td', pageTitles: ['Codes'] },
   { keywords: ['rivals'], subdomain: 'robloxrivals', pageTitles: ['Codes'] },
   { keywords: ['blue lock rivals', 'blue lock: rivals'], subdomain: 'bluelockrivals', pageTitles: ['Codes'] },
   { keywords: ['sol\'s rng', 'sols rng'], subdomain: 'sol-rng', pageTitles: ['Codes'] },
@@ -40,20 +49,60 @@ const KNOWN_WIKI_SUBDOMAINS: Array<{
   { keywords: ['your bizarre adventure'], subdomain: 'your-bizarre-adventure', pageTitles: ['Codes'] },
   { keywords: ['a universal time'], subdomain: 'a-universal-time-roblox', pageTitles: ['Codes'] },
   { keywords: ['driving empire'], subdomain: 'driving-empire', pageTitles: ['Codes'] },
+  { keywords: ['car dealership tycoon'], subdomain: 'car-dealership-tycoon', pageTitles: ['Codes'] },
   { keywords: ['da hood'], subdomain: 'dahood', pageTitles: ['Codes'] },
   { keywords: ['slap battles'], subdomain: 'roblox-slap-battles', pageTitles: ['Codes'] },
   { keywords: ['doors'], subdomain: 'doors-game', pageTitles: ['Codes'] },
+  { keywords: ['pressure'], subdomain: 'urbanshade', host: 'wiki.gg', pageTitles: ['Codes'] },
   { keywords: ['peroxide'], subdomain: 'peroxide', pageTitles: ['Codes'] },
   { keywords: ['type soul', 'type://soul'], subdomain: 'typesoul', pageTitles: ['Codes'] },
   { keywords: ['jujutsu shenanigans'], subdomain: 'jujutsu-shenanigans', pageTitles: ['Codes'] },
+  { keywords: ['jujutsu infinite'], subdomain: 'jujutsu-infinite', pageTitles: ['Codes'] },
+  { keywords: ['the strongest battlegrounds'], subdomain: 'the-strongest-battlegrounds-rblx', pageTitles: ['Codes'] },
+  { keywords: ['heroes battlegrounds'], subdomain: 'heroes-battlegrounds', pageTitles: ['Codes'] },
+  { keywords: ['untitled boxing game'], subdomain: 'untitled-boxing-game', pageTitles: ['Codes'] },
   { keywords: ['anime adventures'], subdomain: 'animeadventures', pageTitles: ['Codes'] },
   { keywords: ['grow a garden'], subdomain: 'growagarden', pageTitles: ['Codes'] },
   { keywords: ['dead rails'], subdomain: 'dead-rails', pageTitles: ['Codes'] },
   { keywords: ['basketball zero'], subdomain: 'basketball-zero', pageTitles: ['Codes'] },
+  { keywords: ['volleyball legends', 'haikyuu legends'], subdomain: 'volleyball-legends', pageTitles: ['Codes'] },
   { keywords: ['arise crossover'], subdomain: 'arise-crossover', pageTitles: ['Codes'] },
   { keywords: ['sponge bob tower defense', 'spongebob tower defense'], subdomain: 'spongebob-tower-defense', pageTitles: ['Codes'] },
   { keywords: ['bubble gum simulator infinity'], subdomain: 'bgsi', pageTitles: ['Codes'] },
   { keywords: ['dandy\'s world', 'dandys world'], subdomain: 'dandys-world-robloxhorror', pageTitles: ['Codes'] },
+  { keywords: ['attack on titan revolution'], subdomain: 'aotrevolution', pageTitles: ['Codes'] },
+  { keywords: ['bedwars'], subdomain: 'robloxbedwars', pageTitles: ['Codes'] },
+  { keywords: ['arsenal'], subdomain: 'roblox-arsenal', pageTitles: ['Codes'] },
+  { keywords: ['build a boat'], subdomain: 'build-a-boat-for-treasure', pageTitles: ['Codes'] },
+  { keywords: ['loomian legacy'], subdomain: 'loomian-legacy', pageTitles: ['Codes'] },
+  { keywords: ['doodle world'], subdomain: 'doodle-world', pageTitles: ['Codes'] },
+  { keywords: ['creatures of sonaria'], subdomain: 'creatures-of-sonaria-official', pageTitles: ['Codes'] },
+  { keywords: ['dragon adventures'], subdomain: 'dragon-adventures', pageTitles: ['Codes'] },
+  { keywords: ['regretevator'], subdomain: 'regretevator', pageTitles: ['Codes'] },
+  { keywords: ['forsaken'], subdomain: 'forsaken2024', pageTitles: ['Codes'] },
+  { keywords: ['99 nights in the forest'], subdomain: '99-nights-in-the-forest', pageTitles: ['Codes'] },
+  { keywords: ['steal an egg'], subdomain: 'steal-an-egg', pageTitles: ['Codes'] },
+  { keywords: ['steal a brainrot'], subdomain: 'steal-a-brainrot', pageTitles: ['Codes'] },
+  { keywords: ['grow and build giants'], subdomain: 'grow-and-build-giants', pageTitles: ['Codes'] },
+  { keywords: ['project slayers'], subdomain: 'project-slayers', pageTitles: ['Codes'] },
+  { keywords: ['demonfall'], subdomain: 'demonfall', pageTitles: ['Codes'] },
+  { keywords: ['deepwoken'], subdomain: 'deepwoken', pageTitles: ['Codes'] },
+  { keywords: ['guts & blackpowder', 'guts and blackpowder'], subdomain: 'gbp', pageTitles: ['Codes'] },
+  { keywords: ['restaurant tycoon'], subdomain: 'restaurant-tycoon-2', pageTitles: ['Codes'] },
+  { keywords: ['muscle legends'], subdomain: 'muscle-legends', pageTitles: ['Codes'] },
+  { keywords: ['ninja legends'], subdomain: 'ninja-legends', pageTitles: ['Codes'] },
+  { keywords: ['legends of speed'], subdomain: 'legends-of-speed', pageTitles: ['Codes'] },
+  { keywords: ['strongman simulator'], subdomain: 'strongman-simulator', pageTitles: ['Codes'] },
+  { keywords: ['arm wrestle simulator'], subdomain: 'arm-wrestle-simulator', pageTitles: ['Codes'] },
+  { keywords: ['anime fighters'], subdomain: 'anime-fighters-simulator', pageTitles: ['Codes'] },
+  { keywords: ['anime champions'], subdomain: 'anime-champions-simulator', pageTitles: ['Codes'] },
+  { keywords: ['combat warriors'], subdomain: 'combat-warriors', pageTitles: ['Codes'] },
+  { keywords: ['phantom forces'], subdomain: 'roblox-phantom-forces', pageTitles: ['Codes'] },
+  { keywords: ['bad business'], subdomain: 'bad-business', pageTitles: ['Codes'] },
+  { keywords: ['my hero mania'], subdomain: 'my-hero-mania', pageTitles: ['Codes'] },
+  { keywords: ['haze piece'], subdomain: 'haze-piece', pageTitles: ['Codes'] },
+  { keywords: ['bloxburg'], subdomain: 'welcome-to-bloxburg', pageTitles: ['Codes'] },
+  { keywords: ['royale high'], subdomain: 'royale-high', pageTitles: ['Codes'] },
 ];
 
 // Simple short-lived server cache to avoid unnecessary repeated external API calls
@@ -265,16 +314,92 @@ export function extractCodesFromOfficialText(
   const lines = text.split(/\r?\n/);
 
   const explicitPatterns: RegExp[] = [
-    /(?:use|redeem|new|latest|active|free|milestone)?\s*code\s*[:=]\s*["'`]?([A-Za-z0-9_!@#$%&*+?-]{3,36})["'`]?(?:\s*(?:[-–—:|(]\s*([^\n]{3,90})))?/gi,
+    /(?:use|redeem|new|latest|active|free|milestone|current|promo)?\s*codes?\s*[:=\-–—]\s*["'`*]?([A-Za-z0-9_!@#$%&*+?-]{3,36})["'`*]?(?:\s*(?:[-–—:|(]\s*([^\n]{3,90})))?/gi,
     /(?:use|redeem)\s+code\s+["'`]([A-Za-z0-9_!@#$%&*+?-]{3,36})["'`](?:\s*(?:for|to get|[-–—:])\s*([^\n]{3,90}))?/gi,
     /(?:use|redeem)\s+code\s+([A-Z0-9_!]{4,30})(?:\s+(?:for|to get)\s+([^\n.!]{3,80}))?/g,
   ];
 
+  // Also detect comma-separated code lists like "Codes: RELEASE, 50KLIKES, UPD2"
+  const multiListRegex = /(?:active|working|new|free|current)?\s*codes\s*[:=]\s*([^\n]{6,220})/gi;
+  let inCodesSection = false;
+
   for (const rawLine of lines) {
     const line = rawLine.trim();
-    if (!line || line.length > 320) continue;
-    // Skip milestone tease lines like "New code at 100k likes!"
-    if (/new\s+code\s+at\s+\d/i.test(line) && !/[:="']/.test(line)) continue;
+    if (!line || line.length > 340) {
+      if (!line) inCodesSection = false;
+      continue;
+    }
+
+    if (/^(?:🎁|🔥|✨|⭐|👍|💎|🎉|\W)*\s*(?:active|working|new|latest|free)?\s*codes\s*[:!]?\s*$/i.test(line)) {
+      inCodesSection = true;
+      continue;
+    }
+
+    // Skip milestone tease lines like "New code at 100k likes!" unless a code is explicitly given after : or quotes
+    if (/new\s+code\s+at\s+\d/i.test(line) && !/[:="'`]/.test(line)) continue;
+
+    // If inside a dedicated "Codes:" bullet block, pick up bulleted tokens like "- RELEASE (Free Cash)"
+    if (inCodesSection) {
+      const bulletCodeMatch = line.match(
+        /^(?:[-•*🔹🔸✅🎁⭐]+|\d+[.)])\s*["'`]?([A-Za-z0-9_!@#$%&*+?-]{3,32})["'`]?(?:\s*(?:[-–—:|(]\s*([^\n]{2,90})))?$/
+      );
+      if (bulletCodeMatch) {
+        const candidate = (bulletCodeMatch[1] || '').replace(/[.,;!?)]+$/, '').trim();
+        if (isValidPromoCodeFormat(candidate) && /[A-Z0-9]/.test(candidate)) {
+          const norm = normalizePromoCode(candidate);
+          if (!found.has(norm)) {
+            const isMarkedExpired = /\b(expired|old|inactive|no longer)\b/i.test(line);
+            found.set(norm, {
+              code: candidate,
+              rewardDescription: bulletCodeMatch[2]
+                ? sanitizePlainText(bulletCodeMatch[2].replace(/\)+$/, ''), 140)
+                : null,
+              status: isMarkedExpired ? 'expired' : 'active',
+              sourceReportedStatus: isMarkedExpired
+                ? 'expired_in_official_text'
+                : 'announced_in_official_text',
+              sourceUrl,
+              expiresAt: null,
+            });
+          }
+        }
+      }
+    }
+
+    // Comma-separated multi-code lines: "Codes: RELEASE, 10KLIKES, FREESPIN"
+    multiListRegex.lastIndex = 0;
+    let listMatch: RegExpExecArray | null;
+    while ((listMatch = multiListRegex.exec(line)) !== null) {
+      const segment = listMatch[1] || '';
+      if (segment.includes(',') || segment.includes('/')) {
+        const parts = segment.split(/[,/]+/);
+        for (const part of parts) {
+          const token = part.trim().replace(/^["'`*]+|["'`*.,;!?)]+$/g, '');
+          if (
+            token.length >= 3 &&
+            token.length <= 32 &&
+            !token.includes(' ') &&
+            isValidPromoCodeFormat(token) &&
+            /[A-Z0-9]/.test(token)
+          ) {
+            const norm = normalizePromoCode(token);
+            if (!found.has(norm)) {
+              const isMarkedExpired = /\b(expired|old|inactive)\b/i.test(line);
+              found.set(norm, {
+                code: token,
+                rewardDescription: null,
+                status: isMarkedExpired ? 'expired' : 'active',
+                sourceReportedStatus: isMarkedExpired
+                  ? 'expired_in_official_text'
+                  : 'announced_in_official_text',
+                sourceUrl,
+                expiresAt: null,
+              });
+            }
+          }
+        }
+      }
+    }
 
     for (const regex of explicitPatterns) {
       regex.lastIndex = 0;
@@ -308,7 +433,120 @@ export function extractCodesFromOfficialText(
     }
   }
 
-  return Array.from(found.values()).slice(0, 20);
+  return Array.from(found.values()).slice(0, 30);
+}
+
+/**
+ * Extracts official public Trello board IDs linked inside Roblox game/group descriptions
+ * (strictly allowlisted to trello.com/b/{id} to prevent SSRF).
+ */
+export function extractTrelloBoardIds(text: string | null | undefined): string[] {
+  if (!text) return [];
+  const matches = text.matchAll(/https?:\/\/(?:www\.)?trello\.com\/b\/([A-Za-z0-9]{6,24})/gi);
+  const out = new Set<string>();
+  for (const m of matches) {
+    if (m[1]) out.add(m[1]);
+  }
+  return Array.from(out).slice(0, 2);
+}
+
+interface TrelloBoardJson {
+  name?: string;
+  url?: string;
+  lists?: Array<{ id: string; name: string; closed?: boolean }>;
+  cards?: Array<{ id: string; idList: string; name: string; desc?: string; closed?: boolean }>;
+}
+
+async function fetchCodesFromOfficialTrelloBoard(
+  boardId: string
+): Promise<{ codes: ProviderDiscoveredCode[]; apiRequests: number; http429Count: number }> {
+  if (!/^[A-Za-z0-9]{6,24}$/.test(boardId)) {
+    return { codes: [], apiRequests: 0, http429Count: 0 };
+  }
+  const boardUrl = `https://trello.com/b/${boardId}`;
+  const res = await fetchJsonWithBackoff<TrelloBoardJson>(`${boardUrl}.json`, {
+    timeoutMs: 5_000,
+    maxRetries: 1,
+  });
+  const data = res.data;
+  if (!data || !Array.isArray(data.lists) || !Array.isArray(data.cards)) {
+    return { codes: [], apiRequests: res.apiRequests, http429Count: res.http429Count };
+  }
+
+  const listStatusById = new Map<string, 'active' | 'expired'>();
+  for (const list of data.lists) {
+    if (list.closed || !list.name) continue;
+    const lower = list.name.toLowerCase();
+    if (!/\bcode(s)?\b/.test(lower)) continue;
+    if (/\b(expired|old|inactive|disabled|removed)\b/.test(lower)) {
+      listStatusById.set(list.id, 'expired');
+    } else {
+      listStatusById.set(list.id, 'active');
+    }
+  }
+
+  if (listStatusById.size === 0) {
+    return { codes: [], apiRequests: res.apiRequests, http429Count: res.http429Count };
+  }
+
+  const found = new Map<string, ProviderDiscoveredCode>();
+  for (const card of data.cards) {
+    if (card.closed || !listStatusById.has(card.idList)) continue;
+    const listStatus = listStatusById.get(card.idList) || 'active';
+    const rawName = (card.name || '').trim();
+    if (!rawName) continue;
+
+    // Cards can be formatted as "CODE123 - 2x EXP" or just "CODE123" with reward in card.desc
+    const splitMatch = rawName.match(
+      /^["'`]?([A-Za-z0-9_!@#$%&*+?-]{3,36})["'`]?(?:\s*[-–—:|(]\s*(.+))?$/
+    );
+    const candidate = splitMatch?.[1]?.replace(/[.,;!?)]+$/, '').trim() || '';
+    if (candidate && isValidPromoCodeFormat(candidate)) {
+      const norm = normalizePromoCode(candidate);
+      if (!found.has(norm)) {
+        const inlineReward = splitMatch?.[2]
+          ? sanitizePlainText(splitMatch[2].replace(/\)+$/, ''), 160)
+          : null;
+        const descReward = !inlineReward && card.desc
+          ? sanitizePlainText(card.desc.split(/\r?\n/)[0], 160)
+          : null;
+        const isExpired =
+          listStatus === 'expired' || /\b(expired|inactive|invalid)\b/i.test(rawName);
+        found.set(norm, {
+          code: candidate,
+          rewardDescription: inlineReward || descReward,
+          status: isExpired ? 'expired' : 'active',
+          sourceReportedStatus: isExpired ? 'trello_expired' : 'trello_active',
+          sourceUrl: validatePublicHttpsUrl(data.url) || boardUrl,
+          expiresAt: null,
+        });
+      }
+    }
+
+    // Also scan card descriptions in case a single "Active Codes" card lists multiple codes
+    if (card.desc) {
+      for (const extracted of extractCodesFromOfficialText(
+        card.desc,
+        validatePublicHttpsUrl(data.url) || boardUrl
+      )) {
+        const norm = normalizePromoCode(extracted.code);
+        if (!found.has(norm)) {
+          found.set(norm, {
+            ...extracted,
+            status: listStatus === 'expired' ? 'expired' : extracted.status,
+            sourceReportedStatus:
+              listStatus === 'expired' ? 'trello_expired' : 'trello_active',
+          });
+        }
+      }
+    }
+  }
+
+  return {
+    codes: Array.from(found.values()).slice(0, 60),
+    apiRequests: res.apiRequests,
+    http429Count: res.http429Count,
+  };
 }
 
 /**
@@ -444,10 +682,56 @@ export function parseMediaWikiCodesWikitext(
       }
     }
 
+    // Template row parsing: {{Code|CODE123|Reward|Active}} or {{CodeRow|code=...|reward=...}}
+    const tplMatch = line.match(
+      /^\{\{\s*(?:Code|CodesRow|CodeRow|PromoCode|CodeTableRow)\s*\|([^}]+)\}\}/i
+    );
+    if (tplMatch) {
+      const parts = tplMatch[1].split('|').map((p) => p.trim());
+      let rawCode = '';
+      let rawReward: string | null = null;
+      let rawStatus = '';
+      for (const p of parts) {
+        const eqIdx = p.indexOf('=');
+        if (eqIdx !== -1) {
+          const k = p.slice(0, eqIdx).trim().toLowerCase();
+          const v = p.slice(eqIdx + 1).trim();
+          if (k === 'code' || k === '1' || k === 'name') rawCode = v;
+          else if (k === 'reward' || k === 'rewards' || k === '2' || k === 'effect') rawReward = v;
+          else if (k === 'status' || k === '3' || k === 'state') rawStatus = v;
+        } else if (!rawCode) {
+          rawCode = p;
+        } else if (!rawReward) {
+          rawReward = p;
+        } else if (!rawStatus) {
+          rawStatus = p;
+        }
+      }
+      const cleanToken = sanitizePlainText(rawCode, 48)?.split(/\s+/)[0] || '';
+      if (cleanToken && isValidPromoCodeFormat(cleanToken)) {
+        const norm = normalizePromoCode(cleanToken);
+        if (!results.has(norm)) {
+          let status: 'active' | 'expired' =
+            sectionState === 'expired' ? 'expired' : 'active';
+          if (/\b(expired|inactive|invalid|no)\b/i.test(rawStatus)) status = 'expired';
+          else if (/\b(active|working|valid|yes)\b/i.test(rawStatus)) status = 'active';
+          results.set(norm, {
+            code: cleanToken,
+            rewardDescription: sanitizePlainText(rawReward, 180),
+            status,
+            sourceReportedStatus: status === 'active' ? 'wiki_active' : 'wiki_expired',
+            sourceUrl: wikiPageUrl,
+            expiresAt: null,
+          });
+        }
+      }
+      continue;
+    }
+
     // Bulleted list parsing: * '''CODE123''' - 2x XP for 20 minutes
     if (line.startsWith('*')) {
       const bulletMatch = line.match(
-        /^\*+\s*(?:'''|<code>|<b>)?([A-Za-z0-9_!@#$%&*+?-]{3,36})(?:'''|<\/code>|<\/b>)?\s*(?:[-–—:]\s*(.+))?$/i
+        /^\*+\s*(?:'''|<code>|<b>|`|\*\*|")?([A-Za-z0-9_!@#$%&*+?-]{3,36})(?:'''|<\/code>|<\/b>|`|\*\*|")?\s*(?:[-–—:]\s*(.+))?$/i
       );
       if (bulletMatch) {
         const codeToken = bulletMatch[1].trim();
@@ -477,43 +761,81 @@ export function parseMediaWikiCodesWikitext(
   }
 
   flushTableRow();
-  return Array.from(results.values()).slice(0, 60);
+  return Array.from(results.values()).slice(0, 100);
 }
 
-function resolveWikiCandidateSubdomains(target: ProviderGameTarget): string[] {
-  const candidates: string[] = [];
+interface WikiCandidateTarget {
+  subdomain: string;
+  host: 'fandom.com' | 'wiki.gg';
+  pageTitles: string[];
+}
+
+function resolveWikiCandidateTargets(target: ProviderGameTarget): WikiCandidateTarget[] {
+  const candidates: WikiCandidateTarget[] = [];
+  const seen = new Set<string>();
+  const pushCandidate = (
+    subdomain: string,
+    host: 'fandom.com' | 'wiki.gg' = 'fandom.com',
+    pageTitles: string[] = ['Codes', 'Promo_Codes']
+  ) => {
+    const cleanSub = subdomain.toLowerCase().trim();
+    if (!/^[a-z0-9-]{2,48}$/.test(cleanSub)) return;
+    const key = `${host}:${cleanSub}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    candidates.push({ subdomain: cleanSub, host, pageTitles });
+  };
+
   if (target.wikiSubdomain) {
-    candidates.push(target.wikiSubdomain);
+    pushCandidate(target.wikiSubdomain, 'fandom.com');
   }
-  const lowerName = target.name.toLowerCase();
+
+  const cleanName = cleanSeoGameName(target.name);
+  const lowerClean = cleanName.toLowerCase();
+  const lowerRaw = target.name.toLowerCase();
+
   for (const entry of KNOWN_WIKI_SUBDOMAINS) {
-    if (entry.keywords.some((kw) => lowerName.includes(kw))) {
-      if (!candidates.includes(entry.subdomain)) {
-        candidates.push(entry.subdomain);
-      }
+    if (
+      entry.keywords.some(
+        (kw) => lowerClean.includes(kw) || lowerRaw.includes(kw)
+      )
+    ) {
+      pushCandidate(
+        entry.subdomain,
+        entry.host || 'fandom.com',
+        entry.pageTitles || ['Codes']
+      );
     }
   }
-  // Safe slug candidate (only clean alphanumeric hyphenated slug)
-  const cleanSlug = target.name
+
+  // Generate clean hyphenated & compacted wiki slug candidates from cleaned game name
+  const cleanSlug = cleanName
     .toLowerCase()
-    .replace(/\[[^\]]*\]|\([^)]*\)/g, ' ')
+    .replace(/['’]/g, '')
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
-    .slice(0, 40);
+    .slice(0, 42);
+  const compactSlug = cleanSlug.replace(/-/g, '');
 
-  if (cleanSlug.length >= 4 && !candidates.includes(cleanSlug)) {
-    candidates.push(cleanSlug);
+  if (cleanSlug.length >= 4) {
+    pushCandidate(cleanSlug, 'fandom.com');
+    pushCandidate(cleanSlug, 'wiki.gg', ['Codes']);
   }
-  return candidates.slice(0, 2);
+  if (compactSlug.length >= 4 && compactSlug !== cleanSlug) {
+    pushCandidate(compactSlug, 'fandom.com', ['Codes']);
+  }
+
+  return candidates.slice(0, 4);
 }
 
 /**
- * Provider 1: Official Roblox Public Signals
- * Reads developer-written game descriptions & public group shouts.
+ * Provider 1: Official Roblox Public Signals + Linked Developer Trello Boards
+ * Reads developer-written game descriptions, public group shouts & group descriptions,
+ * plus any official public Trello board linked inside those descriptions.
  */
 export const robloxOfficialSignalsProvider: CodeProviderAdapter = {
   id: 'roblox_official_signals',
-  name: 'Roblox Official Game Descriptions & Group Shouts',
+  name: 'Roblox Official Descriptions, Group Shouts & Trello Boards',
   providerType: 'roblox_official',
   requiresApiKey: false,
   isConfigured: () => true,
@@ -541,22 +863,51 @@ export const robloxOfficialSignalsProvider: CodeProviderAdapter = {
       discovered.set(normalizePromoCode(c.code), c);
     }
 
-    // If creator is a Group, inspect public group shout for developer code announcements
+    const trelloTextParts: string[] = [];
+    if (description) trelloTextParts.push(description);
+
+    // If creator is a Group, inspect BOTH public group shout AND group description
     if (target.creatorType === 'Group' && /^[0-9]+$/.test(target.creatorId)) {
       const groupRes = await fetchJsonWithBackoff<{
+        description?: string | null;
         shout?: { body?: string | null } | null;
       }>(`https://groups.roblox.com/v1/groups/${target.creatorId}`);
       apiRequests += groupRes.apiRequests;
       http429Count += groupRes.http429Count;
 
+      const groupUrl = `https://www.roblox.com/groups/${target.creatorId}`;
       const shoutBody = groupRes.data?.shout?.body;
+      const groupDesc = groupRes.data?.description;
       if (shoutBody) {
-        const groupUrl = `https://www.roblox.com/groups/${target.creatorId}`;
+        trelloTextParts.push(shoutBody);
         for (const c of extractCodesFromOfficialText(shoutBody, groupUrl)) {
           const norm = normalizePromoCode(c.code);
           if (!discovered.has(norm)) {
             discovered.set(norm, c);
           }
+        }
+      }
+      if (groupDesc) {
+        trelloTextParts.push(groupDesc);
+        for (const c of extractCodesFromOfficialText(groupDesc, groupUrl)) {
+          const norm = normalizePromoCode(c.code);
+          if (!discovered.has(norm)) {
+            discovered.set(norm, c);
+          }
+        }
+      }
+    }
+
+    // Check any official developer Trello board linked in the game or group description
+    const trelloIds = extractTrelloBoardIds(trelloTextParts.join('\n'));
+    for (const boardId of trelloIds) {
+      const trelloRes = await fetchCodesFromOfficialTrelloBoard(boardId);
+      apiRequests += trelloRes.apiRequests;
+      http429Count += trelloRes.http429Count;
+      for (const c of trelloRes.codes) {
+        const norm = normalizePromoCode(c.code);
+        if (!discovered.has(norm)) {
+          discovered.set(norm, c);
         }
       }
     }
@@ -572,50 +923,56 @@ export const robloxOfficialSignalsProvider: CodeProviderAdapter = {
 };
 
 /**
- * Provider 2: Community Wiki MediaWiki Action API (CC BY-SA)
+ * Provider 2: Community Wiki MediaWiki Action API (Fandom + Wiki.gg, CC BY-SA)
  * Uses official documented MediaWiki `api.php?action=parse` JSON endpoints
- * with descriptive User-Agent, response caching, and mandatory CC BY-SA attribution.
+ * across Fandom and Wiki.gg with opensearch fallback and mandatory CC BY-SA attribution.
  */
 export const fandomMediaWikiProvider: CodeProviderAdapter = {
   id: 'fandom_mediawiki_api',
-  name: 'Community Wiki MediaWiki Action API',
+  name: 'Community Wikis (Fandom & Wiki.gg MediaWiki API)',
   providerType: 'mediawiki',
   requiresApiKey: false,
   isConfigured: () => true,
 
   async fetchForGame(target: ProviderGameTarget): Promise<ProviderFetchResult> {
-    const subdomains = resolveWikiCandidateSubdomains(target);
+    const candidates = resolveWikiCandidateTargets(target);
     let apiRequests = 0;
     let http429Count = 0;
 
-    for (const subdomain of subdomains) {
-      if (!/^[a-z0-9-]{2,48}$/.test(subdomain)) continue;
-      const endpoint = `https://${subdomain}.fandom.com/api.php?action=parse&page=Codes&prop=wikitext&redirects=1&format=json&formatversion=2`;
-      const res = await fetchJsonWithBackoff<{
-        parse?: { title?: string; wikitext?: string };
-        error?: { code?: string };
-      }>(endpoint, { timeoutMs: 4_500, maxRetries: 1 });
+    for (const candidate of candidates) {
+      for (const title of candidate.pageTitles) {
+        const endpoint = `https://${candidate.subdomain}.${candidate.host}/api.php?action=parse&page=${encodeURIComponent(title)}&prop=wikitext&redirects=1&format=json&formatversion=2`;
+        const res = await fetchJsonWithBackoff<{
+          parse?: { title?: string; wikitext?: string };
+          error?: { code?: string };
+        }>(endpoint, { timeoutMs: 4_500, maxRetries: 1 });
 
-      apiRequests += res.apiRequests;
-      http429Count += res.http429Count;
+        apiRequests += res.apiRequests;
+        http429Count += res.http429Count;
 
-      const wikitext = res.data?.parse?.wikitext;
-      if (!wikitext) continue;
+        const wikitext = res.data?.parse?.wikitext;
+        if (!wikitext) {
+          // If wiki host itself didn't respond (404/network), skip remaining pageTitles for this host
+          if (res.status === 0 || res.status === 404 || res.status === 410) break;
+          continue;
+        }
 
-      const pageTitle = encodeURIComponent(
-        (res.data?.parse?.title || 'Codes').replace(/ /g, '_')
-      );
-      const wikiUrl = `https://${subdomain}.fandom.com/wiki/${pageTitle}`;
-      const codes = parseMediaWikiCodesWikitext(wikitext, wikiUrl);
+        const pageTitle = encodeURIComponent(
+          (res.data?.parse?.title || title).replace(/ /g, '_')
+        );
+        const wikiUrl = `https://${candidate.subdomain}.${candidate.host}/wiki/${pageTitle}`;
+        const codes = parseMediaWikiCodesWikitext(wikitext, wikiUrl);
 
-      if (codes.length > 0) {
-        return {
-          hasProviderData: true,
-          codes,
-          resolvedWikiSubdomain: subdomain,
-          apiRequests,
-          http429Count,
-        };
+        if (codes.length > 0) {
+          return {
+            hasProviderData: true,
+            codes,
+            resolvedWikiSubdomain:
+              candidate.host === 'fandom.com' ? candidate.subdomain : null,
+            apiRequests,
+            http429Count,
+          };
+        }
       }
     }
 
@@ -750,18 +1107,24 @@ export const bloxArchiveProvider: CodeProviderAdapter = {
       candidateSlugs.add(clean);
     };
 
-    // 1. From target slug (e.g. "blox-fruits" -> "blox-fruits-codes")
-    addCandidate(target.slug);
-
-    // 2. From target name without apostrophes (e.g. "Dandy's World" -> "dandys-world-codes", "Sol's RNG" -> "sols-rng-codes")
+    // 1. From cleaned game name (strips "[💗UPD 21.5⛩️]" event prefixes so BloxArchive matches!)
     if (target.name) {
-      addCandidate(target.name.replace(/['’]/g, ''));
-      addCandidate(target.name);
+      const cleanedName = cleanSeoGameName(target.name);
+      addCandidate(cleanedName.replace(/['’]/g, ''));
+      addCandidate(cleanedName);
     }
 
-    const candidateUrls = Array.from(candidateSlugs).map(
-      (slug) => `${cleanBase}/games/${encodeURIComponent(slug)}?locale=en`
-    );
+    // 2. From target slug (e.g. "blox-fruits" -> "blox-fruits-codes")
+    addCandidate(target.slug);
+
+    // 3. Fallback raw name
+    if (target.name) {
+      addCandidate(target.name.replace(/['’]/g, ''));
+    }
+
+    const candidateUrls = Array.from(candidateSlugs)
+      .slice(0, 6)
+      .map((slug) => `${cleanBase}/games/${encodeURIComponent(slug)}?locale=en`);
 
     let apiRequests = 0;
     let http429Count = 0;

@@ -12,6 +12,8 @@ interface GameArtworkProps {
   className?: string;
 }
 
+const directCdnLoader = ({ src }: { src: string }) => src;
+
 export function GameArtwork({
   src,
   alt,
@@ -30,10 +32,12 @@ export function GameArtwork({
       >
         {validSrc ? (
           <Image
+            loader={directCdnLoader}
             src={validSrc}
             alt={alt}
             fill
             sizes="(max-width: 768px) 100vw, 640px"
+            loading="lazy"
             referrerPolicy="no-referrer"
             onError={() => setFailed(true)}
             className="object-cover"
@@ -65,10 +69,12 @@ export function GameArtwork({
     >
       {validSrc ? (
         <Image
+          loader={directCdnLoader}
           src={validSrc}
           alt={alt}
           width={pxSize}
           height={pxSize}
+          loading="lazy"
           referrerPolicy="no-referrer"
           onError={() => setFailed(true)}
           className="w-full h-full object-cover"

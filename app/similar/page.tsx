@@ -9,7 +9,7 @@ import {
 import { SimilarHubClient } from '@/components/SimilarHubClient';
 import type { GameRecordData } from '@/lib/types';
 
-export const revalidate = 120;
+export const revalidate = 1800;
 
 export function generateMetadata(): Metadata {
   const monthYear = getCurrentMonthYear();
