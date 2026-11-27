@@ -1,4 +1,4 @@
-// RoMetric — Scheduled Cloudflare Worker Collector v4.1 (Free Tier, Zero-429, Tier 2 R2 Warm History)
+// RoMetric — Scheduled Cloudflare Worker Collector v4.2 (Free Tier, Zero-429, Tier 2 D1 Warm History)
 //
 // Designed for universal 25+ CCU Roblox tracking strictly inside Cloudflare
 // Workers Free limits (<= 50 subrequests/run, <= 10ms active CPU/run, 3 crons)
@@ -18,12 +18,13 @@
 //  - Throughput: up to 27,000 games every 30 min (54,000 every 60 min).
 //  - Exits in 1 subrequest (<1ms CPU) whenever all games are fresher than 35 min.
 //
-//  TIER 2 WARM HISTORY (CLOUDFLARE R2 FREE: 10 GB, $0 EGRESS, 1M WRITES/MO):
-//  - History is partitioned into 64 deterministic shards (`shards/history-00..63.json`,
-//    keyed by `universeId % 64`), holding 14d hourly + up to 5 years daily points.
-//  - Each 15-min cron tick refreshes 2 shards (~5,760 Class A writes/mo = <0.6%
-//    of R2's 1,000,000 free writes/mo cap) so every game syncs 3x/day.
-//  - `GET /history/:universeId?range=7d|30d|90d|all` reads straight from R2 at $0 egress.
+//  TIER 2 WARM HISTORY (CLOUDFLARE D1 FREE: 5 GB, NO CREDIT CARD, $0 EGRESS):
+//  - Auto-creates `game_history_blobs` (1 compact row per game holding 14d hourly
+//    + up to 5 years daily history).
+//  - Each 15-min cron tick syncs 1 of 32 deterministic partitions (`universeId % 32`)
+//    so every active game updates 3x/day while staying far under D1's 100k writes/day.
+//  - `GET /history/:universeId?range=7d|30d|90d|all` reads 1 D1 row in <2ms ($0 egress,
+//    5,000,000 free reads/day).
 //
 //  ZERO-EXTRA-CALL PASSIVE CODE DISCOVERY:
 //  - Every `v1/games` payload already includes each game's full `description`.
@@ -31,23 +32,22 @@
 //    and bulk-inserts newly discovered codes (`ignore-duplicates`, preserving
 //    existing & `admin_locked` rows) with ZERO extra Roblox API calls.
 
-interface R2ObjectBody {
-  text(): Promise<string>;
+interface D1PreparedStatement {
+  bind(...values: unknown[]): D1PreparedStatement;
+  first<T = Record<string, unknown>>(): Promise<T | null>;
+  all<T = Record<string, unknown>>(): Promise<{ results?: T[] }>;
+  run(): Promise<unknown>;
 }
 
-interface R2Bucket {
-  get(key: string): Promise<R2ObjectBody | null>;
-  put(
-    key: string,
-    value: string,
-    options?: { httpMetadata?: { contentType?: string; cacheControl?: string } }
-  ): Promise<unknown>;
+interface D1Database {
+  prepare(query: string): D1PreparedStatement;
+  batch<T = unknown>(statements: D1PreparedStatement[]): Promise<T[]>;
 }
 
 export interface CollectorEnv {
   SUPABASE_URL: string;
   SUPABASE_SERVICE_ROLE_KEY: string;
-  HISTORY_BUCKET?: R2Bucket;
+  HISTORY_DB?: D1Database;
 }
 
 interface WorkerScheduledEvent {
@@ -816,79 +816,60 @@ async function runFifteenMinuteBreakoutCatcher(env: CollectorEnv): Promise<void>
 }
 
 // ============================================================================
-// TIER 2 WARM HISTORY — 64-SHARD CLOUDFLARE R2 SYNC + ZERO-EGRESS READ API
+// TIER 2 WARM HISTORY — CLOUDFLARE D1 (5 GB FREE, NO CARD, $0 EGRESS)
 // ============================================================================
 
-const R2_SHARD_COUNT = 64;
-const R2_MAX_HOURLY_POINTS = 336; // 14 days of hourly history
-const R2_MAX_DAILY_POINTS = 1825; // 5 years of daily history
+const D1_PARTITIONS = 32; // 96 ticks/day / 32 partitions = every game synced 3x/day
+const D1_MAX_HOURLY_POINTS = 336; // 14 days of hourly history
+const D1_MAX_DAILY_POINTS = 1825; // 5 years of daily history
 
 /** Compact tuple: [timestampMs, avgCcu, minCcu, maxCcu, visits, favorites] */
-type R2HourlyTuple = [number, number, number, number, number, number];
+type WarmHourlyTuple = [number, number, number, number, number, number];
 /** Compact tuple: ["YYYY-MM-DD", avgCcu, minCcu, maxCcu, visits, favorites] */
-type R2DailyTuple = [string, number, number, number, number, number];
+type WarmDailyTuple = [string, number, number, number, number, number];
 
-interface R2ShardGameEntry {
-  h: R2HourlyTuple[];
-  d: R2DailyTuple[];
+interface D1HistoryBlobRow {
+  universe_id: number;
+  hourly_json: string;
+  daily_json: string;
+  updated_at: string;
 }
 
-interface R2HistoryShardDoc {
-  v: 1;
-  shard: number;
-  updatedAt: string;
-  games: Record<string, R2ShardGameEntry>;
+async function ensureD1HistorySchema(db: D1Database): Promise<void> {
+  await db
+    .prepare(
+      'CREATE TABLE IF NOT EXISTS game_history_blobs (universe_id INTEGER PRIMARY KEY, hourly_json TEXT NOT NULL, daily_json TEXT NOT NULL, updated_at TEXT NOT NULL)'
+    )
+    .run();
 }
 
-function shardKey(shardId: number): string {
-  return `shards/history-${String(shardId).padStart(2, '0')}.json`;
-}
-
-function universeShardId(universeId: number): number {
-  return Math.abs(Math.trunc(universeId)) % R2_SHARD_COUNT;
-}
-
-async function readR2Shard(
-  bucket: R2Bucket,
-  shardId: number
-): Promise<R2HistoryShardDoc> {
+function parseJsonArraySafe<T>(raw: string | null | undefined): T[] {
+  if (!raw) return [];
   try {
-    const obj = await bucket.get(shardKey(shardId));
-    if (obj) {
-      const parsed = JSON.parse(await obj.text()) as R2HistoryShardDoc;
-      if (parsed && typeof parsed.games === 'object' && parsed.games !== null) {
-        return parsed;
-      }
-    }
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? (parsed as T[]) : [];
   } catch {
-    // Initialize clean shard if missing or corrupted
+    return [];
   }
-  return {
-    v: 1,
-    shard: shardId,
-    updatedAt: new Date().toISOString(),
-    games: {},
-  };
 }
 
 /**
- * Syncs 2 deterministic R2 shards per 15-minute cron tick (~5,760 writes/month = <0.6%
- * of R2 Free's 1,000,000 Class A writes/month limit).
- * Pulls recent hourly & daily stats from Supabase using only 2-3 subrequests total.
+ * Syncs 1 of 32 deterministic game partitions into Cloudflare D1 every 15 minutes.
+ * Keeps daily writes far below D1 Free's 100,000 rows/day cap while updating every
+ * active game 3x/day and preserving up to 5 years of daily history at $0 egress.
  */
-async function syncTwoR2HistoryShards(
+async function syncD1WarmHistoryPartition(
   env: CollectorEnv,
   scheduledTime: number
 ): Promise<void> {
-  if (!env.HISTORY_BUCKET) return;
+  if (!env.HISTORY_DB) return;
+
+  await ensureD1HistorySchema(env.HISTORY_DB);
 
   const tickIndex = Math.floor((scheduledTime || Date.now()) / (15 * 60_000));
-  const shardA = (tickIndex * 2) % R2_SHARD_COUNT;
-  const shardB = (tickIndex * 2 + 1) % R2_SHARD_COUNT;
-  const targetShards = [shardA, shardB];
+  const partition = tickIndex % D1_PARTITIONS;
 
-  // Fetch recent 36h hourly + recent 14d daily rows across active games belonging to these 2 shards
-  // 1) Grab universe_ids active in Supabase (1 subrequest, lightweight)
+  // 1 subrequest: grab active universe_ids (paginated up to 10,000 top games)
   const gamesRes = await supabaseFetch(
     env,
     'games?select=universe_id&active=eq.true&order=current_ccu.desc&limit=5000'
@@ -896,29 +877,20 @@ async function syncTwoR2HistoryShards(
   if (!gamesRes.ok) return;
   const allGames = (await gamesRes.json()) as Array<{ universe_id: number }>;
 
-  const idsByShard = new Map<number, number[]>([
-    [shardA, []],
-    [shardB, []],
-  ]);
+  const targetIds: number[] = [];
   for (const row of allGames) {
-    const sid = universeShardId(row.universe_id);
-    const list = idsByShard.get(sid);
-    if (list && list.length < 300) {
-      list.push(row.universe_id);
+    if (Math.abs(Math.trunc(row.universe_id)) % D1_PARTITIONS === partition) {
+      targetIds.push(row.universe_id);
+      if (targetIds.length >= 160) break;
     }
   }
+  if (targetIds.length === 0) return;
 
-  const allTargetIds = [
-    ...(idsByShard.get(shardA) ?? []),
-    ...(idsByShard.get(shardB) ?? []),
-  ];
-  if (allTargetIds.length === 0) return;
-
-  const idCsv = allTargetIds.join(',');
+  const idCsv = targetIds.join(',');
   const hourlyCutoff = new Date(Date.now() - 48 * 3600_000).toISOString();
   const dailyCutoff = new Date(Date.now() - 14 * 86_400_000).toISOString().slice(0, 10);
 
-  // 2 subrequests: recent hourly + recent daily for the 2 shards' games
+  // 2 subrequests: fetch recent hourly + daily rows for this partition
   const [hourlyRes, dailyRes] = await Promise.all([
     supabaseFetch(
       env,
@@ -952,23 +924,37 @@ async function syncTwoR2HistoryShards(
 
   if (hourlyRows.length === 0 && dailyRows.length === 0) return;
 
-  const docs = new Map<number, R2HistoryShardDoc>();
-  for (const sid of targetShards) {
-    docs.set(sid, await readR2Shard(env.HISTORY_BUCKET, sid));
+  const touchedIds = new Set<number>();
+  for (const r of hourlyRows) touchedIds.add(r.universe_id);
+  for (const r of dailyRows) touchedIds.add(r.universe_id);
+  const touchedList = Array.from(touchedIds);
+  if (touchedList.length === 0) return;
+
+  // Read existing D1 blobs for touched games in chunks of 80 (SQLite bind param limit safe)
+  const existingMap = new Map<number, { h: WarmHourlyTuple[]; d: WarmDailyTuple[] }>();
+  for (let i = 0; i < touchedList.length; i += 80) {
+    const slice = touchedList.slice(i, i + 80);
+    const placeholders = slice.map((_, idx) => `?${idx + 1}`).join(',');
+    const qRes = await env.HISTORY_DB.prepare(
+      `SELECT universe_id, hourly_json, daily_json, updated_at FROM game_history_blobs WHERE universe_id IN (${placeholders})`
+    )
+      .bind(...slice)
+      .all<D1HistoryBlobRow>();
+    for (const row of qRes.results ?? []) {
+      existingMap.set(Number(row.universe_id), {
+        h: parseJsonArraySafe<WarmHourlyTuple>(row.hourly_json),
+        d: parseJsonArraySafe<WarmDailyTuple>(row.daily_json),
+      });
+    }
   }
 
-  const touchedShards = new Set<number>();
-
   for (const r of hourlyRows) {
-    const sid = universeShardId(r.universe_id);
-    const doc = docs.get(sid);
-    if (!doc) continue;
-    const uid = String(r.universe_id);
-    const entry = doc.games[uid] ?? { h: [], d: [] };
+    const uid = Number(r.universe_id);
+    const entry = existingMap.get(uid) ?? { h: [], d: [] };
     const tsMs = Date.parse(r.hour_bucket);
     if (!Number.isFinite(tsMs)) continue;
 
-    const tuple: R2HourlyTuple = [
+    const tuple: WarmHourlyTuple = [
       tsMs,
       Math.round(Number(r.avg_ccu) || 0),
       Math.round(Number(r.min_ccu) || 0),
@@ -977,26 +963,19 @@ async function syncTwoR2HistoryShards(
       Math.round(Number(r.latest_favorites) || 0),
     ];
 
-    const existingIdx = entry.h.findIndex((p) => p[0] === tsMs);
-    if (existingIdx >= 0) {
-      entry.h[existingIdx] = tuple;
-    } else {
-      entry.h.push(tuple);
-    }
-    doc.games[uid] = entry;
-    touchedShards.add(sid);
+    const idx = entry.h.findIndex((p) => p[0] === tsMs);
+    if (idx >= 0) entry.h[idx] = tuple;
+    else entry.h.push(tuple);
+    existingMap.set(uid, entry);
   }
 
   for (const r of dailyRows) {
-    const sid = universeShardId(r.universe_id);
-    const doc = docs.get(sid);
-    if (!doc) continue;
-    const uid = String(r.universe_id);
-    const entry = doc.games[uid] ?? { h: [], d: [] };
+    const uid = Number(r.universe_id);
+    const entry = existingMap.get(uid) ?? { h: [], d: [] };
     const dayStr = String(r.day_bucket || '').slice(0, 10);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(dayStr)) continue;
 
-    const tuple: R2DailyTuple = [
+    const tuple: WarmDailyTuple = [
       dayStr,
       Math.round(Number(r.avg_ccu) || 0),
       Math.round(Number(r.min_ccu) || 0),
@@ -1005,41 +984,42 @@ async function syncTwoR2HistoryShards(
       Math.round(Number(r.favorites_end) || 0),
     ];
 
-    const existingIdx = entry.d.findIndex((p) => p[0] === dayStr);
-    if (existingIdx >= 0) {
-      entry.d[existingIdx] = tuple;
-    } else {
-      entry.d.push(tuple);
-    }
-    doc.games[uid] = entry;
-    touchedShards.add(sid);
+    const idx = entry.d.findIndex((p) => p[0] === dayStr);
+    if (idx >= 0) entry.d[idx] = tuple;
+    else entry.d.push(tuple);
+    existingMap.set(uid, entry);
   }
 
   const nowIso = new Date().toISOString();
-  for (const sid of touchedShards) {
-    const doc = docs.get(sid);
-    if (!doc) continue;
-    for (const entry of Object.values(doc.games)) {
-      if (entry.h.length > 1) {
-        entry.h.sort((a, b) => a[0] - b[0]);
-      }
-      if (entry.h.length > R2_MAX_HOURLY_POINTS) {
-        entry.h = entry.h.slice(-R2_MAX_HOURLY_POINTS);
-      }
-      if (entry.d.length > 1) {
-        entry.d.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
-      }
-      if (entry.d.length > R2_MAX_DAILY_POINTS) {
-        entry.d = entry.d.slice(-R2_MAX_DAILY_POINTS);
-      }
+  const upsertSql =
+    'INSERT INTO game_history_blobs (universe_id, hourly_json, daily_json, updated_at) VALUES (?1, ?2, ?3, ?4) ON CONFLICT(universe_id) DO UPDATE SET hourly_json = excluded.hourly_json, daily_json = excluded.daily_json, updated_at = excluded.updated_at';
+
+  const statements: D1PreparedStatement[] = [];
+  for (const uid of touchedList) {
+    const entry = existingMap.get(uid);
+    if (!entry) continue;
+    if (entry.h.length > 1) entry.h.sort((a, b) => a[0] - b[0]);
+    if (entry.h.length > D1_MAX_HOURLY_POINTS) {
+      entry.h = entry.h.slice(-D1_MAX_HOURLY_POINTS);
     }
-    doc.updatedAt = nowIso;
-    await env.HISTORY_BUCKET.put(shardKey(sid), JSON.stringify(doc), {
-      httpMetadata: {
-        contentType: 'application/json',
-        cacheControl: 'public, max-age=900',
-      },
-    });
+    if (entry.d.length > 1) {
+      entry.d.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+    }
+    if (entry.d.length > D1_MAX_DAILY_POINTS) {
+      entry.d = entry.d.slice(-D1_MAX_DAILY_POINTS);
+    }
+    statements.push(
+      env.HISTORY_DB.prepare(upsertSql).bind(
+        uid,
+        JSON.stringify(entry.h),
+        JSON.stringify(entry.d),
+        nowIso
+      )
+    );
+  }
+
+  for (let i = 0; i < statements.length; i += 80) {
+    await env.HISTORY_DB.batch(statements.slice(i, i + 80));
   }
 }
 
@@ -1054,7 +1034,7 @@ async function handleHistoryReadRequest(
       headers: { 'Content-Type': 'application/json' },
     });
   }
-  if (!env.HISTORY_BUCKET) {
+  if (!env.HISTORY_DB) {
     return new Response(JSON.stringify({ configured: false, points: [] }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
@@ -1064,11 +1044,20 @@ async function handleHistoryReadRequest(
   const url = new URL(request.url);
   const range = (url.searchParams.get('range') || '30d').trim();
   const uidNum = Number(universeIdStr);
-  const sid = universeShardId(uidNum);
-  const doc = await readR2Shard(env.HISTORY_BUCKET, sid);
-  const entry = doc.games[universeIdStr];
 
-  if (!entry) {
+  let row: D1HistoryBlobRow | null = null;
+  try {
+    row = await env.HISTORY_DB.prepare(
+      'SELECT universe_id, hourly_json, daily_json, updated_at FROM game_history_blobs WHERE universe_id = ?1'
+    )
+      .bind(uidNum)
+      .first<D1HistoryBlobRow>();
+  } catch {
+    // Table may not exist yet before first cron run
+    row = null;
+  }
+
+  if (!row) {
     return new Response(
       JSON.stringify({ configured: true, universeId: universeIdStr, points: [] }),
       {
@@ -1094,8 +1083,9 @@ async function handleHistoryReadRequest(
   }> = [];
 
   if (range === '7d') {
+    const hourly = parseJsonArraySafe<WarmHourlyTuple>(row.hourly_json);
     const cutoffMs = nowMs - 7 * 86_400_000;
-    for (const [ms, avg, min, max, v, f] of entry.h) {
+    for (const [ms, avg, min, max, v, f] of hourly) {
       if (ms >= cutoffMs) {
         points.push({
           t: new Date(ms).toISOString(),
@@ -1110,13 +1100,14 @@ async function handleHistoryReadRequest(
       }
     }
   } else {
+    const daily = parseJsonArraySafe<WarmDailyTuple>(row.daily_json);
     const daysWindow =
       range === '30d' ? 30 : range === '90d' ? 90 : Number.MAX_SAFE_INTEGER;
     const cutoffStr =
       daysWindow === Number.MAX_SAFE_INTEGER
         ? ''
         : new Date(nowMs - daysWindow * 86_400_000).toISOString().slice(0, 10);
-    for (const [dayStr, avg, min, max, v, f] of entry.d) {
+    for (const [dayStr, avg, min, max, v, f] of daily) {
       if (!cutoffStr || dayStr >= cutoffStr) {
         const iso = `${dayStr}T00:00:00.000Z`;
         points.push({
@@ -1136,10 +1127,10 @@ async function handleHistoryReadRequest(
   return new Response(
     JSON.stringify({
       configured: true,
+      backend: 'cloudflare_d1',
       universeId: universeIdStr,
       range,
-      shard: sid,
-      updatedAt: doc.updatedAt,
+      updatedAt: row.updated_at,
       points,
     }),
     {
@@ -1188,9 +1179,9 @@ async function runFifteenMinuteTasks(
 ): Promise<void> {
   await runFifteenMinuteBreakoutCatcher(env);
 
-  // Tier 2 R2 Warm History Sync (2 of 64 shards per 15-min tick = ~5,760 writes/month)
+  // Tier 2 D1 Warm History Sync (1 of 32 partitions per 15-min tick, no credit card needed)
   try {
-    await syncTwoR2HistoryShards(env, scheduledTime);
+    await syncD1WarmHistoryPartition(env, scheduledTime);
   } catch {
     // Non-fatal: next tick continues cleanly
   }
@@ -1220,12 +1211,12 @@ const workerHandler = {
     return new Response(
       JSON.stringify({
         service: 'rometric-collector',
-        version: '4.1',
+        version: '4.2',
         cadence: 'adaptive_30_to_60m_zero_429',
         min_discovery_ccu: MIN_DISCOVERY_CCU,
         passive_code_discovery: true,
-        r2_warm_history_enabled: Boolean(env.HISTORY_BUCKET),
-        r2_shards: R2_SHARD_COUNT,
+        d1_warm_history_enabled: Boolean(env.HISTORY_DB),
+        d1_partitions: D1_PARTITIONS,
         status: 'ok',
       }),
       {

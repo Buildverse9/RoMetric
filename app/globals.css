@@ -33,11 +33,11 @@
 }
 
 .dark {
-  --bg-canvas: #040a0e;
-  --bg-ambient-1: rgba(16, 232, 154, 0.16);
-  --bg-ambient-2: rgba(14, 165, 196, 0.13);
-  --bg-ambient-3: rgba(16, 232, 154, 0.07);
-  --bg-grid-dot: rgba(255, 255, 255, 0.035);
+  --bg-canvas: #000000;
+  --bg-ambient-1: transparent;
+  --bg-ambient-2: transparent;
+  --bg-ambient-3: transparent;
+  --bg-grid-dot: transparent;
   --glass-bg: rgba(12, 23, 30, 0.66);
   --glass-bg-strong: rgba(14, 27, 35, 0.86);
   --glass-bg-subtle: rgba(10, 19, 25, 0.48);

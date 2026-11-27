@@ -25,7 +25,11 @@ const PRIVATE_HOST_PATTERNS = [
 ];
 
 function getValidatedR2WorkerUrl(): string | null {
-  const raw = (process.env.R2_HISTORY_WORKER_URL || '').trim();
+  const raw = (
+    process.env.WARM_HISTORY_WORKER_URL ||
+    process.env.R2_HISTORY_WORKER_URL ||
+    ''
+  ).trim();
   if (!raw) return null;
   try {
     const parsed = new URL(raw);
@@ -45,8 +49,8 @@ export function isR2WarmHistoryConfigured(): boolean {
 
 /**
  * Fetches Tier 2 Warm History (14d hourly + up to 5 years daily) directly from
- * the Cloudflare Worker + R2 bucket ($0 egress, zero Supabase reads).
- * Returns null gracefully when R2_HISTORY_WORKER_URL is unset or unreachable.
+ * the Cloudflare Worker + D1 database (5 GB free, no card, $0 egress, zero Supabase reads).
+ * Returns null gracefully when WARM_HISTORY_WORKER_URL / R2_HISTORY_WORKER_URL is unset or unreachable.
  */
 export async function fetchR2WarmHistory(
   universeId: string,

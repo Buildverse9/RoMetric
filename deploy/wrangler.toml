@@ -17,9 +17,9 @@ compatibility_date = "2026-01-01"
 # 2) Every 15 minutes (`*/15 * * * *`, 96 runs/day):
 #      - Fast 25+ CCU Breakout Catcher scanning Roblox Explore Trending /
 #        Up-and-Coming / Top Playing sorts + passive description code extraction.
-#      - Tier 2 Warm History Sync: updates 2 of 64 deterministic R2 shards per tick
-#        (~5,760 Class A writes/month = <0.6% of R2's 1M free writes/month cap)
-#        storing 14 days of hourly + 5 years of daily history at $0 egress.
+#      - Tier 2 Warm History Sync (Cloudflare D1 — 5 GB Free, NO credit card, $0 egress):
+#        Updates 1 of 32 deterministic game partitions per tick (every game syncs 3x/day,
+#        staying well under D1's 100k free writes/day) storing 14d hourly + 5y daily charts.
 #      - Every 6 hours (00:00, 06:00, 12:00, 18:00 UTC): runs Supabase
 #        `run_rometric_retention_rollup` so Tier 1 Hot storage stays compact.
 #
@@ -33,9 +33,15 @@ crons = [
   "0 3 * * *"
 ]
 
-# Tier 2 Warm History Storage (Cloudflare R2 Free: 10 GB, $0 Egress, 1M writes/mo)
-# One-time setup: `npx wrangler r2 bucket create rometric-history`
-[[r2_buckets]]
-binding = "HISTORY_BUCKET"
-bucket_name = "rometric-history"
+# Tier 2 Warm History Storage — Cloudflare D1 (5 GB Free, NO Credit Card / PayPal, $0 Egress)
+# How to activate (2 clicks in dash.cloudflare.com):
+#   1. Go to Storage & Databases -> D1 SQL Database -> Create -> name it `rometric-history`.
+#   2. Either bind it in Workers -> rometric-collector -> Settings -> Bindings -> Add -> D1 database
+#      with Variable name `HISTORY_DB` (recommended for Git deploys), OR uncomment below with your database_id:
+#
+# [[d1_databases]]
+# binding = "HISTORY_DB"
+# database_name = "rometric-history"
+# database_id = "YOUR_D1_DATABASE_ID"
+
 

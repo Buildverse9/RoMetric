@@ -227,7 +227,7 @@ BEGIN
     updated_at = NOW();
 
   -- 3. Tier 1 (Hot) retention windows — keeps 10,000-15,000+ games well under 500 MB Free Tier
-  --    Tier 2 (Warm): Cloudflare R2 holds 14d hourly + multi-year daily charts at $0 egress
+  --    Tier 2 (Warm): Cloudflare D1 (5 GB, No Card) holds 14d hourly + multi-year daily charts at $0 egress
   --    Tier 3 (Cold): Google Drive 5 TB archives full lossless daily snapshots at 02:30 UTC
   DELETE FROM public.game_snapshots WHERE captured_at < NOW() - INTERVAL '12 hours';
   DELETE FROM public.game_hourly_stats WHERE hour_bucket < NOW() - INTERVAL '3 days';
