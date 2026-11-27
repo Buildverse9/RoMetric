@@ -1,4 +1,4 @@
-// RoMetric — Scheduled Cloudflare Worker Collector v4.2 (Free Tier, Zero-429, Tier 2 D1 Warm History)
+// RoMetric — Scheduled Cloudflare Worker Collector v4.2.1 (Free Tier, Zero-429, Tier 2 D1 Warm History)
 //
 // Designed for universal 25+ CCU Roblox tracking strictly inside Cloudflare
 // Workers Free limits (<= 50 subrequests/run, <= 10ms active CPU/run, 3 crons)

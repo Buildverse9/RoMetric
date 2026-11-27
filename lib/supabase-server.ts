@@ -478,7 +478,7 @@ async function loadGamesListUncached(maxPages: number): Promise<GameRecordData[]
 // Shared Next.js Data Cache entry (top 2,000 active games ≈ 800 KB, safely under 2 MB cap)
 const getCachedTopGamesList = unstable_cache(
   async () => loadGamesListUncached(2),
-  ['rometric-games-list-top2000-v1'],
+  ['rometric-games-list-top2000-v2'],
   { revalidate: 900 }
 );
 
@@ -596,7 +596,7 @@ const GAME_HISTORY_TTL_MS = 5 * 60_000; // 5 minutes
 const getCachedGameHistory = unstable_cache(
   async (universeId: string, range: TimeRange) =>
     loadSupabaseGameHistoryUncached(universeId, range),
-  ['rometric-game-history-v1'],
+  ['rometric-game-history-v2'],
   { revalidate: 300 }
 );
 
@@ -884,7 +884,7 @@ const PLATFORM_HISTORY_TTL_MS = 15 * 60_000; // 15 minutes
 
 const getCachedPlatformHistory = unstable_cache(
   async (range: TimeRange) => loadSupabasePlatformHistoryUncached(range),
-  ['rometric-platform-history-v1'],
+  ['rometric-platform-history-v2'],
   { revalidate: 900 }
 );
 
