@@ -1,3 +1,4 @@
+import { unstable_cache } from 'next/cache';
 import firebaseConfig from '../firebase-applet-config.json';
 import { DEFAULT_ADMIN_EMAIL, SEED_UNIVERSES } from './seed-universes';
 import { slugify } from './format';
@@ -14,6 +15,70 @@ import type {
   TimeRange,
   TrackingTier,
 } from './types';
+
+// ============================================================================
+// Process-level warm TTL cache + in-flight Promise coalescer
+// Eliminates duplicate Supabase egress across concurrent/warm SSR & API routes
+// ============================================================================
+interface MemCacheEntry<T> {
+  value: T;
+  expiresAt: number;
+}
+
+const memCache = new Map<string, MemCacheEntry<unknown>>();
+const inFlight = new Map<string, Promise<unknown>>();
+const MEM_CACHE_MAX_ENTRIES = 250;
+
+function getMemCached<T>(key: string): T | null {
+  const entry = memCache.get(key);
+  if (!entry) return null;
+  if (Date.now() > entry.expiresAt) {
+    memCache.delete(key);
+    return null;
+  }
+  return entry.value as T;
+}
+
+function setMemCached<T>(key: string, value: T, ttlMs: number): void {
+  if (memCache.size >= MEM_CACHE_MAX_ENTRIES) {
+    const firstKey = memCache.keys().next().value;
+    if (firstKey !== undefined) memCache.delete(firstKey);
+  }
+  memCache.set(key, { value, expiresAt: Date.now() + ttlMs });
+}
+
+async function withCoalescedCache<T>(
+  key: string,
+  ttlMs: number,
+  loader: () => Promise<T>,
+  bypassCache = false
+): Promise<T> {
+  if (!bypassCache) {
+    const hit = getMemCached<T>(key);
+    if (hit !== null) return hit;
+
+    const existing = inFlight.get(key);
+    if (existing) return existing as Promise<T>;
+  }
+
+  const promise = loader()
+    .then((result) => {
+      setMemCached(key, result, ttlMs);
+      return result;
+    })
+    .finally(() => {
+      inFlight.delete(key);
+    });
+
+  if (!bypassCache) {
+    inFlight.set(key, promise);
+  }
+  return promise;
+}
+
+export function invalidateSupabaseReadCaches(): void {
+  memCache.clear();
+}
 
 export interface SupabaseGameRow {
   universe_id: number;
@@ -397,14 +462,87 @@ async function fetchRecentSnapshotsByGame(
 }
 
 // Slim projection omitting heavy `description` text (loaded on demand on game detail pages)
-// Cuts Supabase egress by ~70% per catalog load at 1,000–3,000 games.
+// Cuts Supabase egress by ~70% per catalog load.
 const GAMES_LIST_SELECT_COLUMNS =
   'universe_id,root_place_id,name,slug,creator_id,creator_name,creator_type,creator_verified,genre,icon_url,thumbnail_url,current_ccu,total_visits,favorites,up_votes,down_votes,like_ratio,growth_1h,growth_24h,growth_7d,growth_30d,peak_ccu_observed,peak_ccu_at,tracking_tier,active,data_source_id,collection_status,first_observed_at,last_collected_at,roblox_updated_at,updated_at';
 
-export async function fetchSupabaseGamesList(): Promise<GameRecordData[]> {
+const GAMES_LIST_TTL_MS = 15 * 60_000; // 15 minutes
+const SITEMAP_SLUGS_TTL_MS = 6 * 60 * 60_000; // 6 hours
+
+async function loadGamesListUncached(maxPages: number): Promise<GameRecordData[]> {
   const base = `games?select=${GAMES_LIST_SELECT_COLUMNS}&active=eq.true&order=current_ccu.desc`;
-  const rows = await fetchPaginatedRows<SupabaseGameRow>(base, 25, 1000);
+  const rows = await fetchPaginatedRows<SupabaseGameRow>(base, maxPages, 1000);
   return rows.map((row) => mapSupabaseRowToGame(row));
+}
+
+// Shared Next.js Data Cache entry (top 2,000 active games ≈ 800 KB, safely under 2 MB cap)
+const getCachedTopGamesList = unstable_cache(
+  async () => loadGamesListUncached(2),
+  ['rometric-games-list-top2000-v1'],
+  { revalidate: 900 }
+);
+
+/**
+ * Fetches the active Roblox games leaderboard with shared cross-route caching:
+ * - Default (maxPages = 2 → top 2,000 games by CCU): shared across all 25+ SSR, API, and OG routes
+ *   via Next.js Data Cache (15 min) + warm in-memory TTL cache + in-flight deduplication.
+ * - Pass `{ bypassCache: true }` for admin collection runs needing fresh DB state.
+ */
+export async function fetchSupabaseGamesList(options?: {
+  maxPages?: number;
+  bypassCache?: boolean;
+}): Promise<GameRecordData[]> {
+  const maxPages = options?.maxPages ?? 2;
+  const bypass = Boolean(options?.bypassCache);
+
+  if (bypass) {
+    return loadGamesListUncached(maxPages);
+  }
+
+  return withCoalescedCache(
+    `games-list:${maxPages}`,
+    GAMES_LIST_TTL_MS,
+    async () => {
+      if (maxPages === 2) {
+        try {
+          return await getCachedTopGamesList();
+        } catch {
+          return loadGamesListUncached(2);
+        }
+      }
+      return loadGamesListUncached(maxPages);
+    }
+  );
+}
+
+export interface SitemapGameSlugRow {
+  universeId: string;
+  slug: string;
+  currentCcu: number;
+  lastCollectedAt: string;
+}
+
+/**
+ * Ultra-slim 4-column query dedicated to /sitemaps/games.xml (~80 bytes/row vs ~650 bytes/row).
+ * Indexes up to 25,000 active games while cutting sitemap Supabase egress by >90%, cached 6 hours.
+ */
+export async function fetchSupabaseSitemapGameSlugs(): Promise<SitemapGameSlugRow[]> {
+  return withCoalescedCache('sitemap-game-slugs', SITEMAP_SLUGS_TTL_MS, async () => {
+    const base =
+      'games?select=universe_id,slug,current_ccu,last_collected_at&active=eq.true&order=current_ccu.desc';
+    const rows = await fetchPaginatedRows<{
+      universe_id: number;
+      slug: string;
+      current_ccu: number;
+      last_collected_at: string;
+    }>(base, 25, 1000);
+    return rows.map((r) => ({
+      universeId: String(r.universe_id),
+      slug: r.slug || `experience-${r.universe_id}`,
+      currentCcu: Number(r.current_ccu ?? 0),
+      lastCollectedAt: r.last_collected_at || new Date().toISOString(),
+    }));
+  });
 }
 
 export async function fetchSupabaseGameById(
@@ -439,10 +577,7 @@ export async function fetchSupabaseGameById(
   return game;
 }
 
-export async function fetchSupabaseGameHistory(
-  universeId: string,
-  range: TimeRange
-): Promise<{
+type GameHistoryResult = {
   points: Array<{
     timestamp: string;
     timestampMs: number;
@@ -454,7 +589,38 @@ export async function fetchSupabaseGameHistory(
     sourceTable: 'game_snapshots' | 'game_hourly_stats' | 'game_daily_stats';
   }>;
   peakRecord: GamePeakRecord | null;
-}> {
+};
+
+const GAME_HISTORY_TTL_MS = 5 * 60_000; // 5 minutes
+
+const getCachedGameHistory = unstable_cache(
+  async (universeId: string, range: TimeRange) =>
+    loadSupabaseGameHistoryUncached(universeId, range),
+  ['rometric-game-history-v1'],
+  { revalidate: 300 }
+);
+
+export async function fetchSupabaseGameHistory(
+  universeId: string,
+  range: TimeRange
+): Promise<GameHistoryResult> {
+  return withCoalescedCache(
+    `game-history:${universeId}:${range}`,
+    GAME_HISTORY_TTL_MS,
+    async () => {
+      try {
+        return await getCachedGameHistory(universeId, range);
+      } catch {
+        return loadSupabaseGameHistoryUncached(universeId, range);
+      }
+    }
+  );
+}
+
+async function loadSupabaseGameHistoryUncached(
+  universeId: string,
+  range: TimeRange
+): Promise<GameHistoryResult> {
   const nowMs = Date.now();
   const rangeMsMap: Record<TimeRange, number> = {
     '1h': 60 * 60 * 1000,
@@ -707,19 +873,107 @@ export interface PlatformHistoryPoint {
   gamesCount: number;
 }
 
-export async function fetchSupabasePlatformHistory(
-  range: TimeRange
-): Promise<{
+export interface PlatformHistoryResult {
   points: PlatformHistoryPoint[];
   trackedGames: number;
   liveTotalCcu: number;
   sourceTable: 'game_snapshots' | 'game_hourly_stats' | 'game_daily_stats';
-}> {
+}
+
+const PLATFORM_HISTORY_TTL_MS = 15 * 60_000; // 15 minutes
+
+const getCachedPlatformHistory = unstable_cache(
+  async (range: TimeRange) => loadSupabasePlatformHistoryUncached(range),
+  ['rometric-platform-history-v1'],
+  { revalidate: 900 }
+);
+
+export async function fetchSupabasePlatformHistory(
+  range: TimeRange
+): Promise<PlatformHistoryResult> {
+  return withCoalescedCache(
+    `platform-history:${range}`,
+    PLATFORM_HISTORY_TTL_MS,
+    async () => {
+      try {
+        return await getCachedPlatformHistory(range);
+      } catch {
+        return loadSupabasePlatformHistoryUncached(range);
+      }
+    }
+  );
+}
+
+async function loadSupabasePlatformHistoryUncached(
+  range: TimeRange
+): Promise<PlatformHistoryResult> {
   const nowMs = Date.now();
+
+  const appendLivePointHelper = (
+    pts: PlatformHistoryPoint[],
+    liveTotalCcu: number,
+    trackedGames: number
+  ): PlatformHistoryPoint[] => {
+    if (liveTotalCcu <= 0) return pts;
+    if (pts.length === 0) {
+      return [{ ts: nowMs, ccu: liveTotalCcu, gamesCount: trackedGames }];
+    }
+    const last = pts[pts.length - 1];
+    if (nowMs - last.ts < 45 * 60_000) {
+      return [
+        ...pts.slice(0, -1),
+        { ts: nowMs, ccu: liveTotalCcu, gamesCount: trackedGames },
+      ];
+    }
+    return [...pts, { ts: nowMs, ccu: liveTotalCcu, gamesCount: trackedGames }];
+  };
+
+  // Fast Path: In-database Postgres RPC (~2 KB JSON instead of downloading 20,000+ rows)
+  try {
+    const rpcRes = await supabaseRest('rpc/get_platform_ccu_history', {
+      method: 'POST',
+      body: { p_range: range },
+    });
+    if (rpcRes.ok) {
+      const rpcData = (await rpcRes.json()) as {
+        tracked_games?: number;
+        live_total_ccu?: number;
+        source_table?: 'game_snapshots' | 'game_hourly_stats' | 'game_daily_stats';
+        points?: Array<{ ts: number; ccu: number; gamesCount: number }>;
+      };
+      const trackedGames = Number(rpcData.tracked_games ?? 0);
+      const liveTotalCcu = Number(rpcData.live_total_ccu ?? 0);
+      const sourceTable =
+        rpcData.source_table === 'game_daily_stats' ||
+        rpcData.source_table === 'game_hourly_stats'
+          ? rpcData.source_table
+          : 'game_snapshots';
+      const rawPoints: PlatformHistoryPoint[] = Array.isArray(rpcData.points)
+        ? rpcData.points
+            .map((p) => ({
+              ts: Number(p.ts),
+              ccu: Math.max(0, Number(p.ccu ?? 0)),
+              gamesCount: Math.max(0, Number(p.gamesCount ?? 0)),
+            }))
+            .filter((p) => Number.isFinite(p.ts))
+        : [];
+
+      return {
+        points: appendLivePointHelper(rawPoints, liveTotalCcu, trackedGames),
+        trackedGames,
+        liveTotalCcu,
+        sourceTable,
+      };
+    }
+  } catch {
+    // RPC not installed yet — gracefully fall back to cached JS aggregation below
+  }
+
+  // Fallback path (still protected by 15-min unstable_cache + in-memory cache)
   const activeGameRows = await fetchPaginatedRows<{
     universe_id: number;
     current_ccu: number;
-  }>('games?select=universe_id,current_ccu&active=eq.true&order=current_ccu.desc', 25, 1000);
+  }>('games?select=universe_id,current_ccu&active=eq.true&order=current_ccu.desc', 5, 1000);
 
   const trackedGames = activeGameRows.length;
   const liveTotalCcu = activeGameRows.reduce(
@@ -981,6 +1235,7 @@ export async function saveGameToSupabase(
     });
   }
 
+  invalidateSupabaseReadCaches();
   return mapSupabaseRowToGame(gameRow as unknown as SupabaseGameRow);
 }
 
@@ -992,7 +1247,7 @@ export async function runSupabaseCollectionCycle(options: {
   const startedMs = Date.now();
   const startedAt = new Date(startedMs).toISOString();
 
-  const existingGames = await fetchSupabaseGamesList();
+  const existingGames = await fetchSupabaseGamesList({ bypassCache: true });
   const existingMap = new Map(existingGames.map((g) => [g.universeId, g]));
 
   const shouldDiscover =
@@ -1181,7 +1436,8 @@ export async function runSupabaseCollectionCycle(options: {
     body: jobPayload,
   });
 
-  const updatedGames = await fetchSupabaseGamesList();
+  invalidateSupabaseReadCaches();
+  const updatedGames = await fetchSupabaseGamesList({ bypassCache: true });
   return {
     job: {
       id: `job_${startedMs}`,

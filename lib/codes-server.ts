@@ -265,12 +265,47 @@ async function fetchAllSourcesMap(): Promise<{
   return { list, map };
 }
 
-async function fetchAllActiveGamesForCodes(limit = 25000): Promise<DbGameCodesMetaRow[]> {
+// ============================================================================
+// Warm in-memory TTL cache + in-flight deduplication for Codes Directory
+// Prevents re-downloading games & game_codes on every search/filter/page click
+// ============================================================================
+interface CodesSnapshotCache {
+  schemaReady: boolean;
+  sources: CodeSourceRecord[];
+  gameRows: DbGameCodesMetaRow[];
+  codeRows: DbGameCodeRow[];
+  expiresAt: number;
+}
+
+const CODES_SNAPSHOT_TTL_MS = 15 * 60_000; // 15 minutes
+const CODES_SITEMAP_TTL_MS = 6 * 60 * 60_000; // 6 hours
+
+let codesSnapshotCache: CodesSnapshotCache | null = null;
+let codesSnapshotInFlight: Promise<CodesSnapshotCache> | null = null;
+
+let codesSitemapCache: {
+  items: Array<{ slug: string; universeId: string; updatedAt: string }>;
+  expiresAt: number;
+} | null = null;
+let codesSitemapInFlight: Promise<
+  Array<{ slug: string; universeId: string; updatedAt: string }>
+> | null = null;
+
+export function invalidateCodesReadCaches(): void {
+  codesSnapshotCache = null;
+  codesSitemapCache = null;
+}
+
+async function fetchAllActiveGamesForCodes(
+  limit = 2000,
+  onlyWithCodes = false
+): Promise<DbGameCodesMetaRow[]> {
   const out: DbGameCodesMetaRow[] = [];
   const pageSize = 1000;
+  const codeFilter = onlyWithCodes ? '&total_code_count=gt.0' : '';
   for (let offset = 0; offset < limit; offset += pageSize) {
     const res = await supabaseRest(
-      `games?select=universe_id,root_place_id,name,slug,creator_id,creator_name,genre,icon_url,thumbnail_url,current_ccu,code_coverage_status,active_code_count,total_code_count,codes_last_checked_at&active=eq.true&order=current_ccu.desc&limit=${pageSize}&offset=${offset}`
+      `games?select=universe_id,root_place_id,name,slug,creator_id,creator_name,genre,icon_url,thumbnail_url,current_ccu,code_coverage_status,active_code_count,total_code_count,codes_last_checked_at&active=eq.true${codeFilter}&order=current_ccu.desc&limit=${pageSize}&offset=${offset}`
     );
     if (!res.ok) break;
     const rows = (await res.json()) as DbGameCodesMetaRow[];
@@ -280,12 +315,19 @@ async function fetchAllActiveGamesForCodes(limit = 25000): Promise<DbGameCodesMe
   return out;
 }
 
-async function fetchAllCodesPaginated(maxRows = 30000): Promise<DbGameCodeRow[]> {
+const GAME_CODES_DIRECTORY_SELECT =
+  'id,universe_id,code,normalized_code,reward_description,status,source_id,updated_at';
+
+async function fetchAllCodesPaginated(
+  maxRows = 30000,
+  slimSelect = false
+): Promise<DbGameCodeRow[]> {
   const out: DbGameCodeRow[] = [];
   const pageSize = 1000;
+  const select = slimSelect ? GAME_CODES_DIRECTORY_SELECT : '*';
   for (let offset = 0; offset < maxRows; offset += pageSize) {
     const res = await supabaseRest(
-      `game_codes?select=*&order=updated_at.desc&limit=${pageSize}&offset=${offset}`
+      `game_codes?select=${select}&order=updated_at.desc&limit=${pageSize}&offset=${offset}`
     );
     if (!res.ok) break;
     const rows = (await res.json()) as DbGameCodeRow[];
@@ -293,6 +335,58 @@ async function fetchAllCodesPaginated(maxRows = 30000): Promise<DbGameCodeRow[]>
     if (rows.length < pageSize) break;
   }
   return out;
+}
+
+async function getCachedSupabaseCodesSnapshot(): Promise<CodesSnapshotCache> {
+  if (codesSnapshotCache && Date.now() < codesSnapshotCache.expiresAt) {
+    return codesSnapshotCache;
+  }
+  if (codesSnapshotInFlight) {
+    return codesSnapshotInFlight;
+  }
+
+  const promise = (async (): Promise<CodesSnapshotCache> => {
+    const schemaReady = await checkCodesSchemaReady();
+    if (!schemaReady) {
+      return {
+        schemaReady: false,
+        sources: [],
+        gameRows: [],
+        codeRows: [],
+        expiresAt: Date.now() + 60_000,
+      };
+    }
+
+    // Fetch only games that have Supabase codes PLUS top 1,500 games by CCU (deduplicated)
+    // instead of downloading 25,000 non-code games on every refresh.
+    const [{ list: sources }, codedGames, topGames, codeRows] = await Promise.all([
+      fetchAllSourcesMap(),
+      fetchAllActiveGamesForCodes(10000, true),
+      fetchAllActiveGamesForCodes(1500, false),
+      fetchAllCodesPaginated(30000, true),
+    ]);
+
+    const byUid = new Map<number, DbGameCodesMetaRow>();
+    for (const g of codedGames) byUid.set(g.universe_id, g);
+    for (const g of topGames) {
+      if (!byUid.has(g.universe_id)) byUid.set(g.universe_id, g);
+    }
+
+    const entry: CodesSnapshotCache = {
+      schemaReady: true,
+      sources,
+      gameRows: Array.from(byUid.values()),
+      codeRows,
+      expiresAt: Date.now() + CODES_SNAPSHOT_TTL_MS,
+    };
+    codesSnapshotCache = entry;
+    return entry;
+  })().finally(() => {
+    codesSnapshotInFlight = null;
+  });
+
+  codesSnapshotInFlight = promise;
+  return promise;
 }
 
 export async function fetchCodesDirectory(options: {
@@ -328,16 +422,17 @@ export async function fetchCodesDirectory(options: {
   const requestedPage = Math.max(Math.trunc(options.page ?? 1) || 1, 1);
 
   const supabaseConfigured = isSupabaseConfigured();
-  const schemaReady = supabaseConfigured ? await checkCodesSchemaReady() : false;
-
-  const [{ list: sources }, gameRows, codeRows] =
-    supabaseConfigured && schemaReady
-      ? await Promise.all([
-          fetchAllSourcesMap(),
-          fetchAllActiveGamesForCodes(25000),
-          fetchAllCodesPaginated(30000),
-        ])
-      : [{ list: [] as CodeSourceRecord[] }, [] as DbGameCodesMetaRow[], [] as DbGameCodeRow[]];
+  const snapshot = supabaseConfigured
+    ? await getCachedSupabaseCodesSnapshot()
+    : {
+        schemaReady: false,
+        sources: [] as CodeSourceRecord[],
+        gameRows: [] as DbGameCodesMetaRow[],
+        codeRows: [] as DbGameCodeRow[],
+        expiresAt: 0,
+      };
+  const schemaReady = snapshot.schemaReady;
+  const { sources, gameRows, codeRows } = snapshot;
 
   const seedCatalog = getSeedCodesCatalog();
   const seedByUid = new Map(seedCatalog.map((e) => [String(e.u), e]));
@@ -932,53 +1027,76 @@ export const fetchGameCodesDetail = fetchGameCodesBySlugOrId;
 export async function fetchIndexableCodeGameSlugs(): Promise<
   Array<{ slug: string; universeId: string; updatedAt: string }>
 > {
-  const byUniverse = new Map<
-    string,
-    { slug: string; universeId: string; updatedAt: string }
-  >();
+  if (codesSitemapCache && Date.now() < codesSitemapCache.expiresAt) {
+    return codesSitemapCache.items;
+  }
+  if (codesSitemapInFlight) {
+    return codesSitemapInFlight;
+  }
 
-  if (isSupabaseConfigured()) {
-    const schemaReady = await checkCodesSchemaReady();
-    if (schemaReady) {
-      const pageSize = 1000;
-      for (let offset = 0; offset < 25000; offset += pageSize) {
-        const res = await supabaseRest(
-          `games?select=universe_id,slug,codes_last_checked_at,updated_at&active=eq.true&total_code_count=gt.0&order=active_code_count.desc,current_ccu.desc&limit=${pageSize}&offset=${offset}`
-        );
-        if (!res.ok) break;
-        const rows = (await res.json()) as Array<{
-          universe_id: number;
-          slug: string;
-          codes_last_checked_at: string | null;
-          updated_at: string;
-        }>;
-        for (const r of rows) {
-          if (!r.slug) continue;
-          const uid = String(r.universe_id);
-          byUniverse.set(uid, {
-            slug: r.slug,
-            universeId: uid,
-            updatedAt:
-              r.codes_last_checked_at || r.updated_at || new Date().toISOString(),
-          });
+  const promise = (async () => {
+    const byUniverse = new Map<
+      string,
+      { slug: string; universeId: string; updatedAt: string }
+    >();
+
+    if (isSupabaseConfigured()) {
+      try {
+        const schemaReady = await checkCodesSchemaReady();
+        if (schemaReady) {
+          const pageSize = 1000;
+          for (let offset = 0; offset < 25000; offset += pageSize) {
+            const res = await supabaseRest(
+              `games?select=universe_id,slug,codes_last_checked_at,updated_at&active=eq.true&total_code_count=gt.0&order=active_code_count.desc,current_ccu.desc&limit=${pageSize}&offset=${offset}`
+            );
+            if (!res.ok) break;
+            const rows = (await res.json()) as Array<{
+              universe_id: number;
+              slug: string;
+              codes_last_checked_at: string | null;
+              updated_at: string;
+            }>;
+            for (const r of rows) {
+              if (!r.slug) continue;
+              const uid = String(r.universe_id);
+              byUniverse.set(uid, {
+                slug: r.slug,
+                universeId: uid,
+                updatedAt:
+                  r.codes_last_checked_at || r.updated_at || new Date().toISOString(),
+              });
+            }
+            if (rows.length < pageSize) break;
+          }
         }
-        if (rows.length < pageSize) break;
+      } catch {
+        // Fall back gracefully to bundled 5,300+ catalog if Supabase temporarily unreachable
       }
     }
-  }
 
-  for (const seed of getSeedCodesCatalog()) {
-    const uid = String(seed.u);
-    if (!byUniverse.has(uid)) {
-      byUniverse.set(uid, {
-        slug: seed.s,
-        universeId: uid,
-        updatedAt: seed.t,
-      });
+    for (const seed of getSeedCodesCatalog()) {
+      const uid = String(seed.u);
+      if (!byUniverse.has(uid)) {
+        byUniverse.set(uid, {
+          slug: seed.s,
+          universeId: uid,
+          updatedAt: seed.t,
+        });
+      }
     }
-  }
 
-  return Array.from(byUniverse.values());
+    const items = Array.from(byUniverse.values());
+    codesSitemapCache = {
+      items,
+      expiresAt: Date.now() + CODES_SITEMAP_TTL_MS,
+    };
+    return items;
+  })().finally(() => {
+    codesSitemapInFlight = null;
+  });
+
+  codesSitemapInFlight = promise;
+  return promise;
 }
 
 async function recomputeGameCodeCounts(
@@ -1460,6 +1578,7 @@ export async function runCodesCollectionCycle(options: {
     }
   }
 
+  invalidateCodesReadCaches();
   return {
     ok: true,
     gamesChecked: targetGames.length,
@@ -1657,6 +1776,7 @@ export async function submitCommunityCode(
   });
 
   await recomputeGameCodeCounts(game.universeId, true);
+  invalidateCodesReadCaches();
 
   return {
     ok: true,
@@ -1829,6 +1949,7 @@ export async function toggleCodeSource(
       error: errText ? `Database error (${res.status}): ${errText.slice(0, 180)}` : `Database error (${res.status})`,
     };
   }
+  invalidateCodesReadCaches();
   return { ok: true };
 }
 
@@ -1885,6 +2006,7 @@ export async function moderateGameCode(options: {
     });
     if (!delRes.ok) return { ok: false, error: 'Failed to delete code.' };
     await recomputeGameCodeCounts(uid);
+    invalidateCodesReadCaches();
     return { ok: true, message: 'Code deleted.' };
   }
 
@@ -1898,6 +2020,7 @@ export async function moderateGameCode(options: {
         updated_at: nowIso,
       },
     });
+    if (patchRes.ok) invalidateCodesReadCaches();
     return {
       ok: patchRes.ok,
       message: patchRes.ok ? 'Reward description updated.' : undefined,
@@ -1946,5 +2069,6 @@ export async function moderateGameCode(options: {
   });
 
   await recomputeGameCodeCounts(uid);
+  invalidateCodesReadCaches();
   return { ok: true, message: `Marked as ${nextStatus.replace('_', ' ')}.` };
 }

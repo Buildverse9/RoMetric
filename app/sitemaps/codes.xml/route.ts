@@ -2,7 +2,7 @@ import { fetchIndexableCodeGameSlugs } from '@/lib/codes-server';
 import { SITE_URL } from '@/lib/seo';
 import { buildUrlSetXml, type SitemapUrlItem, xmlResponse } from '@/lib/sitemap-xml';
 
-export const revalidate = 3600;
+export const revalidate = 21600;
 
 export async function GET() {
   const urls: SitemapUrlItem[] = [];

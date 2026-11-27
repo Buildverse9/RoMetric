@@ -451,3 +451,182 @@ VALUES
   )
 ON CONFLICT (id) DO NOTHING;
 
+-- ============================================================================
+-- EGRESS OPTIMIZATION: In-Database Platform CCU Aggregation RPC (~2 KB payload)
+-- Replaces downloading 25,000+ raw rows into Node.js for the homepage chart.
+-- ============================================================================
+CREATE OR REPLACE FUNCTION public.get_platform_ccu_history(p_range TEXT DEFAULT '24h')
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_range TEXT;
+  v_tracked_games INTEGER := 0;
+  v_live_total_ccu BIGINT := 0;
+  v_source_table TEXT := 'game_snapshots';
+  v_points JSONB := '[]'::JSONB;
+  v_days INTEGER;
+  v_hours INTEGER;
+BEGIN
+  -- Strict allowlist validation on p_range
+  v_range := CASE
+    WHEN p_range IN ('1h', '24h', '7d', '30d', '90d', 'all') THEN p_range
+    ELSE '24h'
+  END;
+
+  -- 1) Live totals computed inside Postgres (0 rows transferred)
+  SELECT
+    COUNT(*)::INTEGER,
+    COALESCE(SUM(GREATEST(current_ccu, 0)), 0)::BIGINT
+  INTO v_tracked_games, v_live_total_ccu
+  FROM public.games
+  WHERE active = TRUE;
+
+  -- 2) Daily rollup for 30d / 90d / all
+  IF v_range IN ('30d', '90d', 'all') THEN
+    v_days := CASE v_range WHEN '30d' THEN 30 WHEN '90d' THEN 90 ELSE 365 END;
+
+    WITH raw_buckets AS (
+      SELECT
+        (EXTRACT(EPOCH FROM (day_bucket::TIMESTAMP AT TIME ZONE 'UTC' + INTERVAL '12 hours')) * 1000)::BIGINT AS ts,
+        COALESCE(SUM(GREATEST(ROUND(avg_ccu), 0)), 0)::BIGINT AS ccu,
+        COUNT(*)::INTEGER AS games_count
+      FROM public.game_daily_stats
+      WHERE day_bucket >= (CURRENT_DATE - v_days)
+      GROUP BY day_bucket
+    ),
+    stats AS (
+      SELECT
+        COALESCE(PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY games_count), 1) AS med,
+        COUNT(*) AS total_buckets
+      FROM raw_buckets
+    ),
+    filtered AS (
+      SELECT rb.ts, rb.ccu, rb.games_count
+      FROM raw_buckets rb
+      CROSS JOIN stats s
+      WHERE s.total_buckets <= 2 OR rb.games_count >= GREATEST(1, FLOOR(s.med * 0.45))
+      ORDER BY rb.ts ASC
+    )
+    SELECT COALESCE(
+      jsonb_agg(
+        jsonb_build_object('ts', ts, 'ccu', ccu, 'gamesCount', games_count)
+        ORDER BY ts ASC
+      ),
+      '[]'::JSONB
+    )
+    INTO v_points
+    FROM filtered;
+
+    IF jsonb_array_length(v_points) >= 2 THEN
+      v_source_table := 'game_daily_stats';
+      RETURN jsonb_build_object(
+        'tracked_games', v_tracked_games,
+        'live_total_ccu', v_live_total_ccu,
+        'source_table', v_source_table,
+        'points', v_points
+      );
+    END IF;
+  END IF;
+
+  -- 3) Hourly rollup for 24h / 7d (or fallback when daily history is still young)
+  v_hours := CASE v_range WHEN '1h' THEN 2 WHEN '24h' THEN 26 ELSE 168 END;
+
+  WITH raw_buckets AS (
+    SELECT
+      (EXTRACT(EPOCH FROM hour_bucket) * 1000)::BIGINT AS ts,
+      COALESCE(SUM(GREATEST(ROUND(avg_ccu), 0)), 0)::BIGINT AS ccu,
+      COUNT(*)::INTEGER AS games_count
+    FROM public.game_hourly_stats
+    WHERE hour_bucket >= (NOW() - make_interval(hours => v_hours))
+    GROUP BY hour_bucket
+  ),
+  stats AS (
+    SELECT
+      COALESCE(PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY games_count), 1) AS med,
+      COUNT(*) AS total_buckets
+    FROM raw_buckets
+  ),
+  filtered AS (
+    SELECT rb.ts, rb.ccu, rb.games_count
+    FROM raw_buckets rb
+    CROSS JOIN stats s
+    WHERE s.total_buckets <= 2 OR rb.games_count >= GREATEST(1, FLOOR(s.med * 0.45))
+    ORDER BY rb.ts ASC
+  )
+  SELECT COALESCE(
+    jsonb_agg(
+      jsonb_build_object('ts', ts, 'ccu', ccu, 'gamesCount', games_count)
+      ORDER BY ts ASC
+    ),
+    '[]'::JSONB
+  )
+  INTO v_points
+  FROM filtered;
+
+  IF jsonb_array_length(v_points) >= 2 THEN
+    v_source_table := 'game_hourly_stats';
+    RETURN jsonb_build_object(
+      'tracked_games', v_tracked_games,
+      'live_total_ccu', v_live_total_ccu,
+      'source_table', v_source_table,
+      'points', v_points
+    );
+  END IF;
+
+  -- 4) Snapshot 30-min bucket fallback (only last 24h, deduplicated per game per bucket)
+  WITH per_game_bucket AS (
+    SELECT DISTINCT ON (bucket_ts, universe_id)
+      (FLOOR(EXTRACT(EPOCH FROM captured_at) / 1800) * 1800000)::BIGINT AS bucket_ts,
+      universe_id,
+      GREATEST(ccu, 0)::BIGINT AS ccu
+    FROM public.game_snapshots
+    WHERE captured_at >= (NOW() - INTERVAL '24 hours')
+    ORDER BY bucket_ts, universe_id, captured_at DESC
+  ),
+  raw_buckets AS (
+    SELECT
+      bucket_ts AS ts,
+      SUM(ccu)::BIGINT AS ccu,
+      COUNT(*)::INTEGER AS games_count
+    FROM per_game_bucket
+    GROUP BY bucket_ts
+  ),
+  stats AS (
+    SELECT
+      COALESCE(PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY games_count), 1) AS med,
+      COUNT(*) AS total_buckets
+    FROM raw_buckets
+  ),
+  filtered AS (
+    SELECT rb.ts, rb.ccu, rb.games_count
+    FROM raw_buckets rb
+    CROSS JOIN stats s
+    WHERE s.total_buckets <= 2 OR rb.games_count >= GREATEST(1, FLOOR(s.med * 0.45))
+    ORDER BY rb.ts ASC
+  )
+  SELECT COALESCE(
+    jsonb_agg(
+      jsonb_build_object('ts', ts, 'ccu', ccu, 'gamesCount', games_count)
+      ORDER BY ts ASC
+    ),
+    '[]'::JSONB
+  )
+  INTO v_points
+  FROM filtered;
+
+  v_source_table := 'game_snapshots';
+  RETURN jsonb_build_object(
+    'tracked_games', v_tracked_games,
+    'live_total_ccu', v_live_total_ccu,
+    'source_table', v_source_table,
+    'points', v_points
+  );
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.get_platform_ccu_history(TEXT) TO anon, authenticated, service_role;
+
+
