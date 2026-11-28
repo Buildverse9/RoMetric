@@ -599,3 +599,9 @@ export const CURATED_ASSET_IDS_SEED: CuratedAssetIdRecord[] = [
     source: 'seed',
   },
 ];
+
+export function isValidAssetIdCategory(
+  value: string
+): value is AssetIdCategorySlug {
+  return Object.prototype.hasOwnProperty.call(ASSET_HUB_META, value);
+}

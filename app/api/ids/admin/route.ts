@@ -23,8 +23,11 @@ const VALID_CROSSHAIR_STYLES = new Set<
 
 export async function GET(req: NextRequest) {
   const auth = await verifyAdminBearerToken(req.headers.get('authorization'));
-  if (!auth.ok) {
-    return NextResponse.json({ error: auth.error }, { status: auth.status });
+  if (!auth) {
+    return NextResponse.json(
+      { error: 'Admin authorization required.' },
+      { status: 401 }
+    );
   }
   const items = await fetchCuratedAssetIds();
   return NextResponse.json({ items, total: items.length });
@@ -32,8 +35,11 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const auth = await verifyAdminBearerToken(req.headers.get('authorization'));
-  if (!auth.ok) {
-    return NextResponse.json({ error: auth.error }, { status: auth.status });
+  if (!auth) {
+    return NextResponse.json(
+      { error: 'Admin authorization required.' },
+      { status: 401 }
+    );
   }
 
   let body: Record<string, unknown>;

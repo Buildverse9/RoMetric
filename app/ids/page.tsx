@@ -21,7 +21,9 @@ import {
   type AssetIdCategorySlug,
 } from '@/lib/asset-ids-data';
 import { fetchCuratedAssetIds } from '@/lib/asset-ids-server';
-import { SITE_NAME, SITE_URL, safeJsonLd } from '@/lib/seo';
+import { SITE_URL, safeJsonLd } from '@/lib/seo';
+
+const SITE_NAME = 'RoMetric';
 
 export const dynamic = 'force-dynamic';
 

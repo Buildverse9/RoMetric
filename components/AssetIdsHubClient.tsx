@@ -711,7 +711,10 @@ export function AssetIdsHubClient({
                               className="object-cover"
                             />
                           ) : (
-                            <HubIcon className="w-6 h-6 text-slate-400 dark:text-[#6F8796]" />
+                            <HubCategoryIcon
+                              slug={category}
+                              className="w-6 h-6 text-slate-400 dark:text-[#6F8796]"
+                            />
                           )}
                         </div>
                         <div className="min-w-0 flex-1 space-y-1">
@@ -843,7 +846,7 @@ export function AssetIdsHubClient({
                         </button>
                       ) : (
                         <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 dark:bg-[#10E89A]/12 border border-emerald-500/20 shrink-0 flex items-center justify-center text-emerald-600 dark:text-[#10E89A]">
-                          <HubIcon className="w-6 h-6" />
+                          <HubCategoryIcon slug={category} className="w-6 h-6" />
                         </div>
                       )}
 

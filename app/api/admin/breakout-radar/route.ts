@@ -34,8 +34,11 @@ export interface BreakoutRadarItem {
 
 export async function GET(req: NextRequest) {
   const auth = await verifyAdminBearerToken(req.headers.get('authorization'));
-  if (!auth.ok) {
-    return NextResponse.json({ error: auth.error }, { status: auth.status });
+  if (!auth) {
+    return NextResponse.json(
+      { error: 'Admin authorization required.' },
+      { status: 401 }
+    );
   }
 
   if (!isSupabaseConfigured()) {
@@ -102,7 +105,7 @@ export async function GET(req: NextRequest) {
       if (g.currentCcu < 150) continue;
       const activeCount = activeByUid.get(g.universeId)?.size ?? 0;
       const growth = typeof g.growth24h === 'number' ? g.growth24h : null;
-      const createdMs = g.robloxCreatedAt ? Date.parse(g.robloxCreatedAt) : NaN;
+      const createdMs = g.firstObservedAt ? Date.parse(g.firstObservedAt) : NaN;
       const isRecent =
         Number.isFinite(createdMs) && nowMs - createdMs <= sixtyDaysMs;
 
@@ -139,12 +142,12 @@ export async function GET(req: NextRequest) {
         gamePath: buildGameUrlPath(g),
         creatorName: g.creatorName,
         genre: g.genre || 'Roblox',
-        iconUrl: g.iconUrl,
+        iconUrl: g.iconUrl ?? null,
         currentCcu: g.currentCcu,
         growth24h: growth,
         totalVisits: g.totalVisits,
         activeCodeCount: activeCount,
-        createdAt: g.robloxCreatedAt || null,
+        createdAt: g.firstObservedAt || null,
         breakoutScore: Math.round(score),
         reasonTags,
       });
