@@ -1,25 +1,25 @@
 /**
  * ============================================================================
- * RoMetric — Google Apps Script Sidecar (Zero-Cost 3,000-Game Scale Engine)
+ * RoMetric — Google Apps Script Sidecar (Unlimited 25+ CCU Scale Engine)
  * ============================================================================
  *
- * Works alongside your Cloudflare Worker (which handles fast 5m/30m CCU pulses)
- * using your free Google Apps Script quotas + 5 TB Google AI Pro Drive:
+ * Works alongside your Cloudflare Worker (1-min CCU pulses + Tier 2 D1 warm
+ * history) using your free Google Apps Script quotas + 5 TB Google Drive:
  *
- *   1) Every 2 hours  -> `runDiscoveryAndHygiene()`
+ *   1) Every 1 hour  -> `runDiscoveryAndHygiene()`
  *        Creator Exchange-style 4-vector discovery:
  *          • Roblox Explore Charts & Deep Pagination
  *          • Creator & Group Graph Crawl (other games by known studios)
  *          • Similar / Recommended Games Graph Walk
  *          • Rotating Omni-Search Keyword Sweeps
- *        Inserts newly discovered games with >= 25 CCU (with icons, thumbnails,
- *        and votes), enforces the 3,000 active roster cap, rebalances Tier 1
- *        (Top 100), and deactivates dormant games (< 10 CCU for 7+ days).
+ *        Inserts up to 500 newly discovered games >= 25 CCU per run (no 3,000
+ *        cap; up to 50,000 active games), rebalances Tier 1 (Top 100), and
+ *        deactivates dormant games (< 15 CCU for 7+ days).
  *
  *   2) Every 6 hours  -> `runVotesAndMetadataRefresh()`
  *        Batch-refreshes up_votes, down_votes, and like_ratio across ALL active
- *        games (up to 3,000) using parallel UrlFetchApp.fetchAll so Cloudflare
- *        Workers never waste subrequests on slow-moving vote counts.
+ *        games using parallel UrlFetchApp.fetchAll so Cloudflare Workers never
+ *        waste subrequests on slow-moving vote counts.
  *
  *   3) Daily 02:30 UTC -> `runNightlyDriveArchive()`
  *        Exports yesterday's UTC hourly & daily rollups from Supabase,
@@ -27,9 +27,9 @@
  *        Google Drive under `/RoMetric-Archive/YYYY/MM/rometric-YYYY-MM-DD.json.gz`
  *        right before Supabase's 03:00 UTC cleanup runs.
  *
- *   4) Every 6 hours  -> `runCodesCollection()`
+ *   4) Every 1 hour  -> `runCodesCollection()`
  *        Runs automated, compliant promotional code collection across a rotating
- *        batch of stalest active games using enabled modular providers:
+ *        batch of up to 120 active games using enabled modular providers:
  *          • Official Roblox Public Signals (game descriptions + group shouts)
  *          • Fandom MediaWiki Action API (`api.php`, CC BY-SA attributed)
  *          • Optional BloxArchive API (only if enabled & Script Properties set)

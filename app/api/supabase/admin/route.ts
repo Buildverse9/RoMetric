@@ -1,23 +1,58 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
+  invalidateSupabaseReadCaches,
   isSupabaseWriteConfigured,
   isValidNumericId,
   isValidTrackingTier,
   mapSupabaseJobRow,
+  mapSupabaseRowToGame,
   runSupabaseCollectionCycle,
   saveGameToSupabase,
   supabaseRest,
   verifyAdminBearerToken,
+  type SupabaseGameRow,
   type SupabaseJobRow,
 } from '@/lib/supabase-server';
 import type { LiveRobloxGamePayload } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 
+const ADMIN_GAMES_SELECT =
+  'universe_id,root_place_id,name,slug,creator_id,creator_name,creator_type,creator_verified,genre,icon_url,thumbnail_url,current_ccu,total_visits,favorites,up_votes,down_votes,like_ratio,growth_1h,growth_24h,growth_7d,growth_30d,peak_ccu_observed,peak_ccu_at,tracking_tier,active,data_source_id,collection_status,first_observed_at,last_collected_at,roblox_updated_at,updated_at';
+
+function parseExactCount(res: Response, fallbackLen = 0): number {
+  if (!res.ok) return fallbackLen;
+  const contentRange = res.headers.get('content-range');
+  const totalMatch = contentRange?.match(/\/(\d+)$/);
+  if (totalMatch) return Number(totalMatch[1]);
+  return fallbackLen;
+}
+
+function sanitizePostgrestSearch(raw: string): string {
+  // Strip PostgREST syntax/wildcard characters to prevent filter injection
+  return raw
+    .trim()
+    .slice(0, 60)
+    .replace(/[,()\\*%'"`]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 export async function GET(req: NextRequest) {
   if (!isSupabaseWriteConfigured()) {
     return NextResponse.json(
-      { configured: false, jobs: [], snapshotCount: 0 },
+      {
+        configured: false,
+        jobs: [],
+        games: [],
+        totalActiveGames: 0,
+        freshGames35m: 0,
+        snapshotCount: 0,
+        hourlyRowCount: 0,
+        dailyRowCount: 0,
+        warmD1Configured: false,
+        fetchedAt: new Date().toISOString(),
+      },
       { status: 200, headers: { 'Cache-Control': 'no-store' } }
     );
   }
@@ -31,37 +66,96 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const [jobsRes, snapsRes] = await Promise.all([
+    const { searchParams } = new URL(req.url);
+    const rawQ = searchParams.get('q') || '';
+    const cleanQ = sanitizePostgrestSearch(rawQ);
+    const freshCutoffIso = new Date(Date.now() - 35 * 60_000).toISOString();
+
+    let gamesQuery = `games?select=${ADMIN_GAMES_SELECT}&active=eq.true&order=current_ccu.desc&limit=150`;
+    if (cleanQ) {
+      if (isValidNumericId(cleanQ)) {
+        gamesQuery = `games?select=${ADMIN_GAMES_SELECT}&active=eq.true&or=(universe_id.eq.${cleanQ},root_place_id.eq.${cleanQ})&order=current_ccu.desc&limit=150`;
+      } else {
+        const pattern = encodeURIComponent(`*${cleanQ}*`);
+        gamesQuery = `games?select=${ADMIN_GAMES_SELECT}&active=eq.true&or=(name.ilike.${pattern},creator_name.ilike.${pattern})&order=current_ccu.desc&limit=150`;
+      }
+    }
+
+    const [
+      jobsRes,
+      activeGamesCountRes,
+      freshGamesCountRes,
+      snapsRes,
+      hourlyRes,
+      dailyRes,
+      liveGamesRes,
+    ] = await Promise.all([
       supabaseRest('collection_jobs?select=*&order=started_at.desc&limit=25', {
         requireAdminKey: true,
       }),
+      supabaseRest('games?select=universe_id&active=eq.true&limit=1', {
+        requireAdminKey: true,
+        headers: { Prefer: 'count=exact' },
+      }),
+      supabaseRest(
+        `games?select=universe_id&active=eq.true&last_collected_at=gte.${encodeURIComponent(
+          freshCutoffIso
+        )}&limit=1`,
+        {
+          requireAdminKey: true,
+          headers: { Prefer: 'count=exact' },
+        }
+      ),
       supabaseRest('game_snapshots?select=id&limit=1', {
         requireAdminKey: true,
         headers: { Prefer: 'count=exact' },
       }),
+      supabaseRest('game_hourly_stats?select=universe_id&limit=1', {
+        requireAdminKey: true,
+        headers: { Prefer: 'count=exact' },
+      }),
+      supabaseRest('game_daily_stats?select=universe_id&limit=1', {
+        requireAdminKey: true,
+        headers: { Prefer: 'count=exact' },
+      }),
+      supabaseRest(gamesQuery, { requireAdminKey: true }),
     ]);
 
     const jobRows: SupabaseJobRow[] = jobsRes.ok
       ? ((await jobsRes.json()) as SupabaseJobRow[])
       : [];
 
-    let snapshotCount = 0;
-    if (snapsRes.ok) {
-      const contentRange = snapsRes.headers.get('content-range');
-      const totalMatch = contentRange?.match(/\/(\d+)$/);
-      if (totalMatch) {
-        snapshotCount = Number(totalMatch[1]);
-      } else {
-        const snapRows = (await snapsRes.json()) as Array<{ id: number }>;
-        snapshotCount = snapRows.length;
-      }
-    }
+    const gameRows: SupabaseGameRow[] = liveGamesRes.ok
+      ? ((await liveGamesRes.json()) as SupabaseGameRow[])
+      : [];
+
+    const totalActiveGames = parseExactCount(activeGamesCountRes, gameRows.length);
+    const freshGames35m = parseExactCount(freshGamesCountRes, 0);
+    const snapshotCount = parseExactCount(snapsRes, 0);
+    const hourlyRowCount = parseExactCount(hourlyRes, 0);
+    const dailyRowCount = parseExactCount(dailyRes, 0);
+
+    const warmUrl = (
+      process.env.WARM_HISTORY_WORKER_URL ||
+      process.env.R2_HISTORY_WORKER_URL ||
+      ''
+    ).trim();
+    const warmD1Configured = Boolean(
+      warmUrl && warmUrl.startsWith('https://') && !warmUrl.includes('YOUR_')
+    );
 
     return NextResponse.json(
       {
         configured: true,
         jobs: jobRows.map(mapSupabaseJobRow),
+        games: gameRows.map(mapSupabaseRowToGame),
+        totalActiveGames,
+        freshGames35m,
         snapshotCount,
+        hourlyRowCount,
+        dailyRowCount,
+        warmD1Configured,
+        fetchedAt: new Date().toISOString(),
       },
       { status: 200, headers: { 'Cache-Control': 'no-store' } }
     );
@@ -157,6 +251,7 @@ export async function POST(req: NextRequest) {
       if (!res.ok) {
         throw new Error(`Supabase update failed (HTTP ${res.status})`);
       }
+      invalidateSupabaseReadCaches();
       return NextResponse.json({ configured: true, ok: true }, { status: 200 });
     }
 
@@ -175,14 +270,22 @@ export async function POST(req: NextRequest) {
       if (!res.ok) {
         throw new Error(`Supabase delete failed (HTTP ${res.status})`);
       }
+      invalidateSupabaseReadCaches();
       return NextResponse.json({ configured: true, ok: true }, { status: 200 });
     }
 
     if (action === 'prune') {
+      // First run the safe Postgres rollup+retention RPC so hourly & daily stats are preserved
+      const rpcRes = await supabaseRest('rpc/run_rometric_retention_rollup', {
+        method: 'POST',
+        requireAdminKey: true,
+        body: {},
+      }).catch(() => null);
+
       const rawHours = Number(body.retentionRawHours);
       const retentionHours = Number.isFinite(rawHours)
         ? Math.max(1, Math.min(720, Math.floor(rawHours)))
-        : 48;
+        : 12;
       const cutoffIso = new Date(
         Date.now() - retentionHours * 60 * 60 * 1000
       ).toISOString();
@@ -199,8 +302,13 @@ export async function POST(req: NextRequest) {
         throw new Error(`Supabase prune failed (HTTP ${res.status})`);
       }
       const deleted = (await res.json()) as unknown[];
+      invalidateSupabaseReadCaches();
       return NextResponse.json(
-        { configured: true, removed: Array.isArray(deleted) ? deleted.length : 0 },
+        {
+          configured: true,
+          rolledUp: Boolean(rpcRes?.ok),
+          removed: Array.isArray(deleted) ? deleted.length : 0,
+        },
         { status: 200 }
       );
     }

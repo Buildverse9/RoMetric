@@ -147,12 +147,39 @@ ALTER TABLE public.game_records ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.data_sources ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.collection_jobs ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "Public read games" ON public.games FOR SELECT USING (true);
-CREATE POLICY "Public read snapshots" ON public.game_snapshots FOR SELECT USING (true);
-CREATE POLICY "Public read hourly stats" ON public.game_hourly_stats FOR SELECT USING (true);
-CREATE POLICY "Public read daily stats" ON public.game_daily_stats FOR SELECT USING (true);
-CREATE POLICY "Public read game records" ON public.game_records FOR SELECT USING (true);
-CREATE POLICY "Public read data sources" ON public.data_sources FOR SELECT USING (true);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'games' AND policyname = 'Public read games'
+  ) THEN
+    CREATE POLICY "Public read games" ON public.games FOR SELECT USING (true);
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'game_snapshots' AND policyname = 'Public read snapshots'
+  ) THEN
+    CREATE POLICY "Public read snapshots" ON public.game_snapshots FOR SELECT USING (true);
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'game_hourly_stats' AND policyname = 'Public read hourly stats'
+  ) THEN
+    CREATE POLICY "Public read hourly stats" ON public.game_hourly_stats FOR SELECT USING (true);
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'game_daily_stats' AND policyname = 'Public read daily stats'
+  ) THEN
+    CREATE POLICY "Public read daily stats" ON public.game_daily_stats FOR SELECT USING (true);
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'game_records' AND policyname = 'Public read game records'
+  ) THEN
+    CREATE POLICY "Public read game records" ON public.game_records FOR SELECT USING (true);
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = 'data_sources' AND policyname = 'Public read data sources'
+  ) THEN
+    CREATE POLICY "Public read data sources" ON public.data_sources FOR SELECT USING (true);
+  END IF;
+END $$;
 -- Note: collection_jobs intentionally has NO public SELECT policy (service_role only).
 
 -- ============================================================================

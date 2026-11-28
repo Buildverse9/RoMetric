@@ -1839,14 +1839,19 @@ export async function fetchCodesAdminOverview(): Promise<CodesAdminOverview> {
 
   const [
     { list: sources, map: sourceMap },
+    gamesCountRes,
     gamesRows,
     allCodes,
     colLogsRes,
     verLogsRes,
   ] = await Promise.all([
     fetchAllSourcesMap(),
+    supabaseRest('games?select=universe_id&active=eq.true&limit=1', {
+      requireAdminKey: true,
+      headers: { Prefer: 'count=exact' },
+    }),
     fetchAllActiveGamesForCodes(2500),
-    fetchAllCodesPaginated(5000),
+    fetchAllCodesPaginated(30000),
     supabaseRest(
       'code_collection_logs?select=*&order=started_at.desc&limit=30',
       { requireAdminKey: true }
@@ -1857,6 +1862,15 @@ export async function fetchCodesAdminOverview(): Promise<CodesAdminOverview> {
     ),
   ]);
 
+  let exactSupabaseGamesCount = gamesRows.length;
+  if (gamesCountRes.ok) {
+    const rangeHeader = gamesCountRes.headers.get('content-range');
+    const totalMatch = rangeHeader?.match(/\/(\d+)$/);
+    if (totalMatch) {
+      exactSupabaseGamesCount = Number(totalMatch[1]);
+    }
+  }
+
   const gameMap = new Map(
     gamesRows.map((g) => [
       String(g.universe_id),
@@ -1864,19 +1878,47 @@ export async function fetchCodesAdminOverview(): Promise<CodesAdminOverview> {
     ])
   );
 
+  // Merge live Supabase codes with bundled 5,336-game verified catalog for accurate sitewide totals
   const coveredUniverseIds = new Set<string>();
+  const seenCodeKeys = new Set<string>();
   let activeCodes = 0;
   let pendingCodes = 0;
   let expiredCodes = 0;
   let unverifiedCodes = 0;
 
   for (const c of allCodes) {
-    coveredUniverseIds.add(String(c.universe_id));
+    const uid = String(c.universe_id);
+    coveredUniverseIds.add(uid);
+    seenCodeKeys.add(`${uid}:${c.normalized_code}`);
     if (c.status === 'active') activeCodes += 1;
     else if (c.status === 'pending_verification') pendingCodes += 1;
     else if (c.status === 'expired') expiredCodes += 1;
     else unverifiedCodes += 1;
   }
+
+  const seedCatalog = getSeedCodesCatalog();
+  let extraSeedCodes = 0;
+  for (const seed of seedCatalog) {
+    const uid = String(seed.u);
+    if (!gameMap.has(uid)) {
+      gameMap.set(uid, { name: seed.n, slug: seed.s });
+    }
+    if (seed.k.length > 0) {
+      coveredUniverseIds.add(uid);
+    }
+    for (const [code] of seed.k) {
+      const norm = normalizeSeedCode(code);
+      const key = `${uid}:${norm}`;
+      if (!seenCodeKeys.has(key)) {
+        seenCodeKeys.add(key);
+        activeCodes += 1;
+        extraSeedCodes += 1;
+      }
+    }
+  }
+
+  const totalGamesTracked = Math.max(exactSupabaseGamesCount, coveredUniverseIds.size);
+  const totalCodes = allCodes.length + extraSeedCodes;
 
   const colLogs: CodeCollectionLog[] = colLogsRes.ok
     ? ((await colLogsRes.json()) as DbCollectionLogRow[]).map(mapCollectionLogRow)
@@ -1904,10 +1946,10 @@ export async function fetchCodesAdminOverview(): Promise<CodesAdminOverview> {
     configured: true,
     schemaReady: true,
     summary: {
-      totalGamesTracked: gamesRows.length,
+      totalGamesTracked,
       gamesCovered: coveredUniverseIds.size,
-      gamesWithoutCoverage: Math.max(0, gamesRows.length - coveredUniverseIds.size),
-      totalCodes: allCodes.length,
+      gamesWithoutCoverage: Math.max(0, totalGamesTracked - coveredUniverseIds.size),
+      totalCodes,
       activeCodes,
       pendingCodes,
       expiredCodes,

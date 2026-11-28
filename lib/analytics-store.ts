@@ -40,8 +40,8 @@ async function getAdminAuthHeaders(): Promise<Record<string, string>> {
 
 export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
   paused: false,
-  retentionRawHours: 30,
-  retentionHourlyDays: 7,
+  retentionRawHours: 12,
+  retentionHourlyDays: 3,
   tier1IntervalMin: 5,
   tier2IntervalMin: 30,
   tier3IntervalMin: 30,
@@ -463,6 +463,81 @@ export async function saveSystemConfig(
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
   }
+}
+
+export interface AdminTelemetrySnapshot {
+  source: 'supabase' | 'firestore';
+  jobs: CollectionJob[];
+  games: GameRecordData[];
+  totalActiveGames: number;
+  freshGames35m: number;
+  snapshotCount: number;
+  hourlyRowCount: number;
+  dailyRowCount: number;
+  warmD1Configured: boolean;
+  fetchedAt: string;
+}
+
+export async function fetchAdminTelemetry(
+  searchQuery = ''
+): Promise<AdminTelemetrySnapshot> {
+  try {
+    const headers = await getAdminAuthHeaders();
+    const qs = searchQuery.trim()
+      ? `?q=${encodeURIComponent(searchQuery.trim())}`
+      : '';
+    const res = await fetch(`/api/supabase/admin${qs}`, {
+      cache: 'no-store',
+      headers,
+    });
+    if (res.ok) {
+      const data = (await res.json()) as {
+        configured?: boolean;
+        jobs?: CollectionJob[];
+        games?: GameRecordData[];
+        totalActiveGames?: number;
+        freshGames35m?: number;
+        snapshotCount?: number;
+        hourlyRowCount?: number;
+        dailyRowCount?: number;
+        warmD1Configured?: boolean;
+        fetchedAt?: string;
+      };
+      if (data.configured) {
+        return {
+          source: 'supabase',
+          jobs: data.jobs ?? [],
+          games: data.games ?? [],
+          totalActiveGames: Number(data.totalActiveGames ?? data.games?.length ?? 0),
+          freshGames35m: Number(data.freshGames35m ?? 0),
+          snapshotCount: Number(data.snapshotCount ?? 0),
+          hourlyRowCount: Number(data.hourlyRowCount ?? 0),
+          dailyRowCount: Number(data.dailyRowCount ?? 0),
+          warmD1Configured: Boolean(data.warmD1Configured),
+          fetchedAt: data.fetchedAt ?? new Date().toISOString(),
+        };
+      }
+    }
+  } catch {
+    // Fall through to Firestore
+  }
+
+  const [jobs, snapCount] = await Promise.all([
+    fetchCollectionJobs(25),
+    countStoredSnapshotsSample(),
+  ]);
+  return {
+    source: 'firestore',
+    jobs,
+    games: [],
+    totalActiveGames: 0,
+    freshGames35m: 0,
+    snapshotCount: snapCount,
+    hourlyRowCount: 0,
+    dailyRowCount: 0,
+    warmD1Configured: false,
+    fetchedAt: new Date().toISOString(),
+  };
 }
 
 export async function fetchCollectionJobs(maxCount = 25): Promise<CollectionJob[]> {

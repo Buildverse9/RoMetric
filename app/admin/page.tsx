@@ -22,15 +22,15 @@ import {
 import { useApp } from '@/components/AppProvider';
 import {
   addGameToTracking,
-  countStoredSnapshotsSample,
   DEFAULT_SYSTEM_CONFIG,
-  fetchCollectionJobs,
+  fetchAdminTelemetry,
   fetchSystemConfig,
   pruneExpiredRawSnapshots,
   removeGameFromTracking,
   runCollectionCycle,
   saveSystemConfig,
   updateGameTrackingSettings,
+  type AdminTelemetrySnapshot,
 } from '@/lib/analytics-store';
 import {
   formatCompactNumber,
@@ -64,8 +64,7 @@ export default function AdminDashboardPage() {
   } = useApp();
 
   const [config, setConfig] = useState<SystemConfig>(DEFAULT_SYSTEM_CONFIG);
-  const [jobs, setJobs] = useState<CollectionJob[]>([]);
-  const [snapshotCount, setSnapshotCount] = useState<number>(0);
+  const [telemetry, setTelemetry] = useState<AdminTelemetrySnapshot | null>(null);
   const [loadingAdmin, setLoadingAdmin] = useState(false);
   const [collecting, setCollecting] = useState(false);
   const [progressText, setProgressText] = useState<string | null>(null);
@@ -80,48 +79,56 @@ export default function AdminDashboardPage() {
   const [addingGame, setAddingGame] = useState(false);
   const [pruning, setPruning] = useState(false);
   const [listFilter, setListFilter] = useState('');
-  const [telemetryNowMs, setTelemetryNowMs] = useState<number>(0);
+  const [debouncedFilter, setDebouncedFilter] = useState('');
   const [adminTab, setAdminTab] = useState<'analytics' | 'codes' | 'social'>('analytics');
 
-  const loadAdminTelemetry = useCallback(async () => {
-    if (!isAdmin) return;
-    setLoadingAdmin(true);
-    try {
-      const [cfg, jobList, snapCount] = await Promise.all([
-        fetchSystemConfig(),
-        fetchCollectionJobs(25),
-        countStoredSnapshotsSample(),
-      ]);
-      setConfig(cfg);
-      setJobs(jobList);
-      setSnapshotCount(snapCount);
-      setTelemetryNowMs(Date.now());
-    } catch (err) {
-      console.error('Admin telemetry error:', err);
-      setStatusMessage({
-        type: 'error',
-        text: 'Unable to load admin telemetry. Please verify your admin permissions.',
-      });
-    } finally {
-      setLoadingAdmin(false);
-    }
-  }, [isAdmin]);
+  const jobs = useMemo(() => telemetry?.jobs ?? [], [telemetry]);
+  const snapshotCount = telemetry?.snapshotCount ?? 0;
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedFilter(listFilter.trim());
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [listFilter]);
+
+  const loadAdminTelemetry = useCallback(
+    async (searchQuery = debouncedFilter) => {
+      if (!isAdmin) return;
+      setLoadingAdmin(true);
+      try {
+        const [cfg, snap] = await Promise.all([
+          fetchSystemConfig().catch(() => DEFAULT_SYSTEM_CONFIG),
+          fetchAdminTelemetry(searchQuery),
+        ]);
+        setConfig(cfg);
+        setTelemetry(snap);
+      } catch (err) {
+        console.error('Admin telemetry error:', err);
+        setStatusMessage({
+          type: 'error',
+          text: 'Unable to load admin telemetry. Please verify your admin permissions.',
+        });
+      } finally {
+        setLoadingAdmin(false);
+      }
+    },
+    [isAdmin, debouncedFilter]
+  );
 
   useEffect(() => {
     if (!isAdmin) return;
     let cancelled = false;
     async function init() {
+      setLoadingAdmin(true);
       try {
-        const [cfg, jobList, snapCount] = await Promise.all([
-          fetchSystemConfig(),
-          fetchCollectionJobs(25),
-          countStoredSnapshotsSample(),
+        const [cfg, snap] = await Promise.all([
+          fetchSystemConfig().catch(() => DEFAULT_SYSTEM_CONFIG),
+          fetchAdminTelemetry(debouncedFilter),
         ]);
         if (!cancelled) {
           setConfig(cfg);
-          setJobs(jobList);
-          setSnapshotCount(snapCount);
-          setTelemetryNowMs(Date.now());
+          setTelemetry(snap);
         }
       } catch (err) {
         console.error('Admin telemetry error:', err);
@@ -131,13 +138,15 @@ export default function AdminDashboardPage() {
             text: 'Unable to load admin telemetry. Please verify your admin permissions.',
           });
         }
+      } finally {
+        if (!cancelled) setLoadingAdmin(false);
       }
     }
     void init();
     return () => {
       cancelled = true;
     };
-  }, [isAdmin]);
+  }, [isAdmin, debouncedFilter]);
 
   const handleRunCollection = useCallback(
     async (
@@ -249,7 +258,7 @@ export default function AdminDashboardPage() {
   ) => {
     try {
       await updateGameTrackingSettings(game, { trackingTier: nextTier });
-      await refreshCatalog(false);
+      await Promise.all([refreshCatalog(false), loadAdminTelemetry()]);
       setStatusMessage({
         type: 'success',
         text: `Updated "${game.name}" priority to ${nextTier.replace('_', ' ').toUpperCase()}.`,
@@ -265,7 +274,7 @@ export default function AdminDashboardPage() {
   const handleRemoveGame = async (game: GameRecordData) => {
     try {
       await removeGameFromTracking(game.universeId);
-      await refreshCatalog(false);
+      await Promise.all([refreshCatalog(false), loadAdminTelemetry()]);
       setStatusMessage({
         type: 'success',
         text: `Removed "${game.name}" from tracking.`,
@@ -311,26 +320,45 @@ export default function AdminDashboardPage() {
     const total429 = jobs.reduce((s, j) => s + j.http429Count, 0);
     const lastSuccess = jobs.find((j) => j.status !== 'failed') ?? null;
 
-    const estimatedDocs = games.length * 3 + snapshotCount + jobs.length;
-    const estimatedMb = Number(((estimatedDocs * 1.2) / 1024).toFixed(2));
+    const isSupabaseLive = telemetry?.source === 'supabase';
+    const totalTrackedGames = isSupabaseLive
+      ? telemetry.totalActiveGames
+      : games.length;
+    const hourlyRows = telemetry?.hourlyRowCount ?? 0;
+    const dailyRows = telemetry?.dailyRowCount ?? 0;
+
+    // Realistic PostgreSQL row + index footprint estimate on Supabase Free 500 MB
+    const estimatedKb =
+      totalTrackedGames * 1.4 +
+      snapshotCount * 0.25 +
+      hourlyRows * 0.25 +
+      dailyRows * 0.25 +
+      totalJobs * 0.6;
+    const estimatedMb = Number((estimatedKb / 1024).toFixed(1));
     const freeQuotaMb = 500;
     const usagePct = Math.min(
       100,
       Number(((estimatedMb / freeQuotaMb) * 100).toFixed(1))
     );
-    const fallbackMs = lastUpdatedAt ? new Date(lastUpdatedAt).getTime() : 0;
-    const referenceMs = telemetryNowMs || (Number.isFinite(fallbackMs) ? fallbackMs : 0);
-    const freshWithin30m =
-      referenceMs > 0
-        ? games.filter((g) => {
+
+    const freshWithin35m = isSupabaseLive
+      ? telemetry.freshGames35m
+      : (() => {
+          const fallbackMs = lastUpdatedAt ? new Date(lastUpdatedAt).getTime() : 0;
+          if (!Number.isFinite(fallbackMs) || fallbackMs <= 0) return 0;
+          return games.filter((g) => {
             const ts = new Date(g.lastCollectedAt).getTime();
-            return Number.isFinite(ts) && referenceMs - ts <= 35 * 60 * 1000;
-          }).length
-        : 0;
+            return Number.isFinite(ts) && fallbackMs - ts <= 35 * 60 * 1000;
+          }).length;
+        })();
+
     const lastArchiveJob =
       jobs.find((j) => j.triggeredBy === 'google_apps_script_archive') ?? null;
 
     return {
+      totalTrackedGames,
+      hourlyRows,
+      dailyRows,
       totalJobs,
       failedJobs,
       successRate,
@@ -341,11 +369,17 @@ export default function AdminDashboardPage() {
       estimatedMb,
       freeQuotaMb,
       usagePct,
-      freshWithin30m,
+      freshWithin35m,
+      warmD1Configured: Boolean(telemetry?.warmD1Configured),
+      fetchedAt: telemetry?.fetchedAt ?? lastUpdatedAt,
     };
-  }, [jobs, games, snapshotCount, telemetryNowMs, lastUpdatedAt]);
+  }, [jobs, games, snapshotCount, telemetry, lastUpdatedAt]);
 
   const filteredManagedGames = useMemo(() => {
+    if (telemetry?.source === 'supabase') {
+      // Live uncached games directly from Supabase (already server-filtered by debouncedFilter)
+      return telemetry.games;
+    }
     const q = listFilter.trim().toLowerCase();
     const matched = q
       ? games.filter(
@@ -356,15 +390,18 @@ export default function AdminDashboardPage() {
         )
       : games;
     return matched.slice(0, 150);
-  }, [games, listFilter]);
+  }, [telemetry, games, listFilter]);
 
   const formatJobSource = (triggeredBy: string): string => {
+    if (triggeredBy === 'cloudflare_cron_1m_pulse') return 'Cloudflare 1m Pulse';
+    if (triggeredBy === 'cloudflare_cron_15m_breakout') return 'Cloudflare 15m Breakout + D1';
     if (triggeredBy === 'cloudflare_cron_30m_pulse') return 'Cloudflare 30m Pulse';
     if (triggeredBy === 'cloudflare_cron_15m_sweep') return 'Cloudflare 15m Sweep';
     if (triggeredBy === 'cloudflare_cron_tier1') return 'Cloudflare Tier 1';
     if (triggeredBy === 'google_apps_script_discover') return 'Apps Script Discovery';
     if (triggeredBy === 'google_apps_script_votes') return 'Apps Script Votes';
     if (triggeredBy === 'google_apps_script_archive') return 'Google Drive Archive';
+    if (triggeredBy === 'google_apps_script_codes') return 'Apps Script Codes';
     if (triggeredBy.includes('cloudflare')) return 'Cloudflare Cron';
     return triggeredBy;
   };
@@ -456,11 +493,23 @@ export default function AdminDashboardPage() {
 
           <button
             type="button"
+            disabled={loadingAdmin}
+            onClick={() => void loadAdminTelemetry()}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium liquid-glass-pill text-slate-900 dark:text-[#F1F7FA] hover:border-emerald-500/50 disabled:opacity-50 rounded-full cursor-pointer"
+          >
+            <RefreshCw
+              className={`w-3.5 h-3.5 ${loadingAdmin ? 'animate-spin' : ''}`}
+            />
+            {loadingAdmin ? 'Refreshing...' : 'Refresh Live Data'}
+          </button>
+
+          <button
+            type="button"
             disabled={collecting || config.paused}
             onClick={() => void handleRunCollection('manual', false)}
             className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium liquid-glass-pill text-slate-900 dark:text-[#F1F7FA] hover:border-emerald-500/50 disabled:opacity-50 rounded-full cursor-pointer"
           >
-            Refresh Tracked
+            Collect Tracked
           </button>
 
           <button
@@ -576,14 +625,14 @@ export default function AdminDashboardPage() {
         </div>
       )}
 
-      {!collecting && games.length > 0 && games.length < 150 && (
+      {!collecting && metrics.totalTrackedGames > 0 && metrics.totalTrackedGames < 150 && (
         <div className="liquid-glass-hero rounded-3xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="text-sm text-slate-900 dark:text-[#F1F7FA]">
             <span className="font-semibold">
-              {games.length} games currently tracked.
+              {formatExactNumber(metrics.totalTrackedGames)} games currently tracked.
             </span>{' '}
             <span className="text-slate-600 dark:text-[#9CB3C0]">
-              Sync live Roblox Explore charts (or run your Google Apps Script sidecar) to expand up to 3,000 games tracked every 30 minutes.
+              Sync live Roblox Explore charts (or run your Google Apps Script sidecar) to discover and track all active 25+ CCU experiences.
             </span>
           </div>
           <button
@@ -604,14 +653,14 @@ export default function AdminDashboardPage() {
           className="rounded-3xl p-5 space-y-1"
         >
           <p className="text-xs text-slate-500 dark:text-[#6F8796] pr-7">
-            Tracked Games (3,000 cap)
+            Tracked Games (Live DB)
           </p>
           <p className="font-display text-2xl font-bold text-slate-900 dark:text-[#F1F7FA] tabular-nums">
-            {formatExactNumber(games.length)}
+            {formatExactNumber(metrics.totalTrackedGames)}
           </p>
           <p className="text-xs text-slate-500 dark:text-[#9CB3C0] tabular-nums">
-            {dataMode === 'persisted'
-              ? `${metrics.freshWithin30m}/${games.length} updated ≤ 30m`
+            {dataMode === 'persisted' || telemetry?.source === 'supabase'
+              ? `${formatExactNumber(metrics.freshWithin35m)}/${formatExactNumber(metrics.totalTrackedGames)} updated ≤ 35m`
               : 'Ready to seed'}
           </p>
         </LiquidGlassCard>
@@ -621,13 +670,13 @@ export default function AdminDashboardPage() {
           className="rounded-3xl p-5 space-y-1"
         >
           <p className="text-xs text-slate-500 dark:text-[#6F8796] pr-7">
-            Stored Raw Snapshots
+            Hot Snapshots (Tier 1)
           </p>
           <p className="font-display text-2xl font-bold text-emerald-600 dark:text-[#10E89A] tabular-nums">
             {formatExactNumber(snapshotCount)}
           </p>
           <p className="text-xs text-slate-500 dark:text-[#9CB3C0] tabular-nums">
-            {config.retentionRawHours}h raw retention
+            {formatExactNumber(metrics.hourlyRows)} hourly · {formatExactNumber(metrics.dailyRows)} daily
           </p>
         </LiquidGlassCard>
 
@@ -636,7 +685,7 @@ export default function AdminDashboardPage() {
           className="rounded-3xl p-5 space-y-1"
         >
           <p className="text-xs text-slate-500 dark:text-[#6F8796] pr-7">
-            Success Rate
+            Success Rate (Last 25)
           </p>
           <p className="font-display text-2xl font-bold text-slate-900 dark:text-[#F1F7FA] tabular-nums">
             {metrics.successRate === 'N/A' ? 'N/A' : `${metrics.successRate}%`}
@@ -651,7 +700,7 @@ export default function AdminDashboardPage() {
           className="rounded-3xl p-5 space-y-1"
         >
           <p className="text-xs text-slate-500 dark:text-[#6F8796] pr-7">
-            Status
+            Collector Status
           </p>
           <p className="font-display text-xl font-bold text-slate-900 dark:text-[#F1F7FA]">
             {config.paused
@@ -664,7 +713,7 @@ export default function AdminDashboardPage() {
             Last run:{' '}
             {metrics.lastSuccess
               ? formatRelativeTime(metrics.lastSuccess.completedAt)
-              : formatRelativeTime(lastUpdatedAt)}
+              : formatRelativeTime(metrics.fetchedAt)}
           </p>
         </LiquidGlassCard>
       </section>
@@ -679,11 +728,11 @@ export default function AdminDashboardPage() {
             <div className="flex items-center gap-2">
               <HardDrive className="w-4 h-4 text-emerald-600 dark:text-[#10E89A]" />
               <h2 className="font-display text-base font-bold text-slate-900 dark:text-[#F1F7FA]">
-                Storage Usage
+                3-Tier Storage Architecture
               </h2>
             </div>
             <span className="text-xs text-slate-500 dark:text-[#9CB3C0] tabular-nums">
-              {metrics.estimatedMb} MB / {metrics.freeQuotaMb} MB
+              ~{metrics.estimatedMb} MB / {metrics.freeQuotaMb} MB Hot
             </span>
           </div>
 
@@ -694,10 +743,13 @@ export default function AdminDashboardPage() {
             />
           </div>
 
-          <div className="flex items-center justify-between text-xs text-slate-500 dark:text-[#6F8796]">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500 dark:text-[#6F8796]">
             <span>
-              {config.retentionRawHours}h raw → {config.retentionHourlyDays}d
-              hourly → Drive archive
+              Tier 1: 12h raw · 3d hourly · 90d daily · Tier 2 D1:{' '}
+              <span className={metrics.warmD1Configured ? 'text-emerald-600 dark:text-[#10E89A] font-medium' : ''}>
+                {metrics.warmD1Configured ? 'Connected' : 'Ready'}
+              </span>
+              {' · '}Tier 3 Drive
               {metrics.lastArchiveJob
                 ? ` (${formatRelativeTime(metrics.lastArchiveJob.completedAt)})`
                 : ''}
@@ -708,7 +760,7 @@ export default function AdminDashboardPage() {
               onClick={() => void handlePruneRetention()}
               className="text-emerald-600 dark:text-[#10E89A] hover:underline font-semibold cursor-pointer disabled:opacity-50"
             >
-              {pruning ? 'Pruning...' : 'Prune expired'}
+              {pruning ? 'Rolling up...' : 'Rollup & Prune'}
             </button>
           </div>
         </LiquidGlassCard>
@@ -768,14 +820,14 @@ export default function AdminDashboardPage() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3 flex-wrap">
             <h2 className="font-display text-xl font-bold text-slate-900 dark:text-[#F1F7FA]">
-              Managed Tracking List ({formatExactNumber(games.length)})
+              Managed Tracking List ({formatExactNumber(metrics.totalTrackedGames)})
             </h2>
             <input
               type="text"
               value={listFilter}
               onChange={(e) => setListFilter(e.target.value)}
-              placeholder="Filter list..."
-              className="px-3.5 py-1.5 text-xs liquid-glass-pill rounded-full text-slate-900 dark:text-[#F1F7FA] placeholder:text-slate-500 dark:placeholder:text-[#6F8796] focus:outline-none focus:ring-2 focus:ring-emerald-500/40 w-44"
+              placeholder="Search all games or ID..."
+              className="px-3.5 py-1.5 text-xs liquid-glass-pill rounded-full text-slate-900 dark:text-[#F1F7FA] placeholder:text-slate-500 dark:placeholder:text-[#6F8796] focus:outline-none focus:ring-2 focus:ring-emerald-500/40 w-52"
             />
           </div>
           <div className="flex items-center gap-2">
@@ -803,7 +855,7 @@ export default function AdminDashboardPage() {
                 <tr className="text-xs font-medium text-slate-500 dark:text-[#9CB3C0]">
                   <th className="py-3.5 px-5">Game</th>
                   <th className="py-3.5 px-3 text-right">Live CCU</th>
-                  <th className="py-3.5 px-3 text-right">Snapshots</th>
+                  <th className="py-3.5 px-3 text-right">Total Visits</th>
                   <th className="py-3.5 px-3">Tier</th>
                   <th className="py-3.5 px-3">Updated</th>
                   <th className="py-3.5 pl-3 pr-12 text-right">Actions</th>
@@ -835,7 +887,7 @@ export default function AdminDashboardPage() {
                       {formatCompactNumber(g.currentCcu)}
                     </td>
                     <td className="py-3 px-3 text-right text-xs text-slate-600 dark:text-[#9CB3C0] tabular-nums">
-                      {g.snapshotCount ?? 0}
+                      {formatCompactNumber(g.totalVisits)}
                     </td>
                     <td className="py-3 px-3">
                       <select
