@@ -1,13 +1,13 @@
 import type { Metadata } from 'next';
 import { fetchSupabaseGameById } from '@/lib/supabase-server';
-import { formatCompactNumber, formatExactNumber } from '@/lib/format';
-import { estimateGameRevenue, formatCurrencyCompact } from '@/lib/revenue';
+import { formatCompactNumber } from '@/lib/format';
 import {
   SITE_URL,
   buildGameUrlPath,
   cleanSeoGameName,
   extractUniverseIdFromParam,
-  getCurrentMonthYear,
+  findGameAliasEntry,
+  formatAliasPhrase,
 } from '@/lib/seo';
 
 export async function generateMetadata({
@@ -29,18 +29,18 @@ export async function generateMetadata({
     const game = await fetchSupabaseGameById(cleanId);
     if (game) {
       const seoName = cleanSeoGameName(game.name);
-      const monthYear = getCurrentMonthYear();
+      const aliasEntry = findGameAliasEntry(seoName);
       const canonicalPath = buildGameUrlPath(game);
-      const rev = estimateGameRevenue(game);
-      const hasLiveCcu = (game.currentCcu ?? 0) > 0;
+
       const title =
-        hasLiveCcu && rev.monthlyUsd > 0
-          ? `${seoName} Live Players (${formatCompactNumber(game.currentCcu)}) & Est. Revenue (${monthYear})`
-          : `${seoName} Live Player Count, Stats & Revenue (${monthYear})`;
-      const description =
-        rev.monthlyUsd > 0
-          ? `${seoName} has ${formatExactNumber(game.currentCcu)} live players right now and makes an est. ${formatCurrencyCompact(rev.monthlyUsd)}/month (${formatCurrencyCompact(rev.dailyUsd)}/day). View live CCU charts, peak records & working codes.`
-          : `${seoName} by ${game.creatorName} has ${formatExactNumber(game.currentCcu)} live players and ${formatCompactNumber(game.totalVisits)} total visits. View live CCU charts, peak records, estimated revenue & working codes.`;
+        aliasEntry && seoName.length <= 28
+          ? `${seoName} (${aliasEntry.shortAcronym}) Live Player Count & Stats`
+          : `${seoName} Live Player Count, Peak CCU & Stats`;
+
+      const aliasBit = aliasEntry
+        ? ` (${formatAliasPhrase(aliasEntry)})`
+        : '';
+      const description = `Track ${seoName}${aliasBit} live player count, 24h & 30d CCU charts, ${formatCompactNumber(game.totalVisits)} total visits, DevEx revenue breakdown & working codes on RoMetric.`;
       const ogCardUrl = `${SITE_URL}/og/social?t=surge&g=${game.universeId}`;
 
       return {
@@ -59,7 +59,7 @@ export async function generateMetadata({
               url: ogCardUrl,
               width: 1200,
               height: 630,
-              alt: `${seoName} live player count & revenue estimate on RoMetric`,
+              alt: `${seoName} live player count & analytics on RoMetric`,
             },
           ],
         },

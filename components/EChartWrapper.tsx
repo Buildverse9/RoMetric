@@ -26,6 +26,7 @@ function loadEChartsCore() {
         components.GridComponent,
         components.TooltipComponent,
         components.LegendComponent,
+        components.MarkLineComponent,
         renderers.CanvasRenderer,
       ]);
       return echarts;

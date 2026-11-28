@@ -6,11 +6,15 @@ import {
   AlertCircle,
   Check,
   CheckCircle2,
+  CheckSquare,
   Clock,
   Copy,
   ExternalLink,
   HelpCircle,
   Loader2,
+  Square,
+  ThumbsDown,
+  ThumbsUp,
   Trash2,
   XCircle,
 } from 'lucide-react';
@@ -81,6 +85,10 @@ export function CodeCard({
   compact = false,
   isAdmin = false,
   busy = false,
+  redeemed = false,
+  onToggleRedeemed,
+  vote = null,
+  onVote,
   onDelete,
   onToggleStatus,
 }: {
@@ -88,6 +96,10 @@ export function CodeCard({
   compact?: boolean;
   isAdmin?: boolean;
   busy?: boolean;
+  redeemed?: boolean;
+  onToggleRedeemed?: (item: GameCodeRecord) => void;
+  vote?: 'worked' | 'expired' | null;
+  onVote?: (item: GameCodeRecord, nextVote: 'worked' | 'expired') => void;
   onDelete?: (item: GameCodeRecord) => void | Promise<void>;
   onToggleStatus?: (
     item: GameCodeRecord,
@@ -120,11 +132,35 @@ export function CodeCard({
         <div className="min-w-0 flex-1 space-y-1.5">
           {/* Code String + Status Row */}
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            {!isExpired && onToggleRedeemed && (
+              <button
+                type="button"
+                onClick={() => onToggleRedeemed(item)}
+                aria-label={
+                  redeemed
+                    ? `Unmark ${item.code} as redeemed`
+                    : `Mark ${item.code} as redeemed`
+                }
+                title={redeemed ? 'Redeemed (click to undo)' : 'Mark as redeemed'}
+                className={`inline-flex items-center justify-center rounded-md transition-colors cursor-pointer ${
+                  redeemed
+                    ? 'text-emerald-600 dark:text-[#10E89A]'
+                    : 'text-slate-400 dark:text-[#6F8796] hover:text-emerald-600 dark:hover:text-[#10E89A]'
+                }`}
+              >
+                {redeemed ? (
+                  <CheckSquare className="w-4 h-4" />
+                ) : (
+                  <Square className="w-4 h-4" />
+                )}
+              </button>
+            )}
+
             <code
               className={`font-mono font-bold tracking-wide select-all break-all ${
                 compact ? 'text-sm sm:text-base' : 'text-base sm:text-lg'
               } ${
-                isExpired
+                isExpired || redeemed
                   ? 'line-through text-slate-500 dark:text-[#7893A3]'
                   : 'text-slate-950 dark:text-white'
               }`}
@@ -136,7 +172,7 @@ export function CodeCard({
               className={`inline-flex items-center gap-1 text-xs font-semibold ${meta.textClass}`}
             >
               <StatusIcon className="w-3.5 h-3.5 shrink-0" />
-              <span>{meta.label}</span>
+              <span>{redeemed && !isExpired ? 'Redeemed' : meta.label}</span>
             </span>
           </div>
 
@@ -183,6 +219,38 @@ export function CodeCard({
               </a>
             ) : (
               <span>{item.sourceAttributionLabel || item.sourceId}</span>
+            )}
+
+            {!isExpired && onVote && (
+              <>
+                <span aria-hidden="true">·</span>
+                <span className="inline-flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => onVote(item, 'worked')}
+                    className={`inline-flex items-center gap-1 text-[11px] font-medium transition-colors cursor-pointer ${
+                      vote === 'worked'
+                        ? 'text-emerald-600 dark:text-[#10E89A] font-semibold'
+                        : 'text-slate-500 dark:text-[#7893A3] hover:text-emerald-600 dark:hover:text-[#10E89A]'
+                    }`}
+                  >
+                    <ThumbsUp className="w-3 h-3" />
+                    Worked
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onVote(item, 'expired')}
+                    className={`inline-flex items-center gap-1 text-[11px] font-medium transition-colors cursor-pointer ${
+                      vote === 'expired'
+                        ? 'text-amber-600 dark:text-amber-400 font-semibold'
+                        : 'text-slate-500 dark:text-[#7893A3] hover:text-amber-600 dark:hover:text-amber-400'
+                    }`}
+                  >
+                    <ThumbsDown className="w-3 h-3" />
+                    Expired?
+                  </button>
+                </span>
+              </>
             )}
           </div>
         </div>

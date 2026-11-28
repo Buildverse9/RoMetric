@@ -1,5 +1,6 @@
 import { permanentRedirect } from 'next/navigation';
 import { fetchSupabaseGameById, isSupabaseConfigured } from '@/lib/supabase-server';
+import { fetchGameCodesBySlugOrId } from '@/lib/codes-server';
 import { GameDetailClient } from '@/components/GameDetailClient';
 import { formatCompactNumber } from '@/lib/format';
 import { estimateGameRevenue, formatCurrencyCompact } from '@/lib/revenue';
@@ -13,6 +14,7 @@ import {
   getCurrentMonthYear,
   safeJsonLd,
 } from '@/lib/seo';
+import type { GameCodeRecord } from '@/lib/codes-types';
 import type { GameRecordData } from '@/lib/types';
 
 export const revalidate = 900;
@@ -27,9 +29,19 @@ export default async function CanonicalGameDetailPage({
   const monthYear = getCurrentMonthYear();
 
   let initialGame: GameRecordData | null = null;
+  let initialActiveCodes: GameCodeRecord[] = [];
   if (cleanId && isSupabaseConfigured()) {
     try {
-      initialGame = await fetchSupabaseGameById(cleanId);
+      const [fetchedGame, codesPayload] = await Promise.all([
+        fetchSupabaseGameById(cleanId).catch(() => null),
+        fetchGameCodesBySlugOrId(cleanId).catch(() => null),
+      ]);
+      initialGame = fetchedGame;
+      if (codesPayload?.codes) {
+        initialActiveCodes = codesPayload.codes.filter(
+          (c) => c.status === 'active'
+        );
+      }
     } catch {
       initialGame = null;
     }
@@ -160,6 +172,7 @@ export default async function CanonicalGameDetailPage({
       <GameDetailClient
         initialGame={initialGame}
         initialTracked={Boolean(initialGame)}
+        initialActiveCodes={initialActiveCodes}
         monthYear={monthYear}
       />
     </>

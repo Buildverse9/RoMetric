@@ -24,6 +24,15 @@ const FOOTER_COLUMNS = [
     ],
   },
   {
+    title: 'Asset IDs',
+    links: [
+      { href: '/ids', label: 'Roblox Asset IDs' },
+      { href: '/ids/crosshairs', label: 'Crosshair IDs' },
+      { href: '/ids/decals', label: 'Decal & Image IDs' },
+      { href: '/ids/music', label: 'Music & Song IDs' },
+    ],
+  },
+  {
     title: 'Intelligence',
     links: [
       { href: '/articles', label: 'Articles & Stories' },
@@ -77,7 +86,7 @@ export function Footer() {
             </p>
           </div>
 
-          <div className="lg:col-span-8 grid grid-cols-2 sm:grid-cols-4 gap-6">
+          <div className="lg:col-span-8 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-6">
             {FOOTER_COLUMNS.map((col) => (
               <div key={col.title} className="space-y-3">
                 <p className="text-xs font-semibold uppercase tracking-wider text-slate-900 dark:text-[#F1F7FA]">

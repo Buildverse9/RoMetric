@@ -44,6 +44,8 @@ import {
   buildCodeFaqItems,
   buildGameUrlPath,
   cleanSeoGameName,
+  findGameAliasEntry,
+  formatAliasPhrase,
   getCurrentMonthYear,
 } from '@/lib/seo';
 
@@ -58,7 +60,38 @@ export function GameCodesDetailClient({
   const { user, isAdmin } = useApp();
   const canAdminManage = Boolean(isAdmin && user);
 
-  const [payload, setPayload] = useState<GameCodesDetailPayload>(initialPayload);
+  const initialUniverseId = initialPayload.game?.universeId ?? '';
+  const [payloadOverride, setPayloadOverride] = useState<{
+    universeId: string;
+    payload: GameCodesDetailPayload;
+  } | null>(null);
+  const payload =
+    payloadOverride && payloadOverride.universeId === initialUniverseId
+      ? payloadOverride.payload
+      : initialPayload;
+
+  const setPayload = useCallback(
+    (
+      updater:
+        | GameCodesDetailPayload
+        | ((prev: GameCodesDetailPayload) => GameCodesDetailPayload)
+    ) => {
+      setPayloadOverride((prev) => {
+        const current =
+          prev && prev.universeId === initialUniverseId
+            ? prev.payload
+            : initialPayload;
+        const next =
+          typeof updater === 'function' ? updater(current) : updater;
+        return {
+          universeId: next.game?.universeId ?? initialUniverseId,
+          payload: next,
+        };
+      });
+    },
+    [initialUniverseId, initialPayload]
+  );
+
   const [showExpired, setShowExpired] = useState(false);
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [busyCodeKey, setBusyCodeKey] = useState<string | null>(null);
@@ -66,13 +99,68 @@ export function GameCodesDetailClient({
     type: 'success' | 'error';
     text: string;
   } | null>(null);
+  const [redeemedMap, setRedeemedMap] = useState<Record<string, boolean>>({});
+  const [votesMap, setVotesMap] = useState<
+    Record<string, 'worked' | 'expired'>
+  >({});
 
   const effectiveMonthYear = monthYear || getCurrentMonthYear();
-  const initialUniverseId = initialPayload.game?.universeId ?? '';
 
   useEffect(() => {
-    setPayload(initialPayload);
-  }, [initialUniverseId, initialPayload]);
+    let active = true;
+    Promise.resolve().then(() => {
+      if (!active) return;
+      try {
+        const savedRed = window.localStorage.getItem('rometric-redeemed-codes');
+        if (savedRed) setRedeemedMap(JSON.parse(savedRed));
+        const savedVotes = window.localStorage.getItem('rometric-code-votes');
+        if (savedVotes) setVotesMap(JSON.parse(savedVotes));
+      } catch {
+        // Ignore storage restrictions
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const handleToggleRedeemed = useCallback(
+    (item: GameCodeRecord) => {
+      const storageKey = `${initialUniverseId || item.universeId}:${item.normalizedCode}`;
+      setRedeemedMap((prev) => {
+        const next = { ...prev, [storageKey]: !prev[storageKey] };
+        try {
+          window.localStorage.setItem(
+            'rometric-redeemed-codes',
+            JSON.stringify(next)
+          );
+        } catch {
+          // Ignore storage quota errors
+        }
+        return next;
+      });
+    },
+    [initialUniverseId]
+  );
+
+  const handleVote = useCallback(
+    (item: GameCodeRecord, nextVote: 'worked' | 'expired') => {
+      const storageKey = `${initialUniverseId || item.universeId}:${item.normalizedCode}`;
+      setVotesMap((prev) => {
+        const next = { ...prev, [storageKey]: nextVote };
+        try {
+          window.localStorage.setItem(
+            'rometric-code-votes',
+            JSON.stringify(next)
+          );
+        } catch {
+          // Ignore storage quota errors
+        }
+        return next;
+      });
+    },
+    [initialUniverseId]
+  );
 
   const game = payload.game;
 
@@ -101,7 +189,7 @@ export function GameCodesDetailClient({
         router.refresh();
       }
     },
-    [user, router]
+    [user, router, setPayload]
   );
 
   const handleCodeAdded = useCallback(
@@ -126,7 +214,7 @@ export function GameCodesDetailClient({
         void refreshFromServer(game.slug || game.universeId);
       }
     },
-    [game, refreshFromServer]
+    [game, refreshFromServer, setPayload]
   );
 
   const handleAdminDeleteCode = useCallback(
@@ -180,7 +268,7 @@ export function GameCodesDetailClient({
         setBusyCodeKey(null);
       }
     },
-    [user, isAdmin, game, busyCodeKey, refreshFromServer]
+    [user, isAdmin, game, busyCodeKey, refreshFromServer, setPayload]
   );
 
   const handleAdminToggleStatus = useCallback(
@@ -241,7 +329,7 @@ export function GameCodesDetailClient({
         setBusyCodeKey(null);
       }
     },
-    [user, isAdmin, game, busyCodeKey, refreshFromServer]
+    [user, isAdmin, game, busyCodeKey, refreshFromServer, setPayload]
   );
 
   const { activeCodes, pendingAndUnverified, expiredCodes, usedSources } =
@@ -294,7 +382,11 @@ export function GameCodesDetailClient({
     payload.codes[0]?.updatedAt ||
     game.codesLastCheckedAt;
   const cleanName = cleanSeoGameName(game.name);
+  const aliasEntry = findGameAliasEntry(cleanName);
   const hasDifferentRawTitle = cleanName !== game.name.trim();
+  const redeemedActiveCount = activeCodes.filter(
+    (c) => Boolean(redeemedMap[`${game.universeId}:${c.normalizedCode}`])
+  ).length;
 
   return (
     <div className="max-w-[1280px] mx-auto px-4 sm:px-6 pt-6 sm:pt-8 pb-10 space-y-7">
@@ -357,7 +449,7 @@ export function GameCodesDetailClient({
         className="rounded-[28px] p-5 sm:p-7"
       >
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
-          <div className="lg:col-span-4">
+          <div className="hidden lg:block lg:col-span-4">
             <GameArtwork
               src={game.thumbnailUrl || game.iconUrl}
               alt={`${cleanName} Roblox codes`}
@@ -367,13 +459,18 @@ export function GameCodesDetailClient({
 
           <div className="lg:col-span-8 space-y-4 pr-0 lg:pr-8">
             <div className="flex items-start gap-3.5">
-              <div className="shrink-0 hidden sm:block">
+              <div className="shrink-0">
                 <GameArtwork src={game.iconUrl} alt={cleanName} size="md" />
               </div>
               <div className="min-w-0 space-y-1">
                 <h1 className="font-display text-2xl sm:text-3xl font-extrabold text-slate-950 dark:text-white tracking-tight text-balance">
                   {cleanName} Codes ({effectiveMonthYear})
                 </h1>
+                {aliasEntry && (
+                  <p className="text-xs font-medium text-emerald-700 dark:text-[#10E89A]">
+                    Also known as: {formatAliasPhrase(aliasEntry)}
+                  </p>
+                )}
                 {hasDifferentRawTitle && (
                   <p className="text-xs text-slate-500 dark:text-[#7893A3] truncate">
                     Official Roblox title: {game.name}
@@ -492,6 +589,11 @@ export function GameCodesDetailClient({
               </h2>
             </div>
             <div className="flex items-center gap-3">
+              {activeCodes.length > 0 && (
+                <span className="text-xs font-medium text-slate-500 dark:text-[#86A1B0] tabular-nums">
+                  {redeemedActiveCount}/{activeCodes.length} redeemed
+                </span>
+              )}
               <span className="text-xs font-medium text-emerald-700 dark:text-[#10E89A]">
                 Checked for {effectiveMonthYear}
               </span>
@@ -512,12 +614,17 @@ export function GameCodesDetailClient({
             <div className="space-y-3">
               {activeCodes.map((c) => {
                 const key = `${c.id}:${c.normalizedCode}`;
+                const storageKey = `${game.universeId}:${c.normalizedCode}`;
                 return (
                   <CodeCard
                     key={key}
                     item={c}
                     isAdmin={canAdminManage}
                     busy={busyCodeKey === key}
+                    redeemed={Boolean(redeemedMap[storageKey])}
+                    onToggleRedeemed={handleToggleRedeemed}
+                    vote={votesMap[storageKey] ?? null}
+                    onVote={handleVote}
                     onDelete={handleAdminDeleteCode}
                     onToggleStatus={handleAdminToggleStatus}
                   />

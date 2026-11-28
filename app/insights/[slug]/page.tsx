@@ -12,17 +12,20 @@ import { formatCompactNumber, formatExactNumber } from '@/lib/format';
 import { estimateGameRevenue, formatCurrencyCompact } from '@/lib/revenue';
 import {
   SITE_URL,
+  buildCanonicalCodeSlug,
   buildGameUrlPath,
   cleanSeoGameName,
   getCurrentMonthYear,
   safeJsonLd,
 } from '@/lib/seo';
+import { fetchGameCodesBySlugOrId } from '@/lib/codes-server';
 import {
   fetchSupabaseGamesList,
   isSupabaseConfigured,
 } from '@/lib/supabase-server';
 import { GameArtwork } from '@/components/GameArtwork';
 import { GrowthValue } from '@/components/GameTable';
+import { InteractiveRevenueCalculator } from '@/components/InteractiveRevenueCalculator';
 import { LiquidGlassCard } from '@/components/MotionPrimitives';
 import type { GameRecordData } from '@/lib/types';
 
@@ -51,17 +54,11 @@ export async function generateMetadata({
     const matchedGame = findGameByRevenueInsightSlug(decoded, games);
     if (matchedGame) {
       const cleanName = cleanSeoGameName(matchedGame.name);
-      const rev = estimateGameRevenue(matchedGame);
+      const year = new Date().getUTCFullYear();
       const pageUrl = `${SITE_URL}/insights/${encodeURIComponent(decoded)}`;
       const ogImage = `${SITE_URL}/og/social?t=surge&g=${matchedGame.universeId}`;
-      const title =
-        rev.monthlyUsd > 0
-          ? `How Much Does ${cleanName} Make? (${formatCurrencyCompact(rev.monthlyUsd)}/Mo · ${monthYear})`
-          : `How Much Does ${cleanName} Make a Month? (${monthYear} Estimate)`;
-      const description =
-        rev.monthlyUsd > 0
-          ? `${cleanName} makes an est. ${formatCurrencyCompact(rev.monthlyUsd)}/month (${formatCurrencyCompact(rev.dailyUsd)}/day, ${formatCurrencyCompact(rev.yearlyUsd)}/yr) with ${formatExactNumber(matchedGame.currentCcu)} live players. See full DevEx & Robux breakdown.`
-          : `Based on ${formatExactNumber(matchedGame.currentCcu)} live concurrent players, see ${cleanName}'s estimated daily, monthly, and yearly Roblox DevEx revenue on RoMetric.`;
+      const title = `How Much Does ${cleanName} Make? (${year} DevEx Breakdown)`;
+      const description = `Explore ${cleanName}'s estimated daily, monthly & annual Roblox DevEx revenue with ${formatExactNumber(matchedGame.currentCcu)} live players—plus our interactive CCU earnings calculator.`;
 
       return {
         title,
@@ -121,6 +118,13 @@ export default async function InsightDetailPage({
     const highMonthly = Math.round(rev.monthlyUsd * 1.45);
     const annualUsd = Math.round(rev.monthlyUsd * 12);
     const peers = findSimilarGames(revenueGame, games, 6);
+    const topPeer = peers[0]?.game ?? null;
+    const codesPayload = await fetchGameCodesBySlugOrId(
+      revenueGame.universeId
+    ).catch(() => null);
+    const activeCodesCount =
+      codesPayload?.codes.filter((c) => c.status === 'active').length ?? 0;
+    const codeSlug = buildCanonicalCodeSlug(revenueGame) || revenueGame.slug;
 
     const faqItems = [
       {
@@ -294,14 +298,26 @@ export default async function InsightDetailPage({
               Similar Games
             </Link>
             <Link
-              href={`/codes/${encodeURIComponent(revenueGame.slug)}`}
+              href={`/codes/${encodeURIComponent(codeSlug)}`}
               className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium rounded-full liquid-glass-pill text-slate-700 dark:text-[#C5D8E2] hover:text-emerald-600 dark:hover:text-[#10E89A]"
             >
               <Ticket className="w-3.5 h-3.5" />
-              Promo Codes
+              {activeCodesCount > 0
+                ? `Promo Codes (${activeCodesCount})`
+                : 'Promo Codes'}
             </Link>
           </div>
         </LiquidGlassCard>
+
+        <InteractiveRevenueCalculator
+          gameName={cleanName}
+          universeId={revenueGame.universeId}
+          baseCcu={revenueGame.currentCcu}
+          baseMonthlyUsd={rev.monthlyUsd}
+          baseMonthlyRobux={rev.monthlyRobux}
+          topPeerUniverseId={topPeer?.universeId ?? null}
+          topPeerName={topPeer ? cleanSeoGameName(topPeer.name) : null}
+        />
 
         <LiquidGlassCard className="rounded-3xl p-6 space-y-4">
           <h2 className="font-display text-lg font-bold text-slate-950 dark:text-white">

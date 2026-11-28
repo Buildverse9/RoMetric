@@ -524,7 +524,7 @@ export interface StaticInsightDefinition {
 export const STATIC_INSIGHTS: StaticInsightDefinition[] = [
   {
     slug: 'most-played-roblox-games-right-now',
-    title: 'What Are the Most Played Roblox Games Right Now?',
+    title: 'Top 50 Most Played Roblox Games Right Now (Live Player Count)',
     summary:
       'Live player-count breakdown of the top experiences commanding Roblox concurrent traffic, total visits, and genre share.',
     category: 'Live Market',

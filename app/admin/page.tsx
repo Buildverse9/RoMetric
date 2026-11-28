@@ -6,7 +6,9 @@ import Link from 'next/link';
 import {
   AlertTriangle,
   CheckCircle2,
+  Crosshair,
   Database,
+  Flame,
   HardDrive,
   Lock,
   LogOut,
@@ -49,6 +51,8 @@ import { GameArtwork } from '@/components/GameArtwork';
 import { LiquidGlassCard } from '@/components/MotionPrimitives';
 import { AdminCodesPanel } from '@/components/AdminCodesPanel';
 import { AdminSocialStudio } from '@/components/AdminSocialStudio';
+import { AdminBreakoutRadar } from '@/components/AdminBreakoutRadar';
+import { AdminAssetIdsPanel } from '@/components/AdminAssetIdsPanel';
 
 export default function AdminDashboardPage() {
   const {
@@ -80,7 +84,9 @@ export default function AdminDashboardPage() {
   const [pruning, setPruning] = useState(false);
   const [listFilter, setListFilter] = useState('');
   const [debouncedFilter, setDebouncedFilter] = useState('');
-  const [adminTab, setAdminTab] = useState<'analytics' | 'codes' | 'social'>('analytics');
+  const [adminTab, setAdminTab] = useState<
+    'analytics' | 'radar' | 'codes' | 'ids' | 'social'
+  >('analytics');
 
   const jobs = useMemo(() => telemetry?.jobs ?? [], [telemetry]);
   const snapshotCount = telemetry?.snapshotCount ?? 0;
@@ -569,6 +575,18 @@ export default function AdminDashboardPage() {
         </button>
         <button
           type="button"
+          onClick={() => setAdminTab('radar')}
+          className={`inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-full transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+            adminTab === 'radar'
+              ? 'bg-emerald-600 dark:bg-[#10E89A] text-white dark:text-[#04130D]'
+              : 'liquid-glass-pill text-slate-600 dark:text-[#9CB3C0] hover:text-slate-950 dark:hover:text-white'
+          }`}
+        >
+          <Flame className="w-3.5 h-3.5" />
+          Breakout Radar
+        </button>
+        <button
+          type="button"
           onClick={() => setAdminTab('codes')}
           className={`inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-full transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
             adminTab === 'codes'
@@ -578,6 +596,18 @@ export default function AdminDashboardPage() {
         >
           <Ticket className="w-3.5 h-3.5" />
           Game Codes
+        </button>
+        <button
+          type="button"
+          onClick={() => setAdminTab('ids')}
+          className={`inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-full transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+            adminTab === 'ids'
+              ? 'bg-emerald-600 dark:bg-[#10E89A] text-white dark:text-[#04130D]'
+              : 'liquid-glass-pill text-slate-600 dark:text-[#9CB3C0] hover:text-slate-950 dark:hover:text-white'
+          }`}
+        >
+          <Crosshair className="w-3.5 h-3.5" />
+          Asset IDs
         </button>
         <button
           type="button"
@@ -593,8 +623,12 @@ export default function AdminDashboardPage() {
         </button>
       </div>
 
-      {adminTab === 'codes' ? (
+      {adminTab === 'radar' ? (
+        <AdminBreakoutRadar />
+      ) : adminTab === 'codes' ? (
         <AdminCodesPanel />
+      ) : adminTab === 'ids' ? (
+        <AdminAssetIdsPanel />
       ) : adminTab === 'social' ? (
         <AdminSocialStudio />
       ) : (

@@ -13,6 +13,7 @@ import {
   Calendar,
   ChevronDown,
   Compass,
+  Crosshair,
   Flame,
   GitCompare,
   Hash,
@@ -44,6 +45,12 @@ const NAV_LINKS = [
 ];
 
 const EXPLORE_ITEMS = [
+  {
+    href: '/ids',
+    label: 'Roblox Asset IDs',
+    desc: 'Crosshairs, Decals, Hair, Faces & Music',
+    icon: Crosshair,
+  },
   {
     href: '/genres',
     label: 'Genres & Niches',

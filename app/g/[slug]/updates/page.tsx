@@ -13,6 +13,7 @@ import {
 import { estimateGameRevenue, formatCurrencyCompact } from '@/lib/revenue';
 import {
   SITE_URL,
+  buildCanonicalCodeSlug,
   buildGameSlugParam,
   buildGameUpdatesUrlPath,
   buildGameUrlPath,
@@ -30,6 +31,7 @@ import {
 import { GameArtwork } from '@/components/GameArtwork';
 import { GrowthValue } from '@/components/GameTable';
 import { LiquidGlassCard } from '@/components/MotionPrimitives';
+import { UpdatesImpactChart } from '@/components/UpdatesImpactChart';
 
 export const revalidate = 1800;
 
@@ -51,12 +53,12 @@ export async function generateMetadata({
   const canonicalPath = buildGameUpdatesUrlPath(game);
 
   return {
-    title: `${cleanName} Updates, Patch Status & Player Impact (${monthYear})`,
-    description: `Check when ${cleanName} was last updated on Roblox, track post-patch player counts, observed peak CCU, and 30-day daily activity trends.`,
+    title: `${cleanName} Update Log, Patch Notes & Live Player Count`,
+    description: `Check the latest ${cleanName} update log for ${monthYear}—exact Roblox patch timestamp, release notes, and 30-day post-update player trend chart.`,
     alternates: { canonical: `${SITE_URL}${canonicalPath}` },
     openGraph: {
-      title: `${cleanName} Updates & Player Impact (${monthYear}) | RoMetric`,
-      description: `Live update timestamp, patch tag detection, and 30-day CCU impact log for ${cleanName}.`,
+      title: `${cleanName} Update Log & Patch Notes (${monthYear}) | RoMetric`,
+      description: `Live update timestamp, patch notes, and 30-day CCU impact chart for ${cleanName}.`,
       url: `${SITE_URL}${canonicalPath}`,
       type: 'website',
     },
@@ -156,7 +158,7 @@ export default async function CanonicalGameUpdatesPage({
             <GameArtwork src={game.iconUrl} alt={game.name} size="lg" />
             <div className="space-y-1.5 min-w-0">
               <h1 className="font-display text-2xl sm:text-3xl font-bold tracking-tight text-slate-950 dark:text-white [text-wrap:balance]">
-                {cleanName} Updates &amp; Patch Impact
+                {cleanName} Update Log &amp; Patch Notes
               </h1>
               <p className="text-xs sm:text-sm text-slate-600 dark:text-[#9CB3C0]">
                 {game.robloxUpdatedAt
@@ -183,7 +185,7 @@ export default async function CanonicalGameUpdatesPage({
               Similar Games
             </Link>
             <Link
-              href={`/codes/${encodeURIComponent(game.slug)}`}
+              href={`/codes/${encodeURIComponent(buildCanonicalCodeSlug(game) || game.slug)}`}
               className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium rounded-full liquid-glass-pill text-slate-700 dark:text-[#C5D8E2] hover:text-emerald-600 dark:hover:text-[#10E89A] transition-colors whitespace-nowrap"
             >
               <Ticket className="w-3.5 h-3.5" />
@@ -228,6 +230,17 @@ export default async function CanonicalGameUpdatesPage({
           </p>
         </LiquidGlassCard>
       </div>
+
+      {/* Interactive 7D / 30D Update Impact Chart */}
+      <UpdatesImpactChart
+        gameName={cleanName}
+        points={history30d.points.map((p) => ({
+          timestamp: p.timestamp,
+          ccu: p.ccu,
+          maxCcu: p.maxCcu,
+        }))}
+        latestUpdateIso={game.robloxUpdatedAt}
+      />
 
       {/* Official description / patch notes snippet if available */}
       {game.description && (

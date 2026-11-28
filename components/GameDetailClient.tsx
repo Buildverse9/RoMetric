@@ -7,11 +7,14 @@ import { motion } from 'motion/react';
 import {
   ArrowLeft,
   ArrowRight,
+  Check,
   Clock,
+  Copy,
   DollarSign,
   ExternalLink,
   GitCompare,
   History,
+  Plus,
   ShieldCheck,
   Sparkles,
   ThumbsDown,
@@ -34,18 +37,24 @@ import {
 import { estimateGameRevenue, formatCurrencyCompact } from '@/lib/revenue';
 import { buildGameRevenueInsightSlug } from '@/lib/market-intelligence';
 import {
+  buildCanonicalCodeSlug,
   buildGameFaqItems,
   buildGameUpdatesUrlPath,
   cleanSeoGameName,
   extractUniverseIdFromParam,
   getCurrentMonthYear,
 } from '@/lib/seo';
+import type { GameCodeRecord } from '@/lib/codes-types';
 import type {
   GamePeakRecord,
   GameRecordData,
   RobloxFetchResponse,
   TimeRange,
 } from '@/lib/types';
+import {
+  AdminAddCodeModal,
+  type AdminCodeAddedPayload,
+} from '@/components/AdminAddCodeModal';
 import { GameArtwork } from '@/components/GameArtwork';
 import { GrowthValue } from '@/components/GameTable';
 import { EChartWrapper } from '@/components/EChartWrapper';
@@ -74,10 +83,12 @@ const TIME_RANGES: Array<{ id: TimeRange; label: string }> = [
 export function GameDetailClient({
   initialGame = null,
   initialTracked = false,
+  initialActiveCodes = [],
   monthYear,
 }: {
   initialGame?: GameRecordData | null;
   initialTracked?: boolean;
+  initialActiveCodes?: GameCodeRecord[];
   monthYear?: string;
 }) {
   const effectiveMonthYear = monthYear || getCurrentMonthYear();
@@ -86,8 +97,9 @@ export function GameDetailClient({
   const universeId =
     extractUniverseIdFromParam(String(rawRouteParam)) ||
     String(initialGame?.universeId ?? '').replace(/[^0-9]/g, '');
-  const { theme, games } = useApp();
+  const { theme, games, user, isAdmin } = useApp();
   const isDark = theme === 'dark';
+  const canAdminManage = Boolean(user && isAdmin);
 
   const hasMatchingInitial =
     Boolean(initialGame) && initialGame?.universeId === universeId;
@@ -98,6 +110,10 @@ export function GameDetailClient({
   const [isTracked, setIsTracked] = useState(
     hasMatchingInitial ? initialTracked : false
   );
+  const [activeCodes, setActiveCodes] =
+    useState<GameCodeRecord[]>(initialActiveCodes);
+  const [copiedCode, setCopiedCode] = useState<string | null>(null);
+  const [addCodeOpen, setAddCodeOpen] = useState(false);
   const [loading, setLoading] = useState(!hasMatchingInitial);
   const [error, setError] = useState<string | null>(null);
 
@@ -536,11 +552,13 @@ export function GameDetailClient({
                 transition={APPLE_SPRING}
               >
                 <Link
-                  href={`/codes/${encodeURIComponent(game.slug || game.universeId)}`}
+                  href={`/codes/${encodeURIComponent(buildCanonicalCodeSlug(game) || game.slug || game.universeId)}`}
                   className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold liquid-glass-pill text-emerald-700 dark:text-[#10E89A] border-emerald-500/35 hover:border-emerald-500/60 rounded-full transition-all whitespace-nowrap"
                 >
                   <Ticket className="w-3.5 h-3.5" />
-                  Codes
+                  {activeCodes.length > 0
+                    ? `Codes (${activeCodes.length})`
+                    : 'Codes'}
                 </Link>
               </motion.div>
               <motion.div
@@ -771,6 +789,108 @@ export function GameDetailClient({
         </LiquidGlassCard>
       </FadeInSection>
 
+      {/* Embedded Working Codes Preview Strip (Unified Game-and-Codes Authority) */}
+      {(activeCodes.length > 0 || canAdminManage) && (
+        <FadeInSection>
+          <LiquidGlassCard
+            exportTitle={`${cleanName} — Working Codes`}
+            className="rounded-[28px] p-5 sm:p-6 space-y-4"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-3 pr-9">
+              <div className="flex items-center gap-2">
+                <Ticket className="w-5 h-5 text-emerald-600 dark:text-[#10E89A]" />
+                <h2 className="font-display text-lg font-bold text-slate-900 dark:text-[#F1F7FA]">
+                  Working {cleanName} Codes ({activeCodes.length})
+                </h2>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {canAdminManage && (
+                  <button
+                    type="button"
+                    onClick={() => setAddCodeOpen(true)}
+                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold bg-emerald-600 dark:bg-[#10E89A] text-white dark:text-[#04130D] hover:opacity-90 transition-opacity cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    Add Code
+                  </button>
+                )}
+                <Link
+                  href={`/codes/${encodeURIComponent(buildCanonicalCodeSlug(game) || game.slug || game.universeId)}`}
+                  className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 dark:text-[#10E89A] hover:underline underline-offset-2"
+                >
+                  {activeCodes.length > 0
+                    ? `View all ${activeCodes.length} codes`
+                    : 'Open codes page'}
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </Link>
+              </div>
+            </div>
+
+            {activeCodes.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                {activeCodes.slice(0, 3).map((item) => {
+                  const isCopied = copiedCode === item.code;
+                  return (
+                    <div
+                      key={`${item.id}:${item.normalizedCode}`}
+                      className="rounded-2xl p-3.5 bg-black/[0.025] dark:bg-white/[0.035] border border-slate-900/8 dark:border-white/10 flex flex-col justify-between gap-2.5"
+                    >
+                      <div className="space-y-1">
+                        <code className="font-mono text-sm font-bold text-slate-950 dark:text-white break-all select-all">
+                          {item.code}
+                        </code>
+                        <p className="text-xs text-slate-600 dark:text-[#9CB3C0] line-clamp-2">
+                          {item.rewardDescription || 'Active in-game reward'}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            await navigator.clipboard.writeText(item.code);
+                            setCopiedCode(item.code);
+                            window.setTimeout(
+                              () =>
+                                setCopiedCode((prev) =>
+                                  prev === item.code ? null : prev
+                                ),
+                              1500
+                            );
+                          } catch {
+                            // Ignore clipboard restriction
+                          }
+                        }}
+                        className={`w-full py-1.5 px-3 rounded-full text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer ${
+                          isCopied
+                            ? 'bg-emerald-600 dark:bg-[#10E89A] text-white dark:text-[#04130D]'
+                            : 'bg-emerald-600/12 dark:bg-[#10E89A]/15 text-emerald-700 dark:text-[#10E89A] hover:bg-emerald-600 hover:text-white dark:hover:bg-[#10E89A] dark:hover:text-[#04130D]'
+                        }`}
+                      >
+                        {isCopied ? (
+                          <>
+                            <Check className="w-3.5 h-3.5" />
+                            Copied
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3.5 h-3.5" />
+                            Copy Code
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="text-xs text-slate-500 dark:text-[#86A1B0]">
+                No active codes published yet for {cleanName}. Use Add Code above to publish immediately.
+              </p>
+            )}
+          </LiquidGlassCard>
+        </FadeInSection>
+      )}
+
       {/* Growth Windows */}
       <FadeInSection className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
         {[
@@ -905,6 +1025,28 @@ export function GameDetailClient({
           </div>
         </LiquidGlassCard>
       </FadeInSection>
+
+      {canAdminManage && (
+        <AdminAddCodeModal
+          open={addCodeOpen}
+          onClose={() => setAddCodeOpen(false)}
+          targetGame={{
+            universeId: game.universeId,
+            name: game.name,
+            slug: game.slug || game.universeId,
+            iconUrl: game.iconUrl,
+          }}
+          onCodeAdded={(result: AdminCodeAddedPayload) => {
+            if (result.code && result.code.status === 'active') {
+              const added = result.code;
+              setActiveCodes((prev) => [
+                added,
+                ...prev.filter((c) => c.normalizedCode !== added.normalizedCode),
+              ]);
+            }
+          }}
+        />
+      )}
     </div>
   );
 }

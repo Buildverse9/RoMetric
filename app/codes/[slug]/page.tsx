@@ -1,11 +1,14 @@
 import type { Metadata } from 'next';
-import { notFound } from 'next/navigation';
+import { notFound, permanentRedirect } from 'next/navigation';
 import { fetchGameCodesBySlugOrId } from '@/lib/codes-server';
 import { GameCodesDetailClient } from '@/components/GameCodesDetailClient';
 import {
   SITE_URL,
+  buildCanonicalCodeSlug,
   buildCodeFaqItems,
   cleanSeoGameName,
+  findGameAliasEntry,
+  formatAliasPhrase,
   getCurrentMonthYear,
   safeJsonLd,
 } from '@/lib/seo';
@@ -30,20 +33,27 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   }
 
   const seoName = cleanSeoGameName(game.name);
+  const aliasEntry = findGameAliasEntry(seoName);
   const monthYear = getCurrentMonthYear();
   const activeCodes = payload.codes.filter((c) => c.status === 'active');
   const activeCount = activeCodes.length;
-  const newestCode = activeCodes[0]?.code ?? null;
+  const canonicalSlug = buildCanonicalCodeSlug(game) || game.slug || slug;
+
   const title =
     activeCount > 0
-      ? `${seoName} Codes (${monthYear}) — ${activeCount} Working [Updated]`
-      : `${seoName} Codes (${monthYear}) — Active & Expired List`;
+      ? aliasEntry && seoName.length <= 24
+        ? `${seoName} (${aliasEntry.shortAcronym}) Codes (${monthYear}) — ${activeCount} Working`
+        : `${seoName} Codes (${monthYear}) — ${activeCount} Working Codes`
+      : `${seoName} Codes (${monthYear}) — Working & Expired List`;
+
+  const aliasNote = aliasEntry ? ` (${formatAliasPhrase(aliasEntry)})` : '';
   const description =
     activeCount > 0
-      ? `${activeCount} working ${seoName} codes verified for ${monthYear}${newestCode ? ` (New: ${newestCode})` : ''}. Claim free rewards with one-tap copy, redeem steps & expired list on RoMetric.`
-      : `Check the latest verified ${seoName} Roblox codes for ${monthYear}. Automatically updated with new working codes, how-to-redeem steps & expired archive on RoMetric.`;
-  const pageUrl = `${SITE_URL}/codes/${encodeURIComponent(game.slug || slug)}`;
-  const ogCardUrl = `${SITE_URL}/og/social?t=codes&slug=${encodeURIComponent(game.slug || slug)}`;
+      ? `${activeCount} verified working ${seoName}${aliasNote} codes for ${monthYear}. One-tap copy, redeem checklist, how-to-redeem guide & live player count on RoMetric.`
+      : `Track the latest verified ${seoName}${aliasNote} Roblox codes for ${monthYear}. Updated continuously with active drops, redeem instructions & expired archive.`;
+
+  const pageUrl = `${SITE_URL}/codes/${encodeURIComponent(canonicalSlug)}`;
+  const ogCardUrl = `${SITE_URL}/og/social?t=codes&slug=${encodeURIComponent(game.slug || canonicalSlug)}`;
 
   return {
     title,
@@ -83,11 +93,23 @@ export default async function GameCodesDetailPage({ params }: PageProps) {
   }
 
   const game = payload.game;
+  const canonicalSlug = buildCanonicalCodeSlug(game);
+  const decodedSlug = decodeURIComponent(slug).trim().toLowerCase();
+
+  // Safely redirect noisy event-prefixed or alias slugs (e.g. "upd-21-5-anime-adventures" -> "anime-adventures")
+  // only when the canonical slug resolves cleanly to the same game (loop-free guard).
+  if (canonicalSlug && canonicalSlug !== decodedSlug) {
+    const check = await fetchGameCodesBySlugOrId(canonicalSlug);
+    if (check.game && check.game.universeId === game.universeId) {
+      permanentRedirect(`/codes/${encodeURIComponent(canonicalSlug)}`);
+    }
+  }
+
   const seoName = cleanSeoGameName(game.name);
   const monthYear = getCurrentMonthYear();
   const activeCodes = payload.codes.filter((c) => c.status === 'active');
   const expiredCount = payload.codes.filter((c) => c.status === 'expired').length;
-  const pageUrl = `${SITE_URL}/codes/${encodeURIComponent(game.slug || slug)}`;
+  const pageUrl = `${SITE_URL}/codes/${encodeURIComponent(canonicalSlug || game.slug || slug)}`;
 
   const faqItems = buildCodeFaqItems({
     gameName: game.name,

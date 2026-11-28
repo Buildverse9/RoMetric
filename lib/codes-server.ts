@@ -33,6 +33,7 @@ import {
   mapSeedEntryToCodeRecords,
   normalizeSeedCode,
 } from './codes-seed-catalog';
+import { resolveAliasSlugQuery } from './seo';
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -616,11 +617,18 @@ export async function fetchCodesDirectory(options: {
     // Apply search query (matches game name, creator, genre, universe ID, OR code string / reward)
     let matchingCodes: GameCodeDirectoryItem['matchingCodes'] = undefined;
     if (q) {
+      const aliasQueries = resolveAliasSlugQuery(q);
+      const lowerName = g.name.toLowerCase();
+      const lowerSlug = g.slug.toLowerCase();
       const gameMatches =
-        g.name.toLowerCase().includes(q) ||
+        lowerName.includes(q) ||
+        lowerSlug.includes(q) ||
         g.creatorName.toLowerCase().includes(q) ||
         g.genre.toLowerCase().includes(q) ||
-        g.universeId.includes(q);
+        g.universeId.includes(q) ||
+        aliasQueries.some(
+          (aq) => lowerName.includes(aq) || lowerSlug.includes(aq)
+        );
 
       const matchedCodeRows = list.filter(
         (c) =>
@@ -854,6 +862,27 @@ export async function fetchGameCodesBySlugOrId(
         );
         if (gameRes.ok) {
           gameRows = (await gameRes.json()) as DbGameCodesMetaRow[];
+        }
+      }
+    }
+
+    // Fallback 2b: match event-prefixed or alias slugs (e.g. "anime-adventures" -> "upd-21-5-anime-adventures" or "jjs" -> "jujutsu-shenanigans")
+    if (gameRows.length === 0 && !isNumeric) {
+      const aliasCandidates = resolveAliasSlugQuery(clean);
+      const slugCandidates = Array.from(
+        new Set([clean.replace(/-codes$/, ''), ...aliasCandidates])
+      ).filter((c) => c.length >= 2 && /^[a-z0-9-]+$/.test(c));
+
+      for (const candidate of slugCandidates.slice(0, 4)) {
+        const suffixRes = await supabaseRest(
+          `games?select=${selectCols}&or=(slug.eq.${encodeURIComponent(candidate)},slug.ilike.*-${encodeURIComponent(candidate)})&order=current_ccu.desc&limit=1`
+        );
+        if (suffixRes.ok) {
+          const found = (await suffixRes.json()) as DbGameCodesMetaRow[];
+          if (found.length > 0) {
+            gameRows = found;
+            break;
+          }
         }
       }
     }

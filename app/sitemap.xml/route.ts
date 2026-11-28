@@ -12,6 +12,7 @@ export async function GET() {
     { loc: `${SITE_URL}/sitemaps/updates.xml`, lastmod: nowIso },
     { loc: `${SITE_URL}/sitemaps/similar.xml`, lastmod: nowIso },
     { loc: `${SITE_URL}/sitemaps/codes.xml`, lastmod: nowIso },
+    { loc: `${SITE_URL}/sitemaps/ids.xml`, lastmod: nowIso },
   ]);
   return xmlResponse(xml);
 }
