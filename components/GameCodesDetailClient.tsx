@@ -1,16 +1,20 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { motion } from 'motion/react';
 import {
+  AlertTriangle,
   ArrowLeft,
   ArrowRight,
   BarChart2,
+  CheckCircle2,
   ChevronDown,
   Clock,
   ExternalLink,
   Info,
+  Plus,
   ShieldCheck,
   Ticket,
 } from 'lucide-react';
@@ -19,7 +23,15 @@ import {
   formatRelativeTime,
   formatUtcTimestamp,
 } from '@/lib/format';
-import type { GameCodesDetailPayload } from '@/lib/codes-types';
+import type {
+  GameCodeRecord,
+  GameCodesDetailPayload,
+} from '@/lib/codes-types';
+import { useApp } from './AppProvider';
+import {
+  AdminAddCodeModal,
+  type AdminCodeAddedPayload,
+} from './AdminAddCodeModal';
 import { GameArtwork } from './GameArtwork';
 import { CodeCard } from './CodeCard';
 import {
@@ -42,11 +54,195 @@ export function GameCodesDetailClient({
   initialPayload: GameCodesDetailPayload;
   monthYear?: string;
 }) {
-  const payload = initialPayload;
+  const router = useRouter();
+  const { user, isAdmin } = useApp();
+  const canAdminManage = Boolean(isAdmin && user);
+
+  const [payload, setPayload] = useState<GameCodesDetailPayload>(initialPayload);
   const [showExpired, setShowExpired] = useState(false);
+  const [addModalOpen, setAddModalOpen] = useState(false);
+  const [busyCodeKey, setBusyCodeKey] = useState<string | null>(null);
+  const [adminBanner, setAdminBanner] = useState<{
+    type: 'success' | 'error';
+    text: string;
+  } | null>(null);
+
   const effectiveMonthYear = monthYear || getCurrentMonthYear();
+  const initialUniverseId = initialPayload.game?.universeId ?? '';
+
+  useEffect(() => {
+    setPayload(initialPayload);
+  }, [initialUniverseId, initialPayload]);
 
   const game = payload.game;
+
+  const refreshFromServer = useCallback(
+    async (slugOrId: string) => {
+      if (!user) return;
+      try {
+        const token = await user.getIdToken();
+        const res = await fetch(
+          `/api/codes/${encodeURIComponent(slugOrId)}?fresh=1`,
+          {
+            method: 'GET',
+            headers: { Authorization: `Bearer ${token}` },
+            cache: 'no-store',
+          }
+        );
+        if (res.ok) {
+          const fresh = (await res.json()) as GameCodesDetailPayload;
+          if (fresh.game) {
+            setPayload(fresh);
+          }
+        }
+      } catch {
+        // Keep optimistic state if refresh fails
+      } finally {
+        router.refresh();
+      }
+    },
+    [user, router]
+  );
+
+  const handleCodeAdded = useCallback(
+    (result: AdminCodeAddedPayload) => {
+      if (result.code) {
+        const added = result.code;
+        setPayload((prev) => ({
+          ...prev,
+          codes: [
+            added,
+            ...prev.codes.filter(
+              (c) => c.normalizedCode !== added.normalizedCode
+            ),
+          ],
+        }));
+      }
+      setAdminBanner({
+        type: 'success',
+        text: result.message || 'Code added successfully.',
+      });
+      if (game) {
+        void refreshFromServer(game.slug || game.universeId);
+      }
+    },
+    [game, refreshFromServer]
+  );
+
+  const handleAdminDeleteCode = useCallback(
+    async (item: GameCodeRecord) => {
+      if (!user || !isAdmin || !game) return;
+      const key = `${item.id}:${item.normalizedCode}`;
+      if (busyCodeKey) return;
+      setBusyCodeKey(key);
+      setAdminBanner(null);
+      try {
+        const token = await user.getIdToken();
+        const res = await fetch('/api/codes/admin', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            action: 'admin_delete_code',
+            codeId: item.id,
+            universeId: game.universeId,
+            code: item.code,
+          }),
+        });
+        const data = (await res.json()) as {
+          ok?: boolean;
+          message?: string;
+          error?: string;
+        };
+        if (!res.ok || !data.ok) {
+          throw new Error(data.error || data.message || 'Failed to delete code.');
+        }
+
+        setPayload((prev) => ({
+          ...prev,
+          codes: prev.codes.filter(
+            (c) => c.normalizedCode !== item.normalizedCode
+          ),
+        }));
+        setAdminBanner({
+          type: 'success',
+          text: `Deleted code "${item.code}".`,
+        });
+        void refreshFromServer(game.slug || game.universeId);
+      } catch (err) {
+        setAdminBanner({
+          type: 'error',
+          text: err instanceof Error ? err.message : 'Failed to delete code.',
+        });
+      } finally {
+        setBusyCodeKey(null);
+      }
+    },
+    [user, isAdmin, game, busyCodeKey, refreshFromServer]
+  );
+
+  const handleAdminToggleStatus = useCallback(
+    async (item: GameCodeRecord, nextStatus: 'active' | 'expired') => {
+      if (!user || !isAdmin || !game) return;
+      const key = `${item.id}:${item.normalizedCode}`;
+      if (busyCodeKey) return;
+      setBusyCodeKey(key);
+      setAdminBanner(null);
+      try {
+        const token = await user.getIdToken();
+        const res = await fetch('/api/codes/admin', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            action: 'moderate_code',
+            codeId: item.id,
+            universeId: game.universeId,
+            code: item.code,
+            modAction: nextStatus === 'active' ? 'approve_active' : 'mark_expired',
+          }),
+        });
+        const data = (await res.json()) as {
+          ok?: boolean;
+          message?: string;
+          error?: string;
+        };
+        if (!res.ok || !data.ok) {
+          throw new Error(
+            data.error || data.message || 'Failed to update code status.'
+          );
+        }
+
+        const nowIso = new Date().toISOString();
+        setPayload((prev) => ({
+          ...prev,
+          codes: prev.codes.map((c) =>
+            c.normalizedCode === item.normalizedCode
+              ? { ...c, status: nextStatus, updatedAt: nowIso, lastVerifiedAt: nowIso }
+              : c
+          ),
+        }));
+        setAdminBanner({
+          type: 'success',
+          text: `Marked "${item.code}" as ${nextStatus}.`,
+        });
+        void refreshFromServer(game.slug || game.universeId);
+      } catch (err) {
+        setAdminBanner({
+          type: 'error',
+          text:
+            err instanceof Error ? err.message : 'Failed to update code status.',
+        });
+      } finally {
+        setBusyCodeKey(null);
+      }
+    },
+    [user, isAdmin, game, busyCodeKey, refreshFromServer]
+  );
 
   const { activeCodes, pendingAndUnverified, expiredCodes, usedSources } =
     useMemo(() => {
@@ -123,6 +319,33 @@ export function GameCodesDetailClient({
           </div>
         )}
       </div>
+
+      {/* Admin Feedback Banner (Visible only to Admin after mutations) */}
+      {canAdminManage && adminBanner && (
+        <div
+          className={`liquid-glass rounded-2xl px-4 py-3 text-xs flex items-center justify-between gap-3 ${
+            adminBanner.type === 'success'
+              ? 'border-emerald-500/40 text-slate-900 dark:text-[#F1F7FA]'
+              : 'border-rose-500/40 text-rose-700 dark:text-rose-200'
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            {adminBanner.type === 'success' ? (
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-[#10E89A] shrink-0" />
+            ) : (
+              <AlertTriangle className="w-4 h-4 text-rose-500 shrink-0" />
+            )}
+            <span>{adminBanner.text}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setAdminBanner(null)}
+            className="text-slate-500 hover:text-slate-900 dark:hover:text-white cursor-pointer shrink-0"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {/* Hero Header */}
       <LiquidGlassCard
@@ -236,6 +459,20 @@ export function GameCodesDetailClient({
                 <BarChart2 className="w-3.5 h-3.5" />
                 <span>Live Analytics</span>
               </Link>
+
+              {canAdminManage && (
+                <motion.button
+                  type="button"
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.96 }}
+                  transition={APPLE_SPRING}
+                  onClick={() => setAddModalOpen(true)}
+                  className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-full text-xs font-semibold border border-emerald-500/45 bg-emerald-500/15 text-emerald-700 dark:text-[#10E89A] hover:bg-emerald-500/25 transition-colors whitespace-nowrap cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Add New Code</span>
+                </motion.button>
+              )}
             </div>
           </div>
         </div>
@@ -254,29 +491,63 @@ export function GameCodesDetailClient({
                 Active {cleanName} Codes ({activeCodes.length})
               </h2>
             </div>
-            <span className="text-xs font-medium text-emerald-700 dark:text-[#10E89A]">
-              Checked for {effectiveMonthYear}
-            </span>
+            <div className="flex items-center gap-3">
+              <span className="text-xs font-medium text-emerald-700 dark:text-[#10E89A]">
+                Checked for {effectiveMonthYear}
+              </span>
+              {canAdminManage && (
+                <button
+                  type="button"
+                  onClick={() => setAddModalOpen(true)}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold bg-emerald-600 dark:bg-[#10E89A] text-white dark:text-[#04130D] hover:opacity-90 transition-opacity cursor-pointer whitespace-nowrap"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Add Code</span>
+                </button>
+              )}
+            </div>
           </div>
 
           {activeCodes.length > 0 ? (
             <div className="space-y-3">
-              {activeCodes.map((c) => (
-                <CodeCard key={c.id} item={c} />
-              ))}
+              {activeCodes.map((c) => {
+                const key = `${c.id}:${c.normalizedCode}`;
+                return (
+                  <CodeCard
+                    key={key}
+                    item={c}
+                    isAdmin={canAdminManage}
+                    busy={busyCodeKey === key}
+                    onDelete={handleAdminDeleteCode}
+                    onToggleStatus={handleAdminToggleStatus}
+                  />
+                );
+              })}
             </div>
           ) : (
-            <div className="rounded-2xl border border-dashed border-slate-900/15 dark:border-white/15 p-6 space-y-2">
-              <p className="text-sm font-semibold text-slate-900 dark:text-[#F1F7FA]">
-                {payload.codes.length === 0
-                  ? 'No active codes detected yet'
-                  : 'No active codes currently reported'}
-              </p>
-              <p className="text-xs text-slate-600 dark:text-[#9CB3C0] leading-relaxed max-w-2xl">
-                {payload.codes.length === 0
-                  ? `RoMetric's automated discovery engine continuously checks ${cleanName}'s official Roblox description, developer group announcements, official Trello boards, Fandom & Wiki.gg databases, and partner feeds. New codes will appear here automatically as soon as they drop.`
-                  : `All previously tracked codes for ${cleanName} are listed below in the Expired archive, and our automated engine keeps checking for new drops.`}
-              </p>
+            <div className="rounded-2xl border border-dashed border-slate-900/15 dark:border-white/15 p-6 space-y-3">
+              <div className="space-y-2">
+                <p className="text-sm font-semibold text-slate-900 dark:text-[#F1F7FA]">
+                  {payload.codes.length === 0
+                    ? 'No active codes detected yet'
+                    : 'No active codes currently reported'}
+                </p>
+                <p className="text-xs text-slate-600 dark:text-[#9CB3C0] leading-relaxed max-w-2xl">
+                  {payload.codes.length === 0
+                    ? `RoMetric's automated discovery engine continuously checks ${cleanName}'s official Roblox description, developer group announcements, official Trello boards, Fandom & Wiki.gg databases, and partner feeds. New codes will appear here automatically as soon as they drop.`
+                    : `All previously tracked codes for ${cleanName} are listed below in the Expired archive, and our automated engine keeps checking for new drops.`}
+                </p>
+              </div>
+              {canAdminManage && (
+                <button
+                  type="button"
+                  onClick={() => setAddModalOpen(true)}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-semibold bg-emerald-600 dark:bg-[#10E89A] text-white dark:text-[#04130D] hover:opacity-90 transition-opacity cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Add Code to {cleanName}</span>
+                </button>
+              )}
             </div>
           )}
         </LiquidGlassCard>
@@ -300,9 +571,20 @@ export function GameCodesDetailClient({
               </p>
             </div>
             <div className="space-y-3">
-              {pendingAndUnverified.map((c) => (
-                <CodeCard key={c.id} item={c} compact />
-              ))}
+              {pendingAndUnverified.map((c) => {
+                const key = `${c.id}:${c.normalizedCode}`;
+                return (
+                  <CodeCard
+                    key={key}
+                    item={c}
+                    compact
+                    isAdmin={canAdminManage}
+                    busy={busyCodeKey === key}
+                    onDelete={handleAdminDeleteCode}
+                    onToggleStatus={handleAdminToggleStatus}
+                  />
+                );
+              })}
             </div>
           </LiquidGlassCard>
         </FadeInSection>
@@ -338,9 +620,20 @@ export function GameCodesDetailClient({
 
             {showExpired && (
               <div className="space-y-2.5 pt-2">
-                {expiredCodes.map((c) => (
-                  <CodeCard key={c.id} item={c} compact />
-                ))}
+                {expiredCodes.map((c) => {
+                  const key = `${c.id}:${c.normalizedCode}`;
+                  return (
+                    <CodeCard
+                      key={key}
+                      item={c}
+                      compact
+                      isAdmin={canAdminManage}
+                      busy={busyCodeKey === key}
+                      onDelete={handleAdminDeleteCode}
+                      onToggleStatus={handleAdminToggleStatus}
+                    />
+                  );
+                })}
               </div>
             )}
           </LiquidGlassCard>
@@ -519,6 +812,19 @@ export function GameCodesDetailClient({
         </FadeInSection>
       )}
 
+      {canAdminManage && (
+        <AdminAddCodeModal
+          open={addModalOpen}
+          onClose={() => setAddModalOpen(false)}
+          targetGame={{
+            universeId: game.universeId,
+            name: game.name,
+            slug: game.slug,
+            iconUrl: game.iconUrl,
+          }}
+          onCodeAdded={handleCodeAdded}
+        />
+      )}
     </div>
   );
 }

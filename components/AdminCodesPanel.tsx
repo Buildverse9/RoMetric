@@ -13,6 +13,7 @@ import {
   HelpCircle,
   KeyRound,
   Play,
+  Plus,
   Power,
   RefreshCw,
   Search,
@@ -21,6 +22,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import { useApp } from './AppProvider';
+import { AdminAddCodeModal } from './AdminAddCodeModal';
 import { LiquidGlassCard } from './MotionPrimitives';
 import { formatExactNumber, formatRelativeTime, formatUtcTimestamp } from '@/lib/format';
 import type {
@@ -68,6 +70,7 @@ export function AdminCodesPanel() {
   const [codeSearch, setCodeSearch] = useState('');
   const [editingCodeId, setEditingCodeId] = useState<number | null>(null);
   const [editRewardValue, setEditRewardValue] = useState('');
+  const [addCodeModalOpen, setAddCodeModalOpen] = useState(false);
 
   const getAuthHeaders = useCallback(async () => {
     const token = await user?.getIdToken();
@@ -729,15 +732,25 @@ export function AdminCodesPanel() {
             ))}
           </div>
 
-          <div className="relative w-full lg:w-64">
-            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              value={codeSearch}
-              onChange={(e) => setCodeSearch(e.target.value)}
-              placeholder="Filter code, game, or ID..."
-              className="w-full pl-8 pr-3 py-1.5 text-xs rounded-full bg-black/[0.04] dark:bg-white/[0.06] border border-slate-900/10 dark:border-white/10 text-slate-900 dark:text-[#F1F7FA] focus:outline-none focus:border-emerald-500/50"
-            />
+          <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto">
+            <button
+              type="button"
+              onClick={() => setAddCodeModalOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-full bg-emerald-600 dark:bg-[#10E89A] text-white dark:text-[#04130D] hover:opacity-90 transition-opacity cursor-pointer whitespace-nowrap"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Add New Code</span>
+            </button>
+            <div className="relative flex-1 lg:w-64">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={codeSearch}
+                onChange={(e) => setCodeSearch(e.target.value)}
+                placeholder="Filter code, game, or ID..."
+                className="w-full pl-8 pr-3 py-1.5 text-xs rounded-full bg-black/[0.04] dark:bg-white/[0.06] border border-slate-900/10 dark:border-white/10 text-slate-900 dark:text-[#F1F7FA] focus:outline-none focus:border-emerald-500/50"
+              />
+            </div>
           </div>
         </div>
 
@@ -1093,6 +1106,18 @@ export function AdminCodesPanel() {
           </div>
         </LiquidGlassCard>
       </section>
+
+      <AdminAddCodeModal
+        open={addCodeModalOpen}
+        onClose={() => setAddCodeModalOpen(false)}
+        onCodeAdded={(result) => {
+          setBanner({
+            type: 'success',
+            text: result.message || 'Code added successfully.',
+          });
+          void loadOverview();
+        }}
+      />
     </div>
   );
 }

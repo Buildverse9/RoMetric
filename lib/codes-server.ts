@@ -315,8 +315,16 @@ async function fetchAllActiveGamesForCodes(
   return out;
 }
 
+const ADMIN_DELETED_MARKER = 'admin_deleted';
+
+function isAdminDeletedRow(row: {
+  source_reported_status?: string | null;
+}): boolean {
+  return row.source_reported_status === ADMIN_DELETED_MARKER;
+}
+
 const GAME_CODES_DIRECTORY_SELECT =
-  'id,universe_id,code,normalized_code,reward_description,status,source_id,updated_at';
+  'id,universe_id,code,normalized_code,reward_description,status,source_id,source_reported_status,updated_at';
 
 async function fetchAllCodesPaginated(
   maxRows = 30000,
@@ -483,6 +491,7 @@ export async function fetchCodesDirectory(options: {
 
     for (const c of liveList) {
       seenNorm.add(c.normalized_code);
+      if (isAdminDeletedRow(c)) continue;
       mergedCodes.push({
         id: Number(c.id),
         code: c.code,
@@ -980,9 +989,12 @@ export async function fetchGameCodesBySlugOrId(
   }
 
   // Merge live Supabase codes (highest priority) + bundled seed codes (deduplicated by normalizedCode)
-  const mappedCodes = rawCodes.map((row) => mapCodeRow(row, sourceMap));
+  // Tombstoned rows (source_reported_status === 'admin_deleted') suppress matching seed codes without appearing publicly
+  const liveNorms = new Set(rawCodes.map((row) => row.normalized_code));
+  const mappedCodes = rawCodes
+    .filter((row) => !isAdminDeletedRow(row))
+    .map((row) => mapCodeRow(row, sourceMap));
   if (seedForGame) {
-    const liveNorms = new Set(mappedCodes.map((c) => c.normalizedCode));
     const extraSeedCodes = mapSeedEntryToCodeRecords(seedForGame, {
       name: g.name,
       slug: g.slug || uid,
@@ -1105,12 +1117,19 @@ async function recomputeGameCodeCounts(
   wikiSubdomain?: string | null
 ): Promise<void> {
   const codesRes = await supabaseRest(
-    `game_codes?select=status&universe_id=eq.${universeId}`,
+    `game_codes?select=status,source_reported_status&universe_id=eq.${universeId}`,
     { requireAdminKey: true }
   );
-  const rows: Array<{ status: CodeStatus }> = codesRes.ok
-    ? ((await codesRes.json()) as Array<{ status: CodeStatus }>)
+  const rawRows: Array<{
+    status: CodeStatus;
+    source_reported_status: string | null;
+  }> = codesRes.ok
+    ? ((await codesRes.json()) as Array<{
+        status: CodeStatus;
+        source_reported_status: string | null;
+      }>)
     : [];
+  const rows = rawRows.filter((r) => !isAdminDeletedRow(r));
 
   const activeCount = rows.filter((r) => r.status === 'active').length;
   const totalCount = rows.length;
@@ -1436,6 +1455,9 @@ export async function runCodesCollectionCycle(options: {
                     });
                   }
                 } else {
+                  if (prev.admin_locked && isAdminDeletedRow(prev)) {
+                    continue;
+                  }
                   const effectiveStatus = prev.admin_locked
                     ? prev.status
                     : targetStatus;
@@ -1444,8 +1466,10 @@ export async function runCodesCollectionCycle(options: {
                   const patchBody: Record<string, unknown> = {
                     last_verified_at: nowIso,
                     updated_at: nowIso,
-                    source_reported_status: item.sourceReportedStatus,
                   };
+                  if (!prev.admin_locked) {
+                    patchBody.source_reported_status = item.sourceReportedStatus;
+                  }
                   if (!prev.reward_description && item.rewardDescription) {
                     patchBody.reward_description = item.rewardDescription;
                   }
@@ -1886,10 +1910,13 @@ export async function fetchCodesAdminOverview(): Promise<CodesAdminOverview> {
   let expiredCodes = 0;
   let unverifiedCodes = 0;
 
+  const visibleLiveCodes: DbGameCodeRow[] = [];
   for (const c of allCodes) {
     const uid = String(c.universe_id);
-    coveredUniverseIds.add(uid);
     seenCodeKeys.add(`${uid}:${c.normalized_code}`);
+    if (isAdminDeletedRow(c)) continue;
+    visibleLiveCodes.push(c);
+    coveredUniverseIds.add(uid);
     if (c.status === 'active') activeCodes += 1;
     else if (c.status === 'pending_verification') pendingCodes += 1;
     else if (c.status === 'expired') expiredCodes += 1;
@@ -1903,9 +1930,7 @@ export async function fetchCodesAdminOverview(): Promise<CodesAdminOverview> {
     if (!gameMap.has(uid)) {
       gameMap.set(uid, { name: seed.n, slug: seed.s });
     }
-    if (seed.k.length > 0) {
-      coveredUniverseIds.add(uid);
-    }
+    let hasVisibleSeedCode = false;
     for (const [code] of seed.k) {
       const norm = normalizeSeedCode(code);
       const key = `${uid}:${norm}`;
@@ -1913,12 +1938,16 @@ export async function fetchCodesAdminOverview(): Promise<CodesAdminOverview> {
         seenCodeKeys.add(key);
         activeCodes += 1;
         extraSeedCodes += 1;
+        hasVisibleSeedCode = true;
       }
+    }
+    if (hasVisibleSeedCode) {
+      coveredUniverseIds.add(uid);
     }
   }
 
   const totalGamesTracked = Math.max(exactSupabaseGamesCount, coveredUniverseIds.size);
-  const totalCodes = allCodes.length + extraSeedCodes;
+  const totalCodes = visibleLiveCodes.length + extraSeedCodes;
 
   const colLogs: CodeCollectionLog[] = colLogsRes.ok
     ? ((await colLogsRes.json()) as DbCollectionLogRow[]).map(mapCollectionLogRow)
@@ -1930,7 +1959,9 @@ export async function fetchCodesAdminOverview(): Promise<CodesAdminOverview> {
       )
     : [];
 
-  const mappedCodes = allCodes.map((row) => mapCodeRow(row, sourceMap, gameMap));
+  const mappedCodes = visibleLiveCodes.map((row) =>
+    mapCodeRow(row, sourceMap, gameMap)
+  );
   const reviewQueue = mappedCodes
     .filter(
       (c) => c.status === 'pending_verification' || c.status === 'unverified'
@@ -1995,8 +2026,569 @@ export async function toggleCodeSource(
   return { ok: true };
 }
 
+async function ensureGameRowExistsForCodes(
+  gameInput: string
+): Promise<{
+  ok: boolean;
+  status: number;
+  universeId?: string;
+  gameName?: string;
+  gameSlug?: string;
+  error?: string;
+}> {
+  const trimmed = gameInput.trim();
+  if (!trimmed) {
+    return {
+      ok: false,
+      status: 400,
+      error: 'Please choose a game or enter a Roblox Game URL / Universe ID.',
+    };
+  }
+
+  const nowIso = new Date().toISOString();
+
+  // Fast path 1: exact numeric Universe ID or Root Place ID already in Supabase
+  if (/^[0-9]{1,20}$/.test(trimmed)) {
+    const existingRes = await supabaseRest(
+      `games?select=universe_id,name,slug&or=(universe_id.eq.${trimmed},root_place_id.eq.${trimmed})&limit=1`,
+      { requireAdminKey: true }
+    );
+    const existingRows = existingRes.ok
+      ? ((await existingRes.json()) as Array<{
+          universe_id: number;
+          name: string;
+          slug: string;
+        }>)
+      : [];
+    if (existingRows[0]) {
+      return {
+        ok: true,
+        status: 200,
+        universeId: String(existingRows[0].universe_id),
+        gameName: existingRows[0].name,
+        gameSlug: existingRows[0].slug || String(existingRows[0].universe_id),
+      };
+    }
+  }
+
+  // Fast path 2: exact slug match in Supabase
+  if (!trimmed.includes(' ') && !trimmed.includes('://')) {
+    const slugLower = trimmed.toLowerCase();
+    const slugRes = await supabaseRest(
+      `games?select=universe_id,name,slug&slug=eq.${encodeURIComponent(slugLower)}&limit=1`,
+      { requireAdminKey: true }
+    );
+    const slugRows = slugRes.ok
+      ? ((await slugRes.json()) as Array<{
+          universe_id: number;
+          name: string;
+          slug: string;
+        }>)
+      : [];
+    if (slugRows[0]) {
+      return {
+        ok: true,
+        status: 200,
+        universeId: String(slugRows[0].universe_id),
+        gameName: slugRows[0].name,
+        gameSlug: slugRows[0].slug || String(slugRows[0].universe_id),
+      };
+    }
+  }
+
+  // Path 3: Resolve live from Roblox (handles URLs, Place IDs, Universe IDs, and game names)
+  const seedMatch = findSeedCatalogGame(trimmed);
+  const lookupQuery = seedMatch ? String(seedMatch.u) : trimmed;
+  const resolved = await resolveRobloxExperience(lookupQuery);
+
+  if (resolved.game) {
+    const existingRes = await supabaseRest(
+      `games?select=universe_id,name,slug&universe_id=eq.${resolved.game.universeId}&limit=1`,
+      { requireAdminKey: true }
+    );
+    const existingRows = existingRes.ok
+      ? ((await existingRes.json()) as Array<{
+          universe_id: number;
+          name: string;
+          slug: string;
+        }>)
+      : [];
+    if (existingRows[0]) {
+      return {
+        ok: true,
+        status: 200,
+        universeId: String(existingRows[0].universe_id),
+        gameName: existingRows[0].name,
+        gameSlug: existingRows[0].slug || String(existingRows[0].universe_id),
+      };
+    }
+
+    const saved = await saveGameToSupabase(resolved.game, 'tier_3', nowIso);
+    return {
+      ok: true,
+      status: 200,
+      universeId: resolved.game.universeId,
+      gameName: resolved.game.name,
+      gameSlug: saved.slug,
+    };
+  }
+
+  // Path 4: If game is in the bundled seed catalog but Roblox API timed out, insert minimal game row
+  if (seedMatch) {
+    const uid = String(seedMatch.u);
+    const insertRes = await supabaseRest('games?on_conflict=universe_id', {
+      method: 'POST',
+      requireAdminKey: true,
+      headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
+      body: {
+        universe_id: seedMatch.u,
+        root_place_id: seedMatch.u,
+        name: seedMatch.n,
+        slug: seedMatch.s,
+        creator_id: 0,
+        creator_name: 'Roblox Experience',
+        creator_type: 'User',
+        creator_verified: false,
+        genre: seedMatch.g || 'All Genres',
+        current_ccu: seedMatch.c,
+        total_visits: 0,
+        favorites: 0,
+        peak_ccu_observed: seedMatch.c,
+        tracking_tier: 'tier_3',
+        active: true,
+        collection_status: 'partial',
+        code_coverage_status: 'covered',
+        first_observed_at: nowIso,
+        last_collected_at: nowIso,
+        updated_at: nowIso,
+      },
+    });
+    if (insertRes.ok) {
+      return {
+        ok: true,
+        status: 200,
+        universeId: uid,
+        gameName: seedMatch.n,
+        gameSlug: seedMatch.s,
+      };
+    }
+  }
+
+  return {
+    ok: false,
+    status: 404,
+    error:
+      resolved.error ||
+      'Could not find that Roblox game. Try a Roblox Game URL, Universe ID, or exact game name.',
+  };
+}
+
+function seedCatalogHasCode(universeId: string, normalizedCode: string): boolean {
+  const seed = getSeedCatalogByUniverseId(universeId);
+  if (!seed) return false;
+  return seed.k.some(([code]) => normalizeSeedCode(code) === normalizedCode);
+}
+
+/**
+ * Admin-only direct code addition:
+ * - Resolves any tracked, seed-catalog, or brand-new Roblox game
+ * - Inserts immediately with the requested status (default 'active') & admin_locked = true
+ * - Reactivates previously admin-deleted codes cleanly without duplicate constraint failures
+ */
+export async function adminAddGameCode(input: {
+  gameInput: string;
+  code: string;
+  rewardDescription?: string | null;
+  status?: CodeStatus;
+  sourceUrl?: string | null;
+  note?: string | null;
+  actor: string;
+}): Promise<{
+  ok: boolean;
+  status: number;
+  message: string;
+  code?: GameCodeRecord;
+  gameSlug?: string;
+  universeId?: string;
+  gameName?: string;
+}> {
+  if (!isSupabaseWriteConfigured()) {
+    return {
+      ok: false,
+      status: 503,
+      message: 'Supabase write access is not configured.',
+    };
+  }
+
+  const schemaReady = await checkCodesSchemaReady();
+  if (!schemaReady) {
+    return {
+      ok: false,
+      status: 503,
+      message: 'Game Codes tables have not been initialized in Supabase yet.',
+    };
+  }
+
+  const rawCode = (input.code || '').trim();
+  if (!isValidPromoCodeFormat(rawCode)) {
+    return {
+      ok: false,
+      status: 400,
+      message:
+        'Enter a valid promo code (3–42 characters, letters/numbers/symbols, no spaces).',
+    };
+  }
+
+  const validStatuses = new Set<CodeStatus>([
+    'active',
+    'pending_verification',
+    'expired',
+    'unverified',
+  ]);
+  const targetStatus: CodeStatus =
+    input.status && validStatuses.has(input.status) ? input.status : 'active';
+
+  const cleanSourceUrl = input.sourceUrl?.trim()
+    ? validatePublicHttpsUrl(input.sourceUrl)
+    : null;
+  if (input.sourceUrl?.trim() && !cleanSourceUrl) {
+    return {
+      ok: false,
+      status: 400,
+      message: 'Source URL must be a valid public https:// link.',
+    };
+  }
+
+  const resolvedGame = await ensureGameRowExistsForCodes(input.gameInput);
+  if (!resolvedGame.ok || !resolvedGame.universeId) {
+    return {
+      ok: false,
+      status: resolvedGame.status,
+      message: resolvedGame.error || 'Could not resolve target game.',
+    };
+  }
+
+  const universeId = resolvedGame.universeId;
+  const gameName = resolvedGame.gameName || `Universe ${universeId}`;
+  const gameSlug = resolvedGame.gameSlug || universeId;
+  const norm = normalizePromoCode(rawCode);
+  const nowIso = new Date().toISOString();
+  const cleanReward = sanitizePlainText(input.rewardDescription, 180);
+  const cleanNote = sanitizePlainText(input.note, 140) || `Added by Admin`;
+
+  // Check if code already exists in game_codes
+  const existingRes = await supabaseRest(
+    `game_codes?select=*&universe_id=eq.${universeId}&normalized_code=eq.${encodeURIComponent(norm)}&limit=1`,
+    { requireAdminKey: true }
+  );
+  const existingRows = existingRes.ok
+    ? ((await existingRes.json()) as DbGameCodeRow[])
+    : [];
+  const existing = existingRows[0];
+
+  const { map: sourceMap } = await fetchAllSourcesMap();
+  const preferredSourceId = sourceMap.has('community_submissions')
+    ? 'community_submissions'
+    : sourceMap.keys().next().value || 'community_submissions';
+
+  let savedRow: DbGameCodeRow | null = null;
+
+  if (existing && !isAdminDeletedRow(existing)) {
+    return {
+      ok: false,
+      status: 409,
+      message: `Code "${rawCode}" already exists for ${gameName} (${existing.status.replace('_', ' ')}).`,
+      gameSlug,
+      universeId,
+      gameName,
+    };
+  }
+
+  if (existing && isAdminDeletedRow(existing)) {
+    // Reactivate a previously deleted tombstone row
+    const patchRes = await supabaseRest(`game_codes?id=eq.${existing.id}`, {
+      method: 'PATCH',
+      requireAdminKey: true,
+      headers: { Prefer: 'return=representation' },
+      body: {
+        code: rawCode.slice(0, 48),
+        reward_description: cleanReward,
+        status: targetStatus,
+        source_url: cleanSourceUrl,
+        source_reported_status: 'admin_added',
+        admin_locked: true,
+        submitted_by_note: cleanNote,
+        last_verified_at: nowIso,
+        updated_at: nowIso,
+      },
+    });
+    if (!patchRes.ok) {
+      return {
+        ok: false,
+        status: 500,
+        message: 'Failed to re-add code right now.',
+      };
+    }
+    const patched = (await patchRes.json()) as DbGameCodeRow[];
+    savedRow = patched[0] ?? null;
+  } else {
+    const insertRes = await supabaseRest('game_codes', {
+      method: 'POST',
+      requireAdminKey: true,
+      headers: { Prefer: 'return=representation' },
+      body: {
+        universe_id: Number(universeId),
+        code: rawCode.slice(0, 48),
+        normalized_code: norm.slice(0, 48),
+        reward_description: cleanReward,
+        status: targetStatus,
+        source_id: preferredSourceId,
+        source_url: cleanSourceUrl,
+        source_reported_status: 'admin_added',
+        admin_locked: true,
+        submitted_by_note: cleanNote,
+        discovered_at: nowIso,
+        last_verified_at: nowIso,
+        expires_at: null,
+        updated_at: nowIso,
+      },
+    });
+    if (!insertRes.ok) {
+      const errText = await insertRes.text().catch(() => '');
+      return {
+        ok: false,
+        status: 500,
+        message: errText
+          ? `Failed to save code (${insertRes.status}).`
+          : 'Failed to save code right now.',
+      };
+    }
+    const inserted = (await insertRes.json()) as DbGameCodeRow[];
+    savedRow = inserted[0] ?? null;
+  }
+
+  await supabaseRest('code_verification_logs', {
+    method: 'POST',
+    requireAdminKey: true,
+    body: {
+      code_id: savedRow?.id ?? null,
+      universe_id: Number(universeId),
+      code_text: rawCode.slice(0, 48),
+      previous_status: existing ? 'deleted' : null,
+      new_status: targetStatus,
+      actor: input.actor,
+      reason: 'Added directly by Admin',
+      verified_at: nowIso,
+    },
+  });
+
+  await recomputeGameCodeCounts(universeId, true);
+  invalidateCodesReadCaches();
+
+  const gameMap = new Map([[universeId, { name: gameName, slug: gameSlug }]]);
+  const mappedCode = savedRow
+    ? mapCodeRow(savedRow, sourceMap, gameMap)
+    : undefined;
+
+  return {
+    ok: true,
+    status: 201,
+    message: `Added "${rawCode}" to ${gameName} (${targetStatus.replace('_', ' ')}).`,
+    code: mappedCode,
+    gameSlug,
+    universeId,
+    gameName,
+  };
+}
+
+/**
+ * Admin-only code deletion supporting BOTH live Supabase rows AND bundled seed catalog codes.
+ * - If the code also exists in data/codes-seed-catalog.json, writes an admin_locked tombstone row
+ *   so the bundled seed entry stays permanently hidden.
+ * - Otherwise deletes the row cleanly from game_codes.
+ */
+export async function adminDeleteGameCode(options: {
+  codeId?: number | null;
+  universeId?: string | null;
+  code?: string | null;
+  reason?: string;
+  actor: string;
+}): Promise<{
+  ok: boolean;
+  message?: string;
+  error?: string;
+  universeId?: string;
+  gameSlug?: string;
+}> {
+  if (!isSupabaseWriteConfigured()) {
+    return { ok: false, error: 'Supabase write access not configured.' };
+  }
+
+  const nowIso = new Date().toISOString();
+  let existing: DbGameCodeRow | null = null;
+
+  // 1. Try lookup by numeric DB ID (ignoring synthetic seed IDs >= 900_000_000 unless found)
+  if (
+    typeof options.codeId === 'number' &&
+    Number.isInteger(options.codeId) &&
+    options.codeId > 0 &&
+    options.codeId < 900_000_000
+  ) {
+    const existingRes = await supabaseRest(
+      `game_codes?select=*&id=eq.${options.codeId}&limit=1`,
+      { requireAdminKey: true }
+    );
+    const rows: DbGameCodeRow[] = existingRes.ok
+      ? ((await existingRes.json()) as DbGameCodeRow[])
+      : [];
+    existing = rows[0] ?? null;
+  }
+
+  // 2. Fallback lookup by (universeId, normalizedCode)
+  const cleanUid =
+    options.universeId && /^[0-9]{1,20}$/.test(options.universeId)
+      ? options.universeId
+      : existing
+        ? String(existing.universe_id)
+        : null;
+  const rawCodeText = (options.code || existing?.code || '').trim();
+  const norm = rawCodeText ? normalizePromoCode(rawCodeText) : existing?.normalized_code || '';
+
+  if (!existing && cleanUid && norm) {
+    const byNormRes = await supabaseRest(
+      `game_codes?select=*&universe_id=eq.${cleanUid}&normalized_code=eq.${encodeURIComponent(norm)}&limit=1`,
+      { requireAdminKey: true }
+    );
+    const rows: DbGameCodeRow[] = byNormRes.ok
+      ? ((await byNormRes.json()) as DbGameCodeRow[])
+      : [];
+    existing = rows[0] ?? null;
+  }
+
+  if (!cleanUid || !norm) {
+    return { ok: false, error: 'Code record not found.' };
+  }
+
+  // Look up slug for cache revalidation
+  let gameSlug: string | undefined;
+  const slugRes = await supabaseRest(
+    `games?select=slug&universe_id=eq.${cleanUid}&limit=1`,
+    { requireAdminKey: true }
+  );
+  if (slugRes.ok) {
+    const sRows = (await slugRes.json()) as Array<{ slug?: string }>;
+    gameSlug = sRows[0]?.slug || undefined;
+  }
+  const seedEntry = getSeedCatalogByUniverseId(cleanUid);
+  if (!gameSlug && seedEntry) {
+    gameSlug = seedEntry.s;
+  }
+
+  const inSeedCatalog = seedCatalogHasCode(cleanUid, norm);
+
+  if (inSeedCatalog) {
+    // Ensure parent game row exists so FK constraint on game_codes succeeds
+    const ensured = await ensureGameRowExistsForCodes(cleanUid);
+    if (!ensured.ok) {
+      return {
+        ok: false,
+        error: ensured.error || 'Unable to locate parent game to delete code.',
+      };
+    }
+    if (ensured.gameSlug) gameSlug = ensured.gameSlug;
+
+    const { map: sourceMap } = await fetchAllSourcesMap();
+    const preferredSourceId = sourceMap.has('rometric_verified_catalog')
+      ? 'rometric_verified_catalog'
+      : sourceMap.has('community_submissions')
+        ? 'community_submissions'
+        : sourceMap.keys().next().value || 'community_submissions';
+
+    if (existing) {
+      const patchRes = await supabaseRest(`game_codes?id=eq.${existing.id}`, {
+        method: 'PATCH',
+        requireAdminKey: true,
+        body: {
+          status: 'expired',
+          source_reported_status: ADMIN_DELETED_MARKER,
+          admin_locked: true,
+          updated_at: nowIso,
+        },
+      });
+      if (!patchRes.ok) {
+        return { ok: false, error: 'Failed to delete code.' };
+      }
+    } else {
+      const upsertRes = await supabaseRest(
+        'game_codes?on_conflict=universe_id,normalized_code',
+        {
+          method: 'POST',
+          requireAdminKey: true,
+          headers: { Prefer: 'resolution=merge-duplicates' },
+          body: {
+            universe_id: Number(cleanUid),
+            code: (rawCodeText || norm).slice(0, 48),
+            normalized_code: norm.slice(0, 48),
+            reward_description: null,
+            status: 'expired',
+            source_id: preferredSourceId,
+            source_url: null,
+            source_reported_status: ADMIN_DELETED_MARKER,
+            admin_locked: true,
+            submitted_by_note: `Deleted by ${options.actor}`,
+            discovered_at: nowIso,
+            last_verified_at: nowIso,
+            expires_at: nowIso,
+            updated_at: nowIso,
+          },
+        }
+      );
+      if (!upsertRes.ok) {
+        return { ok: false, error: 'Failed to delete catalog code.' };
+      }
+    }
+  } else {
+    if (!existing) {
+      return { ok: false, error: 'Code record not found.' };
+    }
+    const delRes = await supabaseRest(`game_codes?id=eq.${existing.id}`, {
+      method: 'DELETE',
+      requireAdminKey: true,
+    });
+    if (!delRes.ok) {
+      return { ok: false, error: 'Failed to delete code.' };
+    }
+  }
+
+  await supabaseRest('code_verification_logs', {
+    method: 'POST',
+    requireAdminKey: true,
+    body: {
+      code_id: null,
+      universe_id: Number(cleanUid),
+      code_text: (rawCodeText || existing?.code || norm).slice(0, 48),
+      previous_status: existing?.status || 'active',
+      new_status: 'deleted',
+      actor: options.actor,
+      reason: options.reason || 'Removed by Admin',
+      verified_at: nowIso,
+    },
+  });
+
+  await recomputeGameCodeCounts(cleanUid);
+  invalidateCodesReadCaches();
+  return {
+    ok: true,
+    message: 'Code deleted.',
+    universeId: cleanUid,
+    gameSlug,
+  };
+}
+
 export async function moderateGameCode(options: {
   codeId: number;
+  universeId?: string | null;
+  code?: string | null;
   action:
     | 'approve_active'
     | 'mark_expired'
@@ -2007,54 +2599,112 @@ export async function moderateGameCode(options: {
   rewardDescription?: string | null;
   reason?: string;
   actor: string;
-}): Promise<{ ok: boolean; message?: string; error?: string }> {
+}): Promise<{
+  ok: boolean;
+  message?: string;
+  error?: string;
+  universeId?: string;
+  gameSlug?: string;
+}> {
   if (!isSupabaseWriteConfigured()) {
     return { ok: false, error: 'Supabase write access not configured.' };
   }
 
-  const existingRes = await supabaseRest(
-    `game_codes?select=*&id=eq.${options.codeId}&limit=1`,
-    { requireAdminKey: true }
-  );
-  const rows: DbGameCodeRow[] = existingRes.ok
-    ? ((await existingRes.json()) as DbGameCodeRow[])
-    : [];
-  const existing = rows[0];
+  if (options.action === 'delete_code') {
+    return adminDeleteGameCode({
+      codeId: options.codeId,
+      universeId: options.universeId,
+      code: options.code,
+      reason: options.reason,
+      actor: options.actor,
+    });
+  }
+
+  let existing: DbGameCodeRow | null = null;
+  if (options.codeId > 0 && options.codeId < 900_000_000) {
+    const existingRes = await supabaseRest(
+      `game_codes?select=*&id=eq.${options.codeId}&limit=1`,
+      { requireAdminKey: true }
+    );
+    const rows: DbGameCodeRow[] = existingRes.ok
+      ? ((await existingRes.json()) as DbGameCodeRow[])
+      : [];
+    existing = rows[0] ?? null;
+  }
+
+  const nowIso = new Date().toISOString();
+
+  // Support moderating a bundled seed-only code by materializing it into game_codes
+  if (!existing && options.universeId && /^[0-9]{1,20}$/.test(options.universeId) && options.code?.trim()) {
+    const norm = normalizePromoCode(options.code.trim());
+    const byNormRes = await supabaseRest(
+      `game_codes?select=*&universe_id=eq.${options.universeId}&normalized_code=eq.${encodeURIComponent(norm)}&limit=1`,
+      { requireAdminKey: true }
+    );
+    const normRows: DbGameCodeRow[] = byNormRes.ok
+      ? ((await byNormRes.json()) as DbGameCodeRow[])
+      : [];
+    existing = normRows[0] ?? null;
+
+    if (!existing) {
+      const ensured = await ensureGameRowExistsForCodes(options.universeId);
+      if (!ensured.ok) {
+        return { ok: false, error: ensured.error || 'Code record not found.' };
+      }
+      const { map: sourceMap } = await fetchAllSourcesMap();
+      const preferredSourceId = sourceMap.has('rometric_verified_catalog')
+        ? 'rometric_verified_catalog'
+        : sourceMap.has('community_submissions')
+          ? 'community_submissions'
+          : sourceMap.keys().next().value || 'community_submissions';
+      const seedEntry = getSeedCatalogByUniverseId(options.universeId);
+      const seedTuple = seedEntry?.k.find(
+        ([c]) => normalizeSeedCode(c) === norm
+      );
+      const insertRes = await supabaseRest('game_codes', {
+        method: 'POST',
+        requireAdminKey: true,
+        headers: { Prefer: 'return=representation' },
+        body: {
+          universe_id: Number(options.universeId),
+          code: options.code.trim().slice(0, 48),
+          normalized_code: norm.slice(0, 48),
+          reward_description: seedTuple?.[1] || null,
+          status: 'active',
+          source_id: preferredSourceId,
+          source_url: null,
+          source_reported_status: 'active',
+          admin_locked: true,
+          discovered_at: nowIso,
+          last_verified_at: nowIso,
+          updated_at: nowIso,
+        },
+      });
+      if (insertRes.ok) {
+        const created = (await insertRes.json()) as DbGameCodeRow[];
+        existing = created[0] ?? null;
+      }
+    }
+  }
+
   if (!existing) {
     return { ok: false, error: 'Code record not found.' };
   }
 
   const uid = String(existing.universe_id);
-  const nowIso = new Date().toISOString();
-
-  if (options.action === 'delete_code') {
-    await supabaseRest('code_verification_logs', {
-      method: 'POST',
-      requireAdminKey: true,
-      body: {
-        code_id: null,
-        universe_id: existing.universe_id,
-        code_text: existing.code,
-        previous_status: existing.status,
-        new_status: 'deleted',
-        actor: options.actor,
-        reason: options.reason || 'Removed by Admin (duplicate or invalid)',
-        verified_at: nowIso,
-      },
-    });
-    const delRes = await supabaseRest(`game_codes?id=eq.${options.codeId}`, {
-      method: 'DELETE',
-      requireAdminKey: true,
-    });
-    if (!delRes.ok) return { ok: false, error: 'Failed to delete code.' };
-    await recomputeGameCodeCounts(uid);
-    invalidateCodesReadCaches();
-    return { ok: true, message: 'Code deleted.' };
+  let gameSlug: string | undefined;
+  const slugRes = await supabaseRest(
+    `games?select=slug&universe_id=eq.${uid}&limit=1`,
+    { requireAdminKey: true }
+  );
+  if (slugRes.ok) {
+    const sRows = (await slugRes.json()) as Array<{ slug?: string }>;
+    gameSlug = sRows[0]?.slug || undefined;
   }
 
   if (options.action === 'update_reward') {
     const cleanReward = sanitizePlainText(options.rewardDescription, 180);
-    const patchRes = await supabaseRest(`game_codes?id=eq.${options.codeId}`, {
+    const patchRes = await supabaseRest(`game_codes?id=eq.${existing.id}`, {
       method: 'PATCH',
       requireAdminKey: true,
       body: {
@@ -2067,6 +2717,8 @@ export async function moderateGameCode(options: {
       ok: patchRes.ok,
       message: patchRes.ok ? 'Reward description updated.' : undefined,
       error: patchRes.ok ? undefined : 'Failed to update reward description.',
+      universeId: uid,
+      gameSlug,
     };
   }
 
@@ -2081,7 +2733,7 @@ export async function moderateGameCode(options: {
   };
 
   const nextStatus = statusMap[options.action];
-  const patchRes = await supabaseRest(`game_codes?id=eq.${options.codeId}`, {
+  const patchRes = await supabaseRest(`game_codes?id=eq.${existing.id}`, {
     method: 'PATCH',
     requireAdminKey: true,
     body: {
@@ -2112,5 +2764,10 @@ export async function moderateGameCode(options: {
 
   await recomputeGameCodeCounts(uid);
   invalidateCodesReadCaches();
-  return { ok: true, message: `Marked as ${nextStatus.replace('_', ' ')}.` };
+  return {
+    ok: true,
+    message: `Marked as ${nextStatus.replace('_', ' ')}.`,
+    universeId: uid,
+    gameSlug,
+  };
 }

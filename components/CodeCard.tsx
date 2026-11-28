@@ -10,6 +10,8 @@ import {
   Copy,
   ExternalLink,
   HelpCircle,
+  Loader2,
+  Trash2,
   XCircle,
 } from 'lucide-react';
 import { formatRelativeTime, formatUtcTimestamp } from '@/lib/format';
@@ -77,11 +79,23 @@ async function copyTextReliably(text: string): Promise<boolean> {
 export function CodeCard({
   item,
   compact = false,
+  isAdmin = false,
+  busy = false,
+  onDelete,
+  onToggleStatus,
 }: {
   item: GameCodeRecord;
   compact?: boolean;
+  isAdmin?: boolean;
+  busy?: boolean;
+  onDelete?: (item: GameCodeRecord) => void | Promise<void>;
+  onToggleStatus?: (
+    item: GameCodeRecord,
+    nextStatus: 'active' | 'expired'
+  ) => void | Promise<void>;
 }) {
   const [copied, setCopied] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const meta = STATUS_META[item.status] ?? STATUS_META.unverified;
   const StatusIcon = meta.icon;
   const isExpired = item.status === 'expired';
@@ -173,34 +187,100 @@ export function CodeCard({
           </div>
         </div>
 
-        {/* One-Tap Copy Button (44px+ Mobile Ergonomic Target) */}
-        <motion.button
-          type="button"
-          whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.95 }}
-          transition={APPLE_SPRING}
-          onClick={() => void handleCopy()}
-          aria-label={`Copy code ${item.code}`}
-          className={`min-h-[44px] px-5 py-2.5 rounded-full text-xs font-semibold inline-flex items-center justify-center gap-2 transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
-            copied
-              ? 'bg-emerald-700 dark:bg-emerald-400 text-white dark:text-[#04130D]'
-              : isExpired
-                ? 'bg-black/[0.06] dark:bg-white/[0.08] text-slate-700 dark:text-[#C8D9E2] hover:bg-black/[0.1] dark:hover:bg-white/[0.14]'
-                : 'bg-emerald-600 dark:bg-[#10E89A] text-white dark:text-[#04130D] hover:opacity-90 shadow-sm'
-          }`}
-        >
-          {copied ? (
-            <>
-              <Check className="w-4 h-4 shrink-0" />
-              <span>Copied</span>
-            </>
-          ) : (
-            <>
-              <Copy className="w-4 h-4 shrink-0" />
-              <span>Copy Code</span>
-            </>
+        {/* Action Strip: Admin-Only Controls + One-Tap Copy Button */}
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          {isAdmin && (
+            <div className="flex items-center gap-1.5">
+              {onToggleStatus && (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() =>
+                    void onToggleStatus(item, isExpired ? 'active' : 'expired')
+                  }
+                  className="min-h-[38px] px-3 py-1.5 rounded-full text-xs font-semibold border border-slate-900/12 dark:border-white/15 text-slate-700 dark:text-[#C8D9E2] hover:border-emerald-500/45 hover:text-emerald-700 dark:hover:text-[#10E89A] transition-colors cursor-pointer disabled:opacity-50 whitespace-nowrap"
+                >
+                  {isExpired ? 'Mark Active' : 'Mark Expired'}
+                </button>
+              )}
+
+              {onDelete &&
+                (confirmDelete ? (
+                  <div className="inline-flex items-center gap-1">
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => {
+                        setConfirmDelete(false);
+                        void onDelete(item);
+                      }}
+                      className="min-h-[38px] px-3 py-1.5 rounded-full text-xs font-semibold bg-rose-600 text-white hover:bg-rose-700 transition-colors cursor-pointer disabled:opacity-50 inline-flex items-center gap-1 whitespace-nowrap"
+                    >
+                      {busy ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Trash2 className="w-3.5 h-3.5" />
+                      )}
+                      <span>Confirm Delete</span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => setConfirmDelete(false)}
+                      className="min-h-[38px] px-2.5 py-1.5 rounded-full text-xs font-medium text-slate-500 dark:text-[#9CB3C0] hover:text-slate-900 dark:hover:text-white cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => setConfirmDelete(true)}
+                    aria-label={`Delete code ${item.code}`}
+                    title={`Delete code ${item.code}`}
+                    className="min-h-[38px] px-3 py-1.5 rounded-full text-xs font-semibold border border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300 hover:bg-rose-500/20 transition-colors cursor-pointer disabled:opacity-50 inline-flex items-center gap-1.5 whitespace-nowrap"
+                  >
+                    {busy ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Trash2 className="w-3.5 h-3.5" />
+                    )}
+                    <span>Delete</span>
+                  </button>
+                ))}
+            </div>
           )}
-        </motion.button>
+
+          {/* One-Tap Copy Button (44px+ Mobile Ergonomic Target) */}
+          <motion.button
+            type="button"
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.95 }}
+            transition={APPLE_SPRING}
+            onClick={() => void handleCopy()}
+            aria-label={`Copy code ${item.code}`}
+            className={`min-h-[44px] px-5 py-2.5 rounded-full text-xs font-semibold inline-flex items-center justify-center gap-2 transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+              copied
+                ? 'bg-emerald-700 dark:bg-emerald-400 text-white dark:text-[#04130D]'
+                : isExpired
+                  ? 'bg-black/[0.06] dark:bg-white/[0.08] text-slate-700 dark:text-[#C8D9E2] hover:bg-black/[0.1] dark:hover:bg-white/[0.14]'
+                  : 'bg-emerald-600 dark:bg-[#10E89A] text-white dark:text-[#04130D] hover:opacity-90 shadow-sm'
+            }`}
+          >
+            {copied ? (
+              <>
+                <Check className="w-4 h-4 shrink-0" />
+                <span>Copied</span>
+              </>
+            ) : (
+              <>
+                <Copy className="w-4 h-4 shrink-0" />
+                <span>Copy Code</span>
+              </>
+            )}
+          </motion.button>
+        </div>
       </div>
     </div>
   );

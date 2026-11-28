@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { fetchCodesDirectory } from '@/lib/codes-server';
+import { verifyAdminBearerToken } from '@/lib/supabase-server';
 
 export const dynamic = 'force-dynamic';
 
@@ -9,6 +10,7 @@ export async function GET(req: NextRequest) {
   const rawStatus = searchParams.get('status') || 'all';
   const rawSort = searchParams.get('sort') || 'popular';
   const onlyWithCodes = searchParams.get('covered') === '1';
+  const wantFresh = searchParams.get('fresh') === '1';
   const rawPage = Number.parseInt(searchParams.get('page') || '1', 10);
   const rawPageSize = Number.parseInt(searchParams.get('pageSize') || '48', 10);
   const page = Number.isFinite(rawPage) ? Math.min(Math.max(rawPage, 1), 1000) : 1;
@@ -30,6 +32,10 @@ export async function GET(req: NextRequest) {
       : 'popular';
 
   try {
+    const isAdminFresh =
+      wantFresh &&
+      Boolean(await verifyAdminBearerToken(req.headers.get('authorization')));
+
     const data = await fetchCodesDirectory({
       q,
       status,
@@ -41,7 +47,9 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(data, {
       status: 200,
       headers: {
-        'Cache-Control': 'public, s-maxage=900, stale-while-revalidate=1800',
+        'Cache-Control': isAdminFresh
+          ? 'no-store'
+          : 'public, s-maxage=900, stale-while-revalidate=1800',
       },
     });
   } catch (error) {

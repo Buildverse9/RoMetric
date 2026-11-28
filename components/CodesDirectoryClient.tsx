@@ -1,15 +1,19 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { motion } from 'motion/react';
 import {
   ArrowRight,
+  CheckCircle2,
   ChevronLeft,
   ChevronRight,
   Clock,
   Database,
+  Plus,
   Search,
+  ShieldCheck,
   Ticket,
   Users,
 } from 'lucide-react';
@@ -23,6 +27,12 @@ import type {
   CodeSourceRecord,
   GameCodeDirectoryItem,
 } from '@/lib/codes-types';
+import { useApp } from './AppProvider';
+import {
+  AdminAddCodeModal,
+  type AdminCodeAddedPayload,
+  type AdminCodeTargetGame,
+} from './AdminAddCodeModal';
 import { GameArtwork } from './GameArtwork';
 import {
   APPLE_EASE,
@@ -77,6 +87,10 @@ export function CodesDirectoryClient({
 }: {
   initialData: CodesDirectoryResponse;
 }) {
+  const router = useRouter();
+  const { user, isAdmin } = useApp();
+  const canAdminManage = Boolean(isAdmin && user);
+
   const [data, setData] = useState<CodesDirectoryResponse>(initialData);
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
@@ -88,6 +102,15 @@ export function CodesDirectoryClient({
   >('popular');
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
+
+  const [addModalOpen, setAddModalOpen] = useState(false);
+  const [modalTargetGame, setModalTargetGame] =
+    useState<AdminCodeTargetGame | null>(null);
+  const [adminRefreshTick, setAdminRefreshTick] = useState(0);
+  const [adminBanner, setAdminBanner] = useState<{
+    text: string;
+    gameSlug?: string;
+  } | null>(null);
 
   useEffect(() => {
     const t = window.setTimeout(() => {
@@ -102,6 +125,7 @@ export function CodesDirectoryClient({
     statusFilter === 'all' &&
     sortBy === 'popular' &&
     page === 1 &&
+    adminRefreshTick === 0 &&
     initialData.schemaReady;
 
   useEffect(() => {
@@ -120,8 +144,16 @@ export function CodesDirectoryClient({
         params.set('sort', sortBy);
         params.set('page', String(page));
         params.set('pageSize', '48');
+        const headers: Record<string, string> = {};
+        if (adminRefreshTick > 0 && user && isAdmin) {
+          params.set('fresh', '1');
+          const token = await user.getIdToken();
+          if (token) headers.Authorization = `Bearer ${token}`;
+        }
         const res = await fetch(`/api/codes?${params.toString()}`, {
           signal: controller.signal,
+          headers,
+          cache: adminRefreshTick > 0 ? 'no-store' : 'default',
         });
         if (res.ok && !controller.signal.aborted) {
           const json = (await res.json()) as CodesDirectoryResponse;
@@ -137,7 +169,28 @@ export function CodesDirectoryClient({
     }
     void syncDirectory();
     return () => controller.abort();
-  }, [debouncedQuery, statusFilter, sortBy, page, isDefaultView]);
+  }, [
+    debouncedQuery,
+    statusFilter,
+    sortBy,
+    page,
+    isDefaultView,
+    adminRefreshTick,
+    user,
+    isAdmin,
+  ]);
+
+  const handleCodeAdded = useCallback(
+    (result: AdminCodeAddedPayload) => {
+      setAdminBanner({
+        text: result.message || 'New code added successfully.',
+        gameSlug: result.gameSlug,
+      });
+      setAdminRefreshTick((n) => n + 1);
+      router.refresh();
+    },
+    [router]
+  );
 
   const activeData = isDefaultView ? initialData : data;
   const { stats, games, schemaReady, configured, pagination } = activeData;
@@ -190,7 +243,7 @@ export function CodesDirectoryClient({
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-6 shrink-0 text-xs tabular-nums">
+        <div className="flex flex-wrap items-center gap-5 shrink-0 text-xs tabular-nums">
           <div>
             <p className="text-slate-500 dark:text-[#6F8796]">Active Codes</p>
             <p className="font-display text-xl font-bold text-emerald-600 dark:text-[#10E89A]">
@@ -209,8 +262,51 @@ export function CodesDirectoryClient({
               {formatExactNumber(stats.totalCodes)}
             </p>
           </div>
+
+          {canAdminManage && (
+            <motion.button
+              type="button"
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.96 }}
+              transition={APPLE_SPRING}
+              onClick={() => {
+                setModalTargetGame(null);
+                setAddModalOpen(true);
+              }}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full text-xs font-semibold bg-emerald-600 dark:bg-[#10E89A] text-white dark:text-[#04130D] hover:opacity-90 transition-opacity shadow-sm cursor-pointer whitespace-nowrap"
+            >
+              <ShieldCheck className="w-3.5 h-3.5" />
+              <Plus className="w-3.5 h-3.5 -ml-1" />
+              <span>Add New Code</span>
+            </motion.button>
+          )}
         </div>
       </motion.section>
+
+      {/* Admin Feedback Banner */}
+      {canAdminManage && adminBanner && (
+        <div className="liquid-glass rounded-2xl px-4 py-3 border-emerald-500/40 text-xs flex flex-wrap items-center justify-between gap-3 text-slate-900 dark:text-[#F1F7FA]">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-[#10E89A] shrink-0" />
+            <span>{adminBanner.text}</span>
+            {adminBanner.gameSlug && (
+              <Link
+                href={`/codes/${encodeURIComponent(adminBanner.gameSlug)}`}
+                className="font-semibold text-emerald-700 dark:text-[#10E89A] underline underline-offset-2 hover:opacity-80"
+              >
+                Open Game Page
+              </Link>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => setAdminBanner(null)}
+            className="text-slate-500 hover:text-slate-900 dark:hover:text-white cursor-pointer"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {/* Schema Setup Notice (if Supabase SQL migration hasn't been executed yet) */}
       {configured && !schemaReady && (
@@ -474,21 +570,45 @@ export function CodesDirectoryClient({
                           </span>
                         )}
 
-                        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-600 dark:text-[#9CB3C0] group-hover:text-emerald-600 dark:group-hover:text-[#10E89A] transition-colors shrink-0">
-                          {g.latestCodeUpdatedAt ? (
-                            <>
-                              <Clock className="w-3 h-3" />
-                              <span>
-                                {formatRelativeTime(g.latestCodeUpdatedAt)}
-                              </span>
-                            </>
-                          ) : (
-                            <>
-                              <span>View</span>
-                              <ArrowRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
-                            </>
+                        <div className="flex items-center gap-2 shrink-0">
+                          {canAdminManage && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                setModalTargetGame({
+                                  universeId: g.universeId,
+                                  name: g.name,
+                                  slug: g.slug,
+                                  iconUrl: g.iconUrl,
+                                });
+                                setAddModalOpen(true);
+                              }}
+                              title={`Add code to ${displayName}`}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-500/15 text-emerald-700 dark:text-[#10E89A] hover:bg-emerald-500/25 transition-colors cursor-pointer"
+                            >
+                              <Plus className="w-3 h-3" />
+                              <span>Add</span>
+                            </button>
                           )}
-                        </span>
+
+                          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-600 dark:text-[#9CB3C0] group-hover:text-emerald-600 dark:group-hover:text-[#10E89A] transition-colors shrink-0">
+                            {g.latestCodeUpdatedAt ? (
+                              <>
+                                <Clock className="w-3 h-3" />
+                                <span>
+                                  {formatRelativeTime(g.latestCodeUpdatedAt)}
+                                </span>
+                              </>
+                            ) : (
+                              <>
+                                <span>View</span>
+                                <ArrowRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
+                              </>
+                            )}
+                          </span>
+                        </div>
                       </div>
                     </LiquidGlassCard>
                   </Link>
@@ -530,6 +650,24 @@ export function CodesDirectoryClient({
           </div>
         )}
       </FadeInSection>
+
+      {canAdminManage && (
+        <AdminAddCodeModal
+          open={addModalOpen}
+          onClose={() => {
+            setAddModalOpen(false);
+            setModalTargetGame(null);
+          }}
+          targetGame={modalTargetGame}
+          directoryGames={games.map((g) => ({
+            universeId: g.universeId,
+            name: g.name,
+            slug: g.slug,
+            iconUrl: g.iconUrl,
+          }))}
+          onCodeAdded={handleCodeAdded}
+        />
+      )}
     </div>
   );
 }
